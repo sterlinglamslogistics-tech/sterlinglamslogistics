@@ -1,0 +1,34 @@
+type OrderEvent = "order_accepted" | "out_for_delivery" | "delivered"
+
+interface OrderNotificationPayload {
+  orderId: string
+  orderNumber: string
+  customerName: string
+  customerPhone: string
+  customerEmail?: string | null
+}
+
+export async function notifyOrderEvent(event: OrderEvent, payload: OrderNotificationPayload) {
+  try {
+    const trackingBase = typeof window !== "undefined" ? window.location.origin : ""
+    const trackingUrl = trackingBase
+      ? `${trackingBase}/track/${encodeURIComponent(payload.orderNumber)}`
+      : undefined
+
+    await fetch("/api/notifications/order-event", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        event,
+        payload: {
+          ...payload,
+          trackingUrl,
+        },
+      }),
+    })
+  } catch (error) {
+    console.error("Failed to trigger order notification:", error)
+  }
+}
