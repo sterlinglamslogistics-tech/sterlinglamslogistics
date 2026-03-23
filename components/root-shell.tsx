@@ -14,14 +14,15 @@ export function RootShell({ children }: { children: React.ReactNode }) {
   const isDriverRoute = pathname.startsWith("/driver")
   const isPublicTrackingRoute = pathname.startsWith("/track/")
   const isLoginRoute = pathname === "/login"
+  const isLandingRoute = pathname === "/landing"
 
   // These routes don't need admin auth
-  const isPublicRoute = isDriverRoute || isPublicTrackingRoute || isLoginRoute
+  const isPublicRoute = isDriverRoute || isPublicTrackingRoute || isLoginRoute || isLandingRoute
 
   useEffect(() => {
     if (loading) return
     if (!isPublicRoute && !user) {
-      router.replace("/login")
+      router.replace("/landing")
     }
     if (isLoginRoute && user) {
       router.replace("/")
@@ -29,7 +30,7 @@ export function RootShell({ children }: { children: React.ReactNode }) {
   }, [loading, user, isPublicRoute, isLoginRoute, router])
 
   // Public routes: render immediately without auth check
-  if (isDriverRoute || isPublicTrackingRoute) {
+  if (isDriverRoute || isPublicTrackingRoute || isLandingRoute) {
     return <>{children}</>
   }
 

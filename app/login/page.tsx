@@ -47,7 +47,7 @@ export default function AdminLoginPage() {
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
             <Shield className="h-7 w-7 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold">Sterlin Glams</h1>
+          <h1 className="text-2xl font-bold">Sterling Lams Logistics</h1>
           <p className="text-sm text-muted-foreground">Admin Portal</p>
         </div>
 

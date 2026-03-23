@@ -11,8 +11,8 @@ const _inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const _spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" });
 
 export const metadata: Metadata = {
-  title: 'Sterlin Glams Delivery System',
-  description: 'Logistics and delivery management dashboard for Sterlin Glams',
+  title: 'Sterling Lams Logistics — Fast & Reliable Delivery',
+  description: 'Official delivery and logistics service by Sterling Lams. Real-time tracking, same-day dispatch, and reliable courier services.',
   generator: 'v0.app',
   icons: {
     icon: [
