@@ -54,13 +54,15 @@ export async function POST(req: Request) {
 
     // Load customer notification settings from Firestore
     let settings: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
-    try {
-      const settingsSnap = await getDoc(doc(db, "settings", "customerNotification"))
-      if (settingsSnap.exists()) {
-        settings = { ...DEFAULT_NOTIFICATION_SETTINGS, ...settingsSnap.data() } as NotificationSettings
+    if (db) {
+      try {
+        const settingsSnap = await getDoc(doc(db, "settings", "customerNotification"))
+        if (settingsSnap.exists()) {
+          settings = { ...DEFAULT_NOTIFICATION_SETTINGS, ...settingsSnap.data() } as NotificationSettings
+        }
+      } catch (err) {
+        console.warn("Could not load notification settings, using defaults:", err)
       }
-    } catch (err) {
-      console.warn("Could not load notification settings, using defaults:", err)
     }
 
     const result = await sendOrderEventNotifications(body.event, body.payload, settings)
