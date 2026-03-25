@@ -84,6 +84,79 @@ function buildMessage(event: OrderEvent, payload: NotificationPayload) {
   return `Hi ${payload.customerName}, your order ${payload.orderNumber} has been delivered. Thank you for choosing us.`
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function getLogoUrl(payload: NotificationPayload) {
+  if (payload.trackingUrl) {
+    try {
+      const url = new URL(payload.trackingUrl)
+      return `${url.origin}/placeholder-logo.png`
+    } catch {
+      // Ignore invalid tracking URL and fall back to production domain.
+    }
+  }
+
+  return "https://sterlinglamslogistics.com/placeholder-logo.png"
+}
+
+function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
+  const customerName = escapeHtml(payload.customerName?.trim() || "Glam Star")
+  const orderNumber = escapeHtml(payload.orderNumber)
+  const trackingUrl = payload.trackingUrl ? escapeHtml(payload.trackingUrl) : ""
+  const logoUrl = escapeHtml(getLogoUrl(payload))
+
+  if (event === "out_for_delivery") {
+    return `
+      <div style="margin:0;background-color:#f7f4f5;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#1f1f1f;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #f0d6e2;">
+          <tr>
+            <td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(180deg,#fff7fb 0%,#ffffff 100%);">
+              <img src="${logoUrl}" alt="Sterlin Glams Logistics" width="124" height="124" style="display:block;margin:0 auto 16px;max-width:124px;height:auto;" />
+              <div style="font-size:24px;line-height:32px;font-weight:700;color:#c21874;">Your Order Is On The Way</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Hello ${customerName},</p>
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Thank you for shopping with Sterlin Glams. We&rsquo;re happy to let you know that your order <strong>${orderNumber}</strong> is now out for delivery.</p>
+              <p style="margin:0 0 24px;font-size:16px;line-height:26px;">You may track your order using the link below for real-time updates.</p>
+              ${trackingUrl ? `<div style="margin:0 0 28px;"><a href="${trackingUrl}" style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 22px;border-radius:999px;">Track Your Order</a></div>` : ""}
+              ${trackingUrl ? `<p style="margin:0 0 24px;font-size:13px;line-height:22px;color:#6b7280;word-break:break-word;">If the button does not work, copy and paste this link into your browser:<br />${trackingUrl}</p>` : ""}
+              <p style="margin:0 0 12px;font-size:16px;line-height:26px;">Thank you for choosing Sterlin Glams.</p>
+              <p style="margin:0;font-size:16px;line-height:26px;">Warm regards,<br /><strong>Sterlin Glams Logistics</strong></p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `
+  }
+
+  const fallbackMessage = escapeHtml(buildMessage(event, payload)).replaceAll("\n", "<br />")
+
+  return `
+    <div style="margin:0;background-color:#f7f4f5;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#1f1f1f;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #f0d6e2;">
+        <tr>
+          <td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(180deg,#fff7fb 0%,#ffffff 100%);">
+            <img src="${logoUrl}" alt="Sterlin Glams Logistics" width="124" height="124" style="display:block;margin:0 auto 16px;max-width:124px;height:auto;" />
+            <div style="font-size:22px;line-height:30px;font-weight:700;color:#c21874;">Sterlin Glams Logistics</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 32px 32px;font-size:16px;line-height:26px;">${fallbackMessage}</td>
+        </tr>
+      </table>
+    </div>
+  `
+}
+
 async function sendTwilioMessage(
   channel: "sms" | "whatsapp",
   to: string,
@@ -127,13 +200,21 @@ async function sendTwilioMessage(
   return { sent: true }
 }
 
-async function sendEmailNotification(to: string, subject: string, body: string) {
+async function sendEmailNotification(
+  to: string,
+  subject: string,
+  body: string,
+  event: OrderEvent,
+  payload: NotificationPayload,
+) {
   const apiKey = process.env.RESEND_API_KEY
   const from = process.env.NOTIFY_FROM_EMAIL
 
   if (!apiKey || !from) {
     return { sent: false, reason: "missing_resend_config" }
   }
+
+  const html = buildEmailTemplate(event, payload)
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -146,6 +227,7 @@ async function sendEmailNotification(to: string, subject: string, body: string) 
       to,
       subject,
       text: body,
+      html,
     }),
   })
 
@@ -202,7 +284,7 @@ export async function sendOrderEventNotifications(
       ? sendTwilioMessage("whatsapp", payload.customerPhone, body)
       : Promise.resolve({ sent: false, reason: "disabled_by_settings" }),
     doEmail && payload.customerEmail
-      ? sendEmailNotification(payload.customerEmail, subject, body)
+      ? sendEmailNotification(payload.customerEmail, subject, body, event, payload)
       : Promise.resolve({ sent: false, reason: doEmail ? "no_customer_email" : "disabled_by_settings" }),
   ])
 
