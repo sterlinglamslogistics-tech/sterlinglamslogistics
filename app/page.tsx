@@ -20,9 +20,9 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-white text-[hsl(0,0%,12%)]">
       {/* Navigation */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
+      <header className="sticky top-0 z-50 border-b border-[hsl(330,8%,90%)] bg-white/95 backdrop-blur">
         <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 lg:px-8">
           <Link href="/">
             <Image
@@ -38,46 +38,46 @@ export default function LandingPage() {
               href="https://sterlinglams.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:flex"
+              className="hidden items-center gap-1.5 text-sm font-medium text-[hsl(0,0%,45%)] transition-colors hover:text-[hsl(330,82%,52%)] sm:flex"
             >
               Shop Sterlinglams
               <ExternalLink className="size-3.5" />
             </a>
             <Link href="/login">
-              <Button size="sm">Sign In</Button>
+              <Button size="sm" className="bg-[hsl(330,82%,52%)] text-white hover:bg-[hsl(330,82%,45%)]">Sign In</Button>
             </Link>
           </div>
         </div>
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/10" />
+      <section className="relative overflow-hidden bg-[hsl(330,30%,97%)]">
+        <div className="absolute inset-0 bg-gradient-to-br from-[hsl(330,82%,52%)]/5 via-transparent to-[hsl(330,82%,52%)]/10" />
         <div className="relative mx-auto max-w-7xl px-4 py-20 lg:px-8 lg:py-28">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="mb-4 text-sm font-medium uppercase tracking-widest text-primary">
+            <p className="mb-4 text-sm font-medium uppercase tracking-widest text-[hsl(330,82%,52%)]">
               Official Delivery Partner of{" "}
               <a
                 href="https://sterlinglams.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="underline underline-offset-2 hover:text-primary/80"
+                className="underline underline-offset-2 hover:text-[hsl(330,82%,45%)]"
               >
                 Sterlinglams.com
               </a>
             </p>
-            <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl">
+            <h1 className="text-4xl font-extrabold tracking-tight text-[hsl(0,0%,8%)] sm:text-5xl lg:text-6xl">
               Your Order,{" "}
-              <span className="text-primary">Delivered with Care</span>
+              <span className="text-[hsl(330,82%,52%)]">Delivered with Care</span>
             </h1>
-            <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-[hsl(0,0%,40%)]">
               We handle every Sterlinglams order — from jewellery to accessories —
               with real-time tracking, same-day dispatch, and secure packaging so
               your items arrive safely and on time.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link href="/login">
-                <Button size="lg" className="gap-2 px-8">
+                <Button size="lg" className="gap-2 bg-[hsl(330,82%,52%)] px-8 text-white hover:bg-[hsl(330,82%,45%)]">
                   <Package className="size-5" />
                   Manage Deliveries
                 </Button>
@@ -87,7 +87,7 @@ export default function LandingPage() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Button variant="outline" size="lg" className="gap-2 px-8">
+                <Button variant="outline" size="lg" className="gap-2 border-[hsl(330,82%,52%)] px-8 text-[hsl(330,82%,52%)] hover:bg-[hsl(330,82%,52%)]/10">
                   Visit Sterlinglams Store
                   <ExternalLink className="size-4" />
                 </Button>
@@ -98,10 +98,10 @@ export default function LandingPage() {
       </section>
 
       {/* Track Section */}
-      <section className="border-t border-border bg-secondary/30 py-16">
+      <section className="border-t border-[hsl(330,8%,90%)] bg-white py-16">
         <div className="mx-auto max-w-2xl px-4 text-center lg:px-8">
-          <h2 className="text-2xl font-bold tracking-tight">Track Your Order</h2>
-          <p className="mt-2 text-muted-foreground">
+          <h2 className="text-2xl font-bold tracking-tight text-[hsl(0,0%,8%)]">Track Your Order</h2>
+          <p className="mt-2 text-[hsl(0,0%,45%)]">
             Enter your tracking number to see live delivery status
           </p>
           <form
@@ -109,16 +109,16 @@ export default function LandingPage() {
             className="mt-6 flex flex-col gap-3 sm:flex-row"
           >
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[hsl(0,0%,55%)]" />
               <input
                 type="text"
                 placeholder="Enter tracking ID"
                 value={trackingId}
                 onChange={(e) => setTrackingId(e.target.value)}
-                className="h-11 w-full rounded-lg border border-input bg-background pl-10 pr-4 text-sm outline-none ring-ring transition-shadow focus:ring-2"
+                className="h-11 w-full rounded-lg border border-[hsl(330,8%,90%)] bg-white pl-10 pr-4 text-sm outline-none transition-shadow focus:ring-2 focus:ring-[hsl(330,82%,52%)]"
               />
             </div>
-            <Button type="submit" size="lg" className="gap-2">
+            <Button type="submit" size="lg" className="gap-2 bg-[hsl(330,82%,52%)] text-white hover:bg-[hsl(330,82%,45%)]">
               Track
               <ArrowRight className="size-4" />
             </Button>
@@ -127,11 +127,11 @@ export default function LandingPage() {
       </section>
 
       {/* How It Works */}
-      <section className="py-20">
+      <section className="bg-[hsl(330,30%,97%)] py-20">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold tracking-tight">How It Works</h2>
-            <p className="mt-3 text-muted-foreground">
+            <h2 className="text-3xl font-bold tracking-tight text-[hsl(0,0%,8%)]">How It Works</h2>
+            <p className="mt-3 text-[hsl(0,0%,45%)]">
               From checkout on Sterlinglams to your doorstep
             </p>
           </div>
@@ -157,11 +157,11 @@ export default function LandingPage() {
               },
             ].map((item) => (
               <div key={item.step} className="text-center">
-                <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
+                <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[hsl(330,82%,52%)] text-xl font-bold text-white">
                   {item.step}
                 </div>
-                <h3 className="mb-2 text-lg font-semibold">{item.title}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">
+                <h3 className="mb-2 text-lg font-semibold text-[hsl(0,0%,10%)]">{item.title}</h3>
+                <p className="text-sm leading-relaxed text-[hsl(0,0%,45%)]">
                   {item.description}
                 </p>
               </div>
@@ -171,11 +171,11 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="border-t border-border bg-secondary/30 py-20">
+      <section className="border-t border-[hsl(330,8%,90%)] bg-white py-20">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold tracking-tight">Why We&apos;re Trusted</h2>
-            <p className="mt-3 text-muted-foreground">
+            <h2 className="text-3xl font-bold tracking-tight text-[hsl(0,0%,8%)]">Why We&apos;re Trusted</h2>
+            <p className="mt-3 text-[hsl(0,0%,45%)]">
               Built exclusively for Sterlinglams customers
             </p>
           </div>
@@ -204,13 +204,13 @@ export default function LandingPage() {
             ].map((feature) => (
               <div
                 key={feature.title}
-                className="rounded-xl border border-border bg-background p-6 text-center transition-shadow hover:shadow-md"
+                className="rounded-xl border border-[hsl(330,8%,90%)] bg-white p-6 text-center transition-shadow hover:shadow-lg hover:shadow-[hsl(330,82%,52%)]/10"
               >
-                <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-lg bg-primary/10">
-                  <feature.icon className="size-6 text-primary" />
+                <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-lg bg-[hsl(330,82%,52%)]/10">
+                  <feature.icon className="size-6 text-[hsl(330,82%,52%)]" />
                 </div>
-                <h3 className="mb-2 font-semibold">{feature.title}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">
+                <h3 className="mb-2 font-semibold text-[hsl(0,0%,10%)]">{feature.title}</h3>
+                <p className="text-sm leading-relaxed text-[hsl(0,0%,45%)]">
                   {feature.description}
                 </p>
               </div>
@@ -222,9 +222,9 @@ export default function LandingPage() {
       {/* CTA */}
       <section className="py-20">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
-          <div className="rounded-2xl bg-primary px-8 py-16 text-center text-primary-foreground">
+          <div className="rounded-2xl bg-[hsl(0,0%,8%)] px-8 py-16 text-center text-white">
             <h2 className="text-3xl font-bold">Shop Sterlinglams Today</h2>
-            <p className="mx-auto mt-4 max-w-xl text-primary-foreground/80">
+            <p className="mx-auto mt-4 max-w-xl text-white/70">
               Browse the full collection of jewellery, watches, and accessories.
               We&apos;ll take care of the delivery.
             </p>
@@ -234,13 +234,13 @@ export default function LandingPage() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Button size="lg" variant="secondary" className="gap-2 px-8">
+                <Button size="lg" className="gap-2 bg-[hsl(330,82%,52%)] px-8 text-white hover:bg-[hsl(330,82%,45%)]">
                   Visit Sterlinglams.com
                   <ExternalLink className="size-4" />
                 </Button>
               </a>
               <Link href="/login">
-                <Button size="lg" variant="outline" className="gap-2 border-primary-foreground/30 px-8 text-primary-foreground hover:bg-primary-foreground/10">
+                <Button size="lg" variant="outline" className="gap-2 border-white/30 px-8 text-white hover:bg-white/10">
                   Admin Login
                 </Button>
               </Link>
@@ -250,7 +250,7 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border bg-secondary/30 py-12">
+      <footer className="border-t border-[hsl(330,8%,90%)] bg-[hsl(330,30%,97%)] py-12">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
           <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
             <div className="flex items-center gap-3">
@@ -262,18 +262,18 @@ export default function LandingPage() {
                 className="rounded-lg"
               />
               <div className="flex flex-col">
-                <span className="text-sm font-semibold">Delivery by Sterlinglams</span>
+                <span className="text-sm font-semibold text-[hsl(0,0%,10%)]">Delivery by Sterlinglams</span>
                 <a
                   href="https://sterlinglams.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs text-muted-foreground hover:text-foreground"
+                  className="text-xs text-[hsl(0,0%,45%)] hover:text-[hsl(330,82%,52%)]"
                 >
                   sterlinglams.com
                 </a>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-[hsl(0,0%,45%)]">
               &copy; {new Date().getFullYear()} Sterlinglams. All rights reserved.
             </p>
           </div>
