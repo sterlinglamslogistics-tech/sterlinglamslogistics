@@ -1,4 +1,7 @@
 {
+    "css.validate": false,
+    "scss.validate": false,
+    "less.validate": false,
     "java.configuration.updateBuildConfiguration": "automatic",
     "java.import.gradle.wrapper.enabled": true,
     "java.import.gradle.java.home": "C:\\Program Files\\Android\\Android Studio\\jbr",
