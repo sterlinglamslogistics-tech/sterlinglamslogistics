@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -15,10 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Save, Building2, Paintbrush, Megaphone, Settings2, Truck, Users, Bell, Route, MapPin, Loader2 } from "lucide-react"
+import { Save, Building2, Paintbrush, Megaphone, Settings2, Truck, Users, Bell, Route, MapPin, Loader2, Pencil, Store, Package } from "lucide-react"
 import { doc, getDoc, setDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { toast } from "@/hooks/use-toast"
+import Image from "next/image"
 
 /* ─── Settings sub-nav items ───── */
 const settingsNav = [
@@ -54,10 +55,35 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
 }
 
 const SETTINGS_DOC = "customerNotification"
+const BUSINESS_SETTINGS_DOC = "businessSettings"
+
+/* ─── Business settings shape ───── */
+interface BusinessSettings {
+  businessName: string
+  businessLogoUrl: string
+  businessType: "merchant" | "delivery_company"
+  merchantPhone: string
+  merchantAddress: string
+}
+
+const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
+  businessName: "Sterlinglams",
+  businessLogoUrl: "/placeholder-logo.png",
+  businessType: "merchant",
+  merchantPhone: "+234 9160009893",
+  merchantAddress: "Sterlinglams – Ikota Ajah Lagos",
+}
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("notification")
-  const [saved, setSaved] = useState(false)
+  const [activeTab, setActiveTab] = useState("business")
+
+  /* ─── Business state ───── */
+  const [biz, setBiz] = useState<BusinessSettings>(DEFAULT_BUSINESS_SETTINGS)
+  const [bizLoading, setBizLoading] = useState(true)
+  const [bizSaving, setBizSaving] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [editingLogo, setEditingLogo] = useState(false)
+  const logoInputRef = useRef<HTMLInputElement>(null)
 
   /* ─── Notification state ───── */
   const [notif, setNotif] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS)
@@ -81,6 +107,59 @@ export default function SettingsPage() {
     load()
   }, [])
 
+  // Load business settings from Firestore
+  useEffect(() => {
+    async function load() {
+      try {
+        const snap = await getDoc(doc(db, "settings", BUSINESS_SETTINGS_DOC))
+        if (snap.exists()) {
+          setBiz({ ...DEFAULT_BUSINESS_SETTINGS, ...snap.data() } as BusinessSettings)
+        }
+      } catch (err) {
+        console.error("Failed to load business settings:", err)
+      } finally {
+        setBizLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  // Save business settings
+  async function saveBusinessSettings() {
+    setBizSaving(true)
+    try {
+      await setDoc(doc(db, "settings", BUSINESS_SETTINGS_DOC), biz)
+      toast({ title: "Saved", description: "Business settings updated." })
+      setEditingName(false)
+    } catch (err) {
+      console.error("Failed to save business settings:", err)
+      toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" })
+    } finally {
+      setBizSaving(false)
+    }
+  }
+
+  function updateBiz<K extends keyof BusinessSettings>(key: K, value: BusinessSettings[K]) {
+    setBiz((prev) => ({ ...prev, [key]: value }))
+  }
+
+  // Handle logo file → convert to data URL and save
+  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "Error", description: "Logo must be under 2MB.", variant: "destructive" })
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result as string
+      updateBiz("businessLogoUrl", dataUrl)
+      setEditingLogo(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
   // Save notification settings to Firestore
   async function saveNotificationSettings() {
     setNotifSaving(true)
@@ -97,13 +176,6 @@ export default function SettingsPage() {
 
   function updateNotif<K extends keyof NotificationSettings>(key: K, value: NotificationSettings[K]) {
     setNotif((prev) => ({ ...prev, [key]: value }))
-  }
-
-  /* ─── Business settings save (existing) ───── */
-  function handleBusinessSave(e: React.FormEvent) {
-    e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
   }
 
   return (
@@ -148,68 +220,161 @@ export default function SettingsPage() {
 
           {/* ══════ Business settings ══════ */}
           {activeTab === "business" && (
-            <form onSubmit={handleBusinessSave} className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Business Information</CardTitle>
-                  <CardDescription>Update your company details</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="company-name">Company Name</Label>
-                      <Input id="company-name" defaultValue="Sterlinglams Logistics" />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="email">Business Email</Label>
-                      <Input id="email" type="email" defaultValue="info@sterlinglams.com" />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="phone">Phone Number</Label>
-                      <Input id="phone" type="tel" defaultValue="+234 800 123 4567" />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="address">Business Address</Label>
-                      <Textarea id="address" defaultValue="15 Broad Street, Lagos Island, Lagos, Nigeria" rows={3} />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="space-y-8 max-w-2xl">
+              <h2 className="text-xl font-semibold">Business settings</h2>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Operations Settings</CardTitle>
-                  <CardDescription>Configure delivery operations</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="currency">Default Currency</Label>
-                      <Input id="currency" defaultValue="NGN (Nigerian Naira)" />
+              {bizLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  {/* — Business details — */}
+                  <section className="space-y-6">
+                    <div>
+                      <h3 className="text-base font-semibold">Business details</h3>
+                      <p className="text-sm text-muted-foreground">Set your business details</p>
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="timezone">Timezone</Label>
-                      <Input id="timezone" defaultValue="Africa/Lagos (WAT)" />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="dispatch-limit">Max Orders per Driver</Label>
-                      <Input id="dispatch-limit" type="number" defaultValue="5" />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="notification-email">Notification Email</Label>
-                      <Input id="notification-email" type="email" defaultValue="dispatch@sterlinglams.com" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
 
-              <div className="lg:col-span-2">
-                <Button type="submit" className="w-full sm:w-auto">
-                  <Save className="mr-2 size-4" />
-                  {saved ? "Saved!" : "Save Settings"}
-                </Button>
-              </div>
-            </form>
+                    {/* Business name */}
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Business name</p>
+                        {editingName ? (
+                          <Input
+                            value={biz.businessName}
+                            onChange={(e) => updateBiz("businessName", e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") setEditingName(false) }}
+                            className="max-w-xs"
+                            autoFocus
+                          />
+                        ) : (
+                          <p className="text-base">{biz.businessName}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setEditingName(!editingName)}
+                        className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Edit business name"
+                      >
+                        <Pencil className="size-4" />
+                      </button>
+                    </div>
+
+                    {/* Business logo */}
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-muted-foreground">Business logo</p>
+                        <div className="relative size-16 rounded-lg border border-border overflow-hidden bg-muted">
+                          <Image
+                            src={biz.businessLogoUrl}
+                            alt="Business logo"
+                            fill
+                            className="object-contain"
+                          />
+                        </div>
+                        <input
+                          ref={logoInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleLogoChange}
+                        />
+                      </div>
+                      <button
+                        onClick={() => logoInputRef.current?.click()}
+                        className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Edit business logo"
+                      >
+                        <Pencil className="size-4" />
+                      </button>
+                    </div>
+                  </section>
+
+                  <hr className="border-border" />
+
+                  {/* — Business type details — */}
+                  <section className="space-y-6">
+                    <div>
+                      <h3 className="text-base font-semibold">Business type details</h3>
+                      <p className="text-sm text-muted-foreground">Set your business type details</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Business type</p>
+                      <p className="text-sm text-muted-foreground">
+                        If you are a delivery only business like Pizza shop where pick up is always from
+                        the same place, please choose the business type delivery only. Otherwise keep it
+                        pick up and delivery.
+                      </p>
+                      <div className="flex gap-3 pt-2">
+                        <button
+                          onClick={() => updateBiz("businessType", "merchant")}
+                          className={cn(
+                            "flex flex-col items-center gap-2 rounded-lg border-2 px-6 py-4 text-sm font-medium transition-colors",
+                            biz.businessType === "merchant"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border text-muted-foreground hover:border-muted-foreground"
+                          )}
+                        >
+                          <Store className="size-6" />
+                          Merchant
+                        </button>
+                        <button
+                          onClick={() => updateBiz("businessType", "delivery_company")}
+                          className={cn(
+                            "flex flex-col items-center gap-2 rounded-lg border-2 px-6 py-4 text-sm font-medium transition-colors",
+                            biz.businessType === "delivery_company"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-border text-muted-foreground hover:border-muted-foreground"
+                          )}
+                        >
+                          <Package className="size-6" />
+                          Delivery company
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Merchant phone */}
+                    <div className="space-y-2">
+                      <Label htmlFor="merchant-phone">Merchant phone number</Label>
+                      <Input
+                        id="merchant-phone"
+                        type="tel"
+                        value={biz.merchantPhone}
+                        onChange={(e) => updateBiz("merchantPhone", e.target.value)}
+                        className="max-w-sm"
+                        placeholder="+234 9160009893"
+                      />
+                    </div>
+
+                    {/* Merchant store address */}
+                    <div className="space-y-2">
+                      <Label htmlFor="merchant-address">Merchant store address</Label>
+                      <Input
+                        id="merchant-address"
+                        value={biz.merchantAddress}
+                        onChange={(e) => updateBiz("merchantAddress", e.target.value)}
+                        className="max-w-sm"
+                        placeholder="Your store address"
+                      />
+                    </div>
+                  </section>
+
+                  {/* Save button */}
+                  <div className="pt-4">
+                    <Button onClick={saveBusinessSettings} disabled={bizSaving} className="w-full sm:w-auto">
+                      {bizSaving ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 size-4" />
+                      )}
+                      {bizSaving ? "Saving..." : "Save Business Settings"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {/* ══════ Customer notification ══════ */}
