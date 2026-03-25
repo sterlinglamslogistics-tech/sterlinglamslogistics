@@ -56,6 +56,36 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
 
 const SETTINGS_DOC = "customerNotification"
 const BUSINESS_SETTINGS_DOC = "businessSettings"
+const DRIVER_SETTINGS_DOC = "driverSettings"
+
+/* ─── Driver settings shape ───── */
+interface DriverSettings {
+  dispatchOnlineOnly: boolean
+  autoAcceptOrders: boolean
+  showOrderPrice: boolean
+  showEarningInfo: boolean
+  showDriverPhone: boolean
+  showSensitiveCustomerDetails: boolean
+  itemCheckOnPickup: boolean
+  requireProofOfDelivery: boolean
+  requireProofOfPickup: boolean
+  requireIdScanning: boolean
+  driversCanReoptimizeRoute: boolean
+}
+
+const DEFAULT_DRIVER_SETTINGS: DriverSettings = {
+  dispatchOnlineOnly: false,
+  autoAcceptOrders: true,
+  showOrderPrice: true,
+  showEarningInfo: true,
+  showDriverPhone: true,
+  showSensitiveCustomerDetails: true,
+  itemCheckOnPickup: true,
+  requireProofOfDelivery: true,
+  requireProofOfPickup: false,
+  requireIdScanning: false,
+  driversCanReoptimizeRoute: true,
+}
 
 /* ─── Business settings shape ───── */
 interface BusinessSettings {
@@ -84,6 +114,11 @@ export default function SettingsPage() {
   const [editingName, setEditingName] = useState(false)
   const [editingLogo, setEditingLogo] = useState(false)
   const logoInputRef = useRef<HTMLInputElement>(null)
+
+  /* ─── Driver state ───── */
+  const [driver, setDriver] = useState<DriverSettings>(DEFAULT_DRIVER_SETTINGS)
+  const [driverLoading, setDriverLoading] = useState(true)
+  const [driverSaving, setDriverSaving] = useState(false)
 
   /* ─── Notification state ───── */
   const [notif, setNotif] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS)
@@ -158,6 +193,41 @@ export default function SettingsPage() {
       setEditingLogo(false)
     }
     reader.readAsDataURL(file)
+  }
+
+  // Load driver settings from Firestore
+  useEffect(() => {
+    async function load() {
+      try {
+        const snap = await getDoc(doc(db, "settings", DRIVER_SETTINGS_DOC))
+        if (snap.exists()) {
+          setDriver({ ...DEFAULT_DRIVER_SETTINGS, ...snap.data() } as DriverSettings)
+        }
+      } catch (err) {
+        console.error("Failed to load driver settings:", err)
+      } finally {
+        setDriverLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  // Save driver settings
+  async function saveDriverSettings() {
+    setDriverSaving(true)
+    try {
+      await setDoc(doc(db, "settings", DRIVER_SETTINGS_DOC), driver)
+      toast({ title: "Saved", description: "Driver settings updated." })
+    } catch (err) {
+      console.error("Failed to save driver settings:", err)
+      toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" })
+    } finally {
+      setDriverSaving(false)
+    }
+  }
+
+  function updateDriver<K extends keyof DriverSettings>(key: K, value: DriverSettings[K]) {
+    setDriver((prev) => ({ ...prev, [key]: value }))
   }
 
   // Save notification settings to Firestore
@@ -535,8 +605,226 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* ══════ Driver settings ══════ */}
+          {activeTab === "driver" && (
+            <div className="space-y-6 max-w-2xl">
+              <div>
+                <h2 className="text-xl font-semibold">Driver app</h2>
+                <p className="text-sm text-muted-foreground">Custom settings to manage drivers</p>
+              </div>
+
+              {driverLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-5">
+                    {/* Dispatch to online drivers only */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="dispatch-online"
+                        checked={driver.dispatchOnlineOnly}
+                        onCheckedChange={(v) => updateDriver("dispatchOnlineOnly", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="dispatch-online" className="font-semibold cursor-pointer">
+                          Dispatch to online drivers only
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          This is only show drivers active now on the driver page
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Auto-accept orders */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="auto-accept"
+                        checked={driver.autoAcceptOrders}
+                        onCheckedChange={(v) => updateDriver("autoAcceptOrders", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="auto-accept" className="font-semibold cursor-pointer">
+                          Drivers will always accept assigned orders (auto-accept)
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          No accept/reject option for the driver
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Show order item price */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="show-price"
+                        checked={driver.showOrderPrice}
+                        onCheckedChange={(v) => updateDriver("showOrderPrice", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="show-price" className="font-semibold cursor-pointer">
+                          Show order item price to driver/customer
+                        </Label>
+                      </div>
+                    </div>
+
+                    {/* Show earning info */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="show-earning"
+                        checked={driver.showEarningInfo}
+                        onCheckedChange={(v) => updateDriver("showEarningInfo", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="show-earning" className="font-semibold cursor-pointer">
+                          Show earning info to drivers before they accept the order
+                        </Label>
+                      </div>
+                    </div>
+
+                    {/* Show driver phone */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="show-driver-phone"
+                        checked={driver.showDriverPhone}
+                        onCheckedChange={(v) => updateDriver("showDriverPhone", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="show-driver-phone" className="font-semibold cursor-pointer">
+                          Show driver phone number to customers
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Customers will be able to call drivers directly
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Show sensitive customer details */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="sensitive-details"
+                        checked={driver.showSensitiveCustomerDetails}
+                        onCheckedChange={(v) => updateDriver("showSensitiveCustomerDetails", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="sensitive-details" className="font-semibold cursor-pointer">
+                          Show sensitive customer details (Customer name &amp; phone number) to the driver
+                        </Label>
+                      </div>
+                    </div>
+
+                    {/* Item check on pick-up */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="item-check"
+                        checked={driver.itemCheckOnPickup}
+                        onCheckedChange={(v) => updateDriver("itemCheckOnPickup", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="item-check" className="font-semibold cursor-pointer">
+                          Item check on pick-up
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Drivers have to confirm items on pick-up
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Require Proof of Delivery */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="proof-delivery"
+                        checked={driver.requireProofOfDelivery}
+                        onCheckedChange={(v) => updateDriver("requireProofOfDelivery", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="proof-delivery" className="font-semibold cursor-pointer">
+                          Require Proof of Delivery
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Drivers must take proof of delivery (Signature or Picture) to complete an order
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Require Proof of Pickup */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="proof-pickup"
+                        checked={driver.requireProofOfPickup}
+                        onCheckedChange={(v) => updateDriver("requireProofOfPickup", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="proof-pickup" className="font-semibold cursor-pointer">
+                          Require Proof of Pickup
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Drivers must take proof of pickup (Only Picture) to pick up an order
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Requires ID scanning */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="id-scanning"
+                        checked={driver.requireIdScanning}
+                        onCheckedChange={(v) => updateDriver("requireIdScanning", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="id-scanning" className="font-semibold cursor-pointer">
+                          Requires ID scanning
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Drivers must do id scanning
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Drivers can re-optimize route */}
+                    <div className="flex items-start gap-4">
+                      <Switch
+                        id="reoptimize-route"
+                        checked={driver.driversCanReoptimizeRoute}
+                        onCheckedChange={(v) => updateDriver("driversCanReoptimizeRoute", v)}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <Label htmlFor="reoptimize-route" className="font-semibold cursor-pointer">
+                          Drivers can re-optimize the route from their App
+                        </Label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Save button */}
+                  <div className="pt-4">
+                    <Button onClick={saveDriverSettings} disabled={driverSaving} className="w-full sm:w-auto">
+                      {driverSaving ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 size-4" />
+                      )}
+                      {driverSaving ? "Saving..." : "Save Driver Settings"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* ══════ Placeholder tabs ══════ */}
-          {!["business", "notification"].includes(activeTab) && (
+          {!["business", "notification", "driver"].includes(activeTab) && (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center">
                 <Settings2 className="size-10 text-muted-foreground/50 mb-3" />
