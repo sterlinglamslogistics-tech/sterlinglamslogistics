@@ -44,15 +44,13 @@ export default function AdminLoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-6">
-        <div className="flex flex-col items-center space-y-2 text-center">
+        <div className="flex flex-col items-center space-y-4 text-center">
           <Image
             src="/placeholder-logo.png"
             alt="Sterlinglams"
-            width={80}
-            height={80}
-            className="rounded-lg"
+            width={160}
+            height={160}
           />
-          <h1 className="text-2xl font-bold">Sterlinglams Logistics</h1>
           <p className="text-sm text-muted-foreground">Admin Portal</p>
         </div>
 
