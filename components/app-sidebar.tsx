@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard,
@@ -10,7 +11,6 @@ import {
   Route,
   BarChart3,
   Settings,
-  Truck,
   Menu,
   X,
   LogOut,
@@ -62,9 +62,13 @@ export function AppSidebar() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-sidebar-primary">
-            <Truck className="size-5 text-sidebar-primary-foreground" />
-          </div>
+          <Image
+            src="/placeholder-logo.png"
+            alt="Sterlinglams"
+            width={36}
+            height={36}
+            className="rounded-lg"
+          />
           <div className="flex flex-col">
             <span className="text-sm font-bold tracking-tight text-sidebar-foreground">
               Sterlinglams

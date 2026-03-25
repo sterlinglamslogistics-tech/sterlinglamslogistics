@@ -6,8 +6,9 @@ import { signInWithEmailAndPassword } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Loader2, Shield } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import Image from "next/image"
 
 export default function AdminLoginPage() {
   const router = useRouter()
@@ -44,9 +45,13 @@ export default function AdminLoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center space-y-2 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-            <Shield className="h-7 w-7 text-primary" />
-          </div>
+          <Image
+            src="/placeholder-logo.png"
+            alt="Sterlinglams"
+            width={80}
+            height={80}
+            className="rounded-lg"
+          />
           <h1 className="text-2xl font-bold">Sterlinglams Logistics</h1>
           <p className="text-sm text-muted-foreground">Admin Portal</p>
         </div>
