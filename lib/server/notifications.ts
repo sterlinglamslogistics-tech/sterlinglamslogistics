@@ -118,14 +118,8 @@ function getSiteOrigin(payload: NotificationPayload) {
   return "https://sterlinglamslogistics.com"
 }
 
-function buildRatingUrl(trackingUrl: string, rating: number) {
-  try {
-    const url = new URL(trackingUrl)
-    url.searchParams.set("rating", String(rating))
-    return url.toString()
-  } catch {
-    return trackingUrl
-  }
+function buildRatingUrl(siteOrigin: string, trackingToken: string, rating: number) {
+  return `${siteOrigin}/api/ratings/${encodeURIComponent(trackingToken)}?rating=${rating}`
 }
 
 function renderSummaryRow(label: string, value: string) {
@@ -229,7 +223,7 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
            <p style="margin:0 0 16px;font-size:14px;line-height:22px;color:#6b7280;">Tap a rating below to share quick feedback.</p>
            <div>
              ${[1, 2, 3, 4, 5]
-               .map((rating) => `<a href="${escapeHtml(buildRatingUrl(payload.trackingUrl ?? "", rating))}" style="display:inline-block;margin:0 6px;font-size:24px;line-height:24px;text-decoration:none;color:#e91e8c;">★</a>`)
+               .map((rating) => `<a href="${escapeHtml(buildRatingUrl(getSiteOrigin(payload), payload.orderNumber, rating))}" style="display:inline-block;margin:0 6px;font-size:24px;line-height:24px;text-decoration:none;color:#e91e8c;">★</a>`)
                .join("")}
            </div>
          </div>`

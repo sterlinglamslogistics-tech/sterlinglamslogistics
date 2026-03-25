@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, use } from "react"
-import { Phone, MessageSquare, ChevronDown, ChevronUp, MapPin, Package, Clock } from "lucide-react"
+import { Phone, MessageSquare, ChevronDown, ChevronUp, MapPin, Package, Clock, Star } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { Spinner } from "@/components/ui/spinner"
-import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime } from "@/lib/firestore"
+import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime, updateOrder } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Driver, Order } from "@/lib/data"
 
@@ -39,6 +40,13 @@ function formatEta(ms: number) {
 function formatEtaTime(ms: number) {
   if (ms <= 0) return null
   return new Intl.DateTimeFormat("en-NG", { timeStyle: "short" }).format(new Date(Date.now() + ms))
+}
+
+function parseRating(value: string | null) {
+  if (!value) return null
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) return null
+  return parsed
 }
 
 const STATUS_STEPS: Array<{ label: string }> = [
@@ -150,6 +158,7 @@ function animateMarkerTo(
 
 export default function TrackingPage({ params }: { params: Promise<{ tracking: string }> }) {
   const { tracking } = use(params)
+  const searchParams = useSearchParams()
   const [order, setOrder] = useState<Order | null>(null)
   const [driver, setDriver] = useState<Driver | null>(null)
   const [loading, setLoading] = useState(true)
@@ -158,6 +167,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const [updatesOpen, setUpdatesOpen] = useState(false)
   const [orderOpen, setOrderOpen] = useState(false)
   const [liveRoute, setLiveRoute] = useState<{ distanceKm: number; durationMs: number; fetchedAt: number } | null>(null)
+  const [ratingState, setRatingState] = useState<"idle" | "saving" | "saved" | "error">("idle")
 
   const activeDriverSubscriptionRef = useRef<(() => void) | null>(null)
   const activeDriverIdRef = useRef<string | null>(null)
@@ -168,6 +178,9 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const routeLineRef = useRef<import("leaflet").Polyline | null>(null)
   const driverAnimFrameRef = useRef<number | null>(null)
   const destinationAnimFrameRef = useRef<number | null>(null)
+  const ratingSyncRef = useRef<string | null>(null)
+
+  const requestedRating = useMemo(() => parseRating(searchParams.get("rating")), [searchParams])
 
   useEffect(() => {
     setLoading(true)
@@ -239,6 +252,43 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     const id = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!order || order.status !== "delivered" || !requestedRating) return
+
+    const syncKey = `${order.id}:${requestedRating}`
+    if (ratingSyncRef.current === syncKey) {
+      return
+    }
+
+    if (order.customerRating === requestedRating) {
+      ratingSyncRef.current = syncKey
+      setRatingState("saved")
+      return
+    }
+
+    let cancelled = false
+    setRatingState("saving")
+
+    updateOrder(order.id, {
+      customerRating: requestedRating,
+      customerRatedAt: new Date(),
+    })
+      .then(() => {
+        if (cancelled) return
+        ratingSyncRef.current = syncKey
+        setRatingState("saved")
+      })
+      .catch((error) => {
+        console.error("Failed to save customer rating:", error)
+        if (cancelled) return
+        setRatingState("error")
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [order, requestedRating])
 
   const etaMs = useMemo(() => {
     if (!order || order.status === "delivered") return 0
@@ -493,6 +543,40 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
               </div>
             )}
           </div>
+
+          {order.status === "delivered" && (
+            <div className="mt-4 rounded-2xl border border-[hsl(330,30%,86%)] bg-[hsl(330,45%,98%)] p-4">
+              <div className="flex items-center gap-1 text-[hsl(330,82%,45%)]">
+                {Array.from({ length: 5 }).map((_, index) => {
+                  const filled = index < (order.customerRating ?? requestedRating ?? 0)
+                  return (
+                    <Star
+                      key={index}
+                      className={`h-4 w-4 ${filled ? "fill-current" : "text-[hsl(330,18%,75%)]"}`}
+                    />
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-sm font-medium text-foreground">
+                {order.customerRating
+                  ? `Customer rating: ${order.customerRating}/5`
+                  : requestedRating
+                    ? "Saving your rating..."
+                    : "Rate your delivery from the email to save feedback."}
+              </p>
+              {ratingState === "saving" && (
+                <p className="mt-1 text-xs text-muted-foreground">Syncing your rating to Firestore...</p>
+              )}
+              {ratingState === "saved" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Thanks. Your rating was saved on {formatTime(order.customerRatedAt ?? new Date())}.
+                </p>
+              )}
+              {ratingState === "error" && (
+                <p className="mt-1 text-xs text-red-600">We could not save your rating. Refresh and try again.</p>
+              )}
+            </div>
+          )}
 
           {/* Progress bar */}
           <div className="mt-5 flex items-start">

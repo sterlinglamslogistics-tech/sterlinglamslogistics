@@ -11,6 +11,8 @@ export interface Order {
   amount: number
   status: OrderStatus
   assignedDriver: string | null
+  customerRating?: number
+  customerRatedAt?: unknown
   distanceKm?: number
   createdAt?: unknown
   startedAt?: unknown
