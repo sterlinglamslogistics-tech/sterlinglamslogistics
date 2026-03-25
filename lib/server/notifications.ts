@@ -106,24 +106,105 @@ function getLogoUrl(payload: NotificationPayload) {
   return "https://sterlinglamslogistics.com/placeholder-logo.png"
 }
 
+function getSiteOrigin(payload: NotificationPayload) {
+  if (payload.trackingUrl) {
+    try {
+      return new URL(payload.trackingUrl).origin
+    } catch {
+      // Ignore invalid tracking URL and fall back to production domain.
+    }
+  }
+
+  return "https://sterlinglamslogistics.com"
+}
+
+function buildRatingUrl(trackingUrl: string, rating: number) {
+  try {
+    const url = new URL(trackingUrl)
+    url.searchParams.set("rating", String(rating))
+    return url.toString()
+  } catch {
+    return trackingUrl
+  }
+}
+
+function renderSummaryRow(label: string, value: string) {
+  return `
+    <tr>
+      <td style="padding:0 0 12px;color:#6b7280;font-size:13px;line-height:20px;text-transform:uppercase;letter-spacing:.04em;">${escapeHtml(label)}</td>
+      <td style="padding:0 0 12px;color:#1f1f1f;font-size:14px;line-height:20px;font-weight:600;text-align:right;">${escapeHtml(value)}</td>
+    </tr>
+  `
+}
+
+function renderSocialLinks(siteOrigin: string) {
+  const socials = [
+    { label: "Instagram", href: "https://www.instagram.com/Sterlinglamsofficial/" },
+    { label: "Facebook", href: "https://www.facebook.com/sterlinglams/" },
+    { label: "TikTok", href: "https://www.tiktok.com/@sterlinglams" },
+  ]
+
+  const items = socials
+    .map(
+      (social) =>
+        `<a href="${social.href}" style="display:inline-block;margin:0 8px;color:#c21874;text-decoration:none;font-size:13px;font-weight:700;">${social.label}</a>`
+    )
+    .join("")
+
+  return `
+    <p style="margin:0 0 8px;font-size:13px;line-height:22px;color:#6b7280;">Stay connected with Sterlin Glams</p>
+    <div style="margin:0 0 16px;">${items}</div>
+    <p style="margin:0;font-size:12px;line-height:20px;color:#9ca3af;">Tracking portal: <a href="${siteOrigin}" style="color:#c21874;text-decoration:none;">${siteOrigin}</a></p>
+  `
+}
+
 function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
   const customerName = escapeHtml(payload.customerName?.trim() || "Glam Star")
   const orderNumber = escapeHtml(payload.orderNumber)
   const trackingUrl = payload.trackingUrl ? escapeHtml(payload.trackingUrl) : ""
   const logoUrl = escapeHtml(getLogoUrl(payload))
+  const siteOrigin = escapeHtml(getSiteOrigin(payload))
+  const statusLabel =
+    event === "order_accepted"
+      ? "Accepted"
+      : event === "out_for_delivery"
+        ? "Out for delivery"
+        : "Delivered"
+  const etaLabel = event === "delivered" ? "Completed" : trackingUrl ? "Live ETA on tracking page" : "In progress"
+  const summaryRows = [
+    renderSummaryRow("Order", payload.orderNumber),
+    renderSummaryRow("Status", statusLabel),
+    renderSummaryRow("ETA", etaLabel),
+  ].join("")
+
+  const layoutStart = `
+    <div style="margin:0;background-color:#f7f4f5;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#1f1f1f;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #f0d6e2;box-shadow:0 18px 50px rgba(233,30,140,.08);">
+        <tr>
+          <td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(180deg,#fff7fb 0%,#ffffff 100%);">
+            <img src="${logoUrl}" alt="Sterlin Glams Logistics" width="124" height="124" style="display:block;margin:0 auto 16px;max-width:124px;height:auto;" />
+  `
+
+  const summaryCard = `
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 24px;border:1px solid #f5d1e3;border-radius:16px;background:#fff8fc;">
+              <tr>
+                <td style="padding:18px 20px;">
+                  <div style="margin:0 0 12px;font-size:15px;line-height:22px;font-weight:700;color:#1f1f1f;">Order summary</div>
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${summaryRows}</table>
+                </td>
+              </tr>
+            </table>
+  `
 
   if (event === "out_for_delivery") {
     return `
-      <div style="margin:0;background-color:#f7f4f5;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#1f1f1f;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #f0d6e2;">
-          <tr>
-            <td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(180deg,#fff7fb 0%,#ffffff 100%);">
-              <img src="${logoUrl}" alt="Sterlin Glams Logistics" width="124" height="124" style="display:block;margin:0 auto 16px;max-width:124px;height:auto;" />
+      ${layoutStart}
               <div style="font-size:24px;line-height:32px;font-weight:700;color:#c21874;">Your Order Is On The Way</div>
             </td>
           </tr>
           <tr>
             <td style="padding:0 32px 32px;">
+              ${summaryCard}
               <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Hello ${customerName},</p>
               <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Thank you for shopping with Sterlin Glams. We&rsquo;re happy to let you know that your order <strong>${orderNumber}</strong> is now out for delivery.</p>
               <p style="margin:0 0 24px;font-size:16px;line-height:26px;">You may track your order using the link below for real-time updates.</p>
@@ -131,6 +212,47 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
               ${trackingUrl ? `<p style="margin:0 0 24px;font-size:13px;line-height:22px;color:#6b7280;word-break:break-word;">If the button does not work, copy and paste this link into your browser:<br />${trackingUrl}</p>` : ""}
               <p style="margin:0 0 12px;font-size:16px;line-height:26px;">Thank you for choosing Sterlin Glams.</p>
               <p style="margin:0;font-size:16px;line-height:26px;">Warm regards,<br /><strong>Sterlin Glams Logistics</strong></p>
+              <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid #f3e4eb;text-align:center;">
+                ${renderSocialLinks(siteOrigin)}
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `
+  }
+
+  if (event === "delivered") {
+    const ratingBlock = trackingUrl
+      ? `<div style="margin:28px 0 0;padding:20px;border:1px solid #f5d1e3;border-radius:16px;background:#fff8fc;text-align:center;">
+           <div style="margin:0 0 10px;font-size:16px;line-height:24px;font-weight:700;color:#1f1f1f;">Rate your delivery experience</div>
+           <p style="margin:0 0 16px;font-size:14px;line-height:22px;color:#6b7280;">Tap a rating below to share quick feedback.</p>
+           <div>
+             ${[1, 2, 3, 4, 5]
+               .map((rating) => `<a href="${escapeHtml(buildRatingUrl(payload.trackingUrl ?? "", rating))}" style="display:inline-block;margin:0 6px;font-size:24px;line-height:24px;text-decoration:none;color:#e91e8c;">★</a>`)
+               .join("")}
+           </div>
+         </div>`
+      : ""
+
+    return `
+      ${layoutStart}
+              <div style="font-size:24px;line-height:32px;font-weight:700;color:#c21874;">Your Order Has Been Delivered</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              ${summaryCard}
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Hello ${customerName},</p>
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Thank you for shopping with Sterlin Glams. We&rsquo;re pleased to confirm that your order <strong>${orderNumber}</strong> has been delivered successfully.</p>
+              <p style="margin:0 0 24px;font-size:16px;line-height:26px;">We hope everything arrived exactly as expected. You can still open your tracking page below for your delivery record and updates.</p>
+              ${trackingUrl ? `<div style="margin:0 0 28px;"><a href="${trackingUrl}" style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 22px;border-radius:999px;">View Delivery Details</a></div>` : ""}
+              ${ratingBlock}
+              <p style="margin:28px 0 12px;font-size:16px;line-height:26px;">Thank you for choosing Sterlin Glams.</p>
+              <p style="margin:0;font-size:16px;line-height:26px;">Warm regards,<br /><strong>Sterlin Glams Logistics</strong></p>
+              <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid #f3e4eb;text-align:center;">
+                ${renderSocialLinks(siteOrigin)}
+              </div>
             </td>
           </tr>
         </table>
@@ -141,16 +263,16 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
   const fallbackMessage = escapeHtml(buildMessage(event, payload)).replaceAll("\n", "<br />")
 
   return `
-    <div style="margin:0;background-color:#f7f4f5;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#1f1f1f;">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #f0d6e2;">
-        <tr>
-          <td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(180deg,#fff7fb 0%,#ffffff 100%);">
-            <img src="${logoUrl}" alt="Sterlin Glams Logistics" width="124" height="124" style="display:block;margin:0 auto 16px;max-width:124px;height:auto;" />
+    ${layoutStart}
             <div style="font-size:22px;line-height:30px;font-weight:700;color:#c21874;">Sterlin Glams Logistics</div>
           </td>
         </tr>
         <tr>
-          <td style="padding:0 32px 32px;font-size:16px;line-height:26px;">${fallbackMessage}</td>
+          <td style="padding:0 32px 32px;font-size:16px;line-height:26px;">${fallbackMessage}
+            <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid #f3e4eb;text-align:center;">
+              ${renderSocialLinks(siteOrigin)}
+            </div>
+          </td>
         </tr>
       </table>
     </div>
