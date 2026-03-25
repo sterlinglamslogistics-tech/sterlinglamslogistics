@@ -9,6 +9,26 @@ interface NotificationPayload {
   trackingUrl?: string
 }
 
+export interface NotificationSettings {
+  etaEmail: boolean
+  etaWhatsapp: boolean
+  etaTrigger: string
+  allowEditDeliveryInstructions: boolean
+  proactiveDelayAlerts: boolean
+  deliveryReceiptEmail: boolean
+  deliveryFeedbackEmail: boolean
+}
+
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  etaEmail: true,
+  etaWhatsapp: true,
+  etaTrigger: "out_for_delivery",
+  allowEditDeliveryInstructions: false,
+  proactiveDelayAlerts: false,
+  deliveryReceiptEmail: true,
+  deliveryFeedbackEmail: true,
+}
+
 const NOTIFICATION_ENV_KEYS = [
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
@@ -107,7 +127,7 @@ async function sendTwilioMessage(
   return { sent: true }
 }
 
-async function sendEmail(to: string, subject: string, body: string) {
+async function sendEmailNotification(to: string, subject: string, body: string) {
   const apiKey = process.env.RESEND_API_KEY
   const from = process.env.NOTIFY_FROM_EMAIL
 
@@ -137,7 +157,11 @@ async function sendEmail(to: string, subject: string, body: string) {
   return { sent: true }
 }
 
-export async function sendOrderEventNotifications(event: OrderEvent, payload: NotificationPayload) {
+export async function sendOrderEventNotifications(
+  event: OrderEvent,
+  payload: NotificationPayload,
+  settings: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS,
+) {
   const body = buildMessage(event, payload)
   const subject =
     event === "order_accepted"
@@ -146,10 +170,40 @@ export async function sendOrderEventNotifications(event: OrderEvent, payload: No
         ? `Out for Delivery - ${payload.orderNumber}`
         : `Delivered - ${payload.orderNumber}`
 
+  // ETA notifications (order_accepted / out_for_delivery) — respect trigger + channel toggles
+  const isEtaEvent = event === "order_accepted" || event === "out_for_delivery"
+  const etaTriggerMap: Record<string, OrderEvent> = {
+    order_accepted: "order_accepted",
+    out_for_delivery: "out_for_delivery",
+    picked_up: "out_for_delivery",
+  }
+  const triggerEvent = etaTriggerMap[settings.etaTrigger] ?? "out_for_delivery"
+
+  let doSms = true
+  let doWhatsapp = true
+  let doEmail = true
+
+  if (isEtaEvent) {
+    const shouldSendEta = event === triggerEvent || event === "out_for_delivery"
+    doSms = shouldSendEta
+    doWhatsapp = shouldSendEta && settings.etaWhatsapp
+    doEmail = shouldSendEta && settings.etaEmail
+  }
+
+  if (event === "delivered") {
+    doEmail = settings.deliveryReceiptEmail
+  }
+
   const [sms, whatsapp, email] = await Promise.all([
-    sendTwilioMessage("sms", payload.customerPhone, body),
-    sendTwilioMessage("whatsapp", payload.customerPhone, body),
-    payload.customerEmail ? sendEmail(payload.customerEmail, subject, body) : Promise.resolve({ sent: false, reason: "no_customer_email" }),
+    doSms
+      ? sendTwilioMessage("sms", payload.customerPhone, body)
+      : Promise.resolve({ sent: false, reason: "disabled_by_settings" }),
+    doWhatsapp
+      ? sendTwilioMessage("whatsapp", payload.customerPhone, body)
+      : Promise.resolve({ sent: false, reason: "disabled_by_settings" }),
+    doEmail && payload.customerEmail
+      ? sendEmailNotification(payload.customerEmail, subject, body)
+      : Promise.resolve({ sent: false, reason: doEmail ? "no_customer_email" : "disabled_by_settings" }),
   ])
 
   return { sms, whatsapp, email }

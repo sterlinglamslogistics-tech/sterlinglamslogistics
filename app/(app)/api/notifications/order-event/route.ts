@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
-import { sendOrderEventNotifications, type NotificationPayload, type OrderEvent } from "@/lib/server/notifications"
-import { addDoc, collection } from "firebase/firestore"
+import { sendOrderEventNotifications, DEFAULT_NOTIFICATION_SETTINGS, type NotificationPayload, type OrderEvent, type NotificationSettings } from "@/lib/server/notifications"
+import { addDoc, collection, doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 
 interface RequestBody {
@@ -52,7 +52,18 @@ export async function POST(req: Request) {
       )
     }
 
-    const result = await sendOrderEventNotifications(body.event, body.payload)
+    // Load customer notification settings from Firestore
+    let settings: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
+    try {
+      const settingsSnap = await getDoc(doc(db, "settings", "customerNotification"))
+      if (settingsSnap.exists()) {
+        settings = { ...DEFAULT_NOTIFICATION_SETTINGS, ...settingsSnap.data() } as NotificationSettings
+      }
+    } catch (err) {
+      console.warn("Could not load notification settings, using defaults:", err)
+    }
+
+    const result = await sendOrderEventNotifications(body.event, body.payload, settings)
     await writeNotificationLog({
       event: body.event,
       payload: body.payload,
