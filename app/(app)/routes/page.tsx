@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Spinner } from "@/components/ui/spinner"
 import { Search } from "lucide-react"
 import { subscribeDriversRealtime, subscribeOrdersRealtime } from "@/lib/firestore"
+import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
 import type { Driver, Order } from "@/lib/data"
 
 type LatLng = { lat: number; lng: number }
@@ -13,54 +14,6 @@ const LAGOS_CENTER: LatLng = { lat: 6.5244, lng: 3.3792 }
 const HUB: LatLng = {
   lat: Number(process.env.NEXT_PUBLIC_HUB_LAT) || 6.4642667,
   lng: Number(process.env.NEXT_PUBLIC_HUB_LNG) || 3.5554814,
-}
-
-const geocodeCache = new Map<string, LatLng>()
-
-async function geocodeAddress(address: string): Promise<LatLng | null> {
-  const query = address.trim()
-  if (!query) return null
-
-  const cached = geocodeCache.get(query)
-  if (cached) return cached
-
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-      },
-    })
-
-    if (!response.ok) return null
-    const data = (await response.json()) as Array<{ lat: string; lon: string }>
-    if (!data.length) return null
-
-    const lat = Number(data[0].lat)
-    const lng = Number(data[0].lon)
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return null
-
-    const coords = { lat, lng }
-    geocodeCache.set(query, coords)
-    return coords
-  } catch {
-    return null
-  }
-}
-
-function createPinIcon(
-  L: typeof import("leaflet"),
-  color: string,
-  size = 14,
-  selected = false
-) {
-  const ring = selected ? "0 0 0 4px rgba(0,0,0,0.12)," : ""
-  return L.divIcon({
-    className: "",
-    html: `<div style=\"width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #ffffff;box-shadow:${ring} 0 2px 8px rgba(0,0,0,0.35);\"></div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-  })
 }
 
 export default function RoutesPage() {
@@ -75,26 +28,23 @@ export default function RoutesPage() {
   const firstDriversLoadedRef = useRef(false)
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<import("leaflet").Map | null>(null)
-  const orderLayerRef = useRef<import("leaflet").LayerGroup | null>(null)
-  const driverLayerRef = useRef<import("leaflet").LayerGroup | null>(null)
-  const routeLineRef = useRef<import("leaflet").Polyline | null>(null)
+  const mapRef = useRef<google.maps.Map | null>(null)
+  const orderMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const driverMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const hubMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
 
   useEffect(() => {
     const unsubscribeOrders = subscribeOrdersRealtime((orderData) => {
       setOrders(orderData)
       firstOrdersLoadedRef.current = true
-      if (firstDriversLoadedRef.current) {
-        setIsLoading(false)
-      }
+      if (firstDriversLoadedRef.current) setIsLoading(false)
     })
 
     const unsubscribeDrivers = subscribeDriversRealtime((driverData) => {
       setDrivers(driverData)
       firstDriversLoadedRef.current = true
-      if (firstOrdersLoadedRef.current) {
-        setIsLoading(false)
-      }
+      if (firstOrdersLoadedRef.current) setIsLoading(false)
     })
 
     return () => {
@@ -104,40 +54,31 @@ export default function RoutesPage() {
   }, [])
 
   const visibleOrders = useMemo(
-    () => orders.filter((order) => order.status !== "delivered" && order.status !== "cancelled"),
+    () => orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled"),
     [orders]
   )
 
   const activeDrivers = useMemo(
-    () => drivers.filter((driver) => driver.status !== "offline" && driver.lastLocation),
+    () => drivers.filter((d) => d.status !== "offline" && d.lastLocation),
     [drivers]
   )
 
   const filteredOrders = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
     if (!q) return visibleOrders
-    return visibleOrders.filter((order) => {
-      return (
-        order.orderNumber.toLowerCase().includes(q) ||
-        order.customerName.toLowerCase().includes(q) ||
-        order.address.toLowerCase().includes(q)
-      )
-    })
+    return visibleOrders.filter(
+      (o) =>
+        o.orderNumber.toLowerCase().includes(q) ||
+        o.customerName.toLowerCase().includes(q) ||
+        o.address.toLowerCase().includes(q)
+    )
   }, [searchTerm, visibleOrders])
 
-  const unassignedOrders = useMemo(
-    () => filteredOrders.filter((order) => !order.assignedDriver),
-    [filteredOrders]
-  )
-
-  const assignedOrders = useMemo(
-    () => filteredOrders.filter((order) => Boolean(order.assignedDriver)),
-    [filteredOrders]
-  )
+  const unassignedOrders = useMemo(() => filteredOrders.filter((o) => !o.assignedDriver), [filteredOrders])
+  const assignedOrders = useMemo(() => filteredOrders.filter((o) => Boolean(o.assignedDriver)), [filteredOrders])
 
   useEffect(() => {
     let cancelled = false
-
     async function refreshGeocodedOrders() {
       const geocoded = await Promise.all(
         visibleOrders.map(async (order) => {
@@ -145,239 +86,189 @@ export default function RoutesPage() {
           return { id: order.id, coords }
         })
       )
-
       if (cancelled) return
-
       const nextCoords: Record<string, LatLng> = {}
-      geocoded.forEach((entry) => {
-        if (entry.coords) {
-          nextCoords[entry.id] = entry.coords
-        }
-      })
-
+      geocoded.forEach((e) => { if (e.coords) nextCoords[e.id] = e.coords })
       setOrderCoords(nextCoords)
     }
-
     refreshGeocodedOrders()
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [visibleOrders])
 
   useEffect(() => {
-    if (!visibleOrders.length) {
-      setSelectedOrderId(null)
-      return
-    }
-
-    const nextSelectedOrder =
-      visibleOrders.find((order) => order.assignedDriver && orderCoords[order.id]) ??
-      visibleOrders.find((order) => orderCoords[order.id]) ??
+    if (!visibleOrders.length) { setSelectedOrderId(null); return }
+    const next =
+      visibleOrders.find((o) => o.assignedDriver && orderCoords[o.id]) ??
+      visibleOrders.find((o) => orderCoords[o.id]) ??
       visibleOrders[0]
-
-    setSelectedOrderId((current) => {
-      if (current && visibleOrders.some((order) => order.id === current)) {
-        return current
-      }
-      return nextSelectedOrder.id
-    })
+    setSelectedOrderId((cur) => (cur && visibleOrders.some((o) => o.id === cur) ? cur : next.id))
   }, [visibleOrders, orderCoords])
 
-  const selectedOrder = useMemo(
-    () => visibleOrders.find((order) => order.id === selectedOrderId) ?? null,
-    [selectedOrderId, visibleOrders]
-  )
-
+  const selectedOrder = useMemo(() => visibleOrders.find((o) => o.id === selectedOrderId) ?? null, [selectedOrderId, visibleOrders])
   const selectedDriver = useMemo(() => {
     if (!selectedOrder?.assignedDriver) return null
-    return drivers.find((driver) => driver.id === selectedOrder.assignedDriver) ?? null
+    return drivers.find((d) => d.id === selectedOrder.assignedDriver) ?? null
   }, [drivers, selectedOrder])
-
   const selectedDestination = selectedOrder ? orderCoords[selectedOrder.id] : null
 
+  // ── Init Google Map ──
   useEffect(() => {
     if (isLoading) return
-
     let mounted = true
 
     async function initMap() {
       if (!mapContainerRef.current || mapRef.current) return
-
-      const L = await import("leaflet")
+      await loadGoogleMaps()
       if (!mounted || !mapContainerRef.current) return
 
-      const map = L.map(mapContainerRef.current, {
+      const map = new google.maps.Map(mapContainerRef.current, {
+        center: LAGOS_CENTER,
+        zoom: 12,
+        mapId: "routes-map",
+        disableDefaultUI: false,
         zoomControl: true,
-      }).setView([LAGOS_CENTER.lat, LAGOS_CENTER.lng], 12)
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      }).addTo(map)
-
-      orderLayerRef.current = L.layerGroup().addTo(map)
-      driverLayerRef.current = L.layerGroup().addTo(map)
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: false,
+      })
       mapRef.current = map
 
-      // Store / hub marker
-      const storeIcon = L.divIcon({
-        className: "",
-        html: `<div style="width:44px;height:52px;position:relative;">
-  <div style="width:44px;height:44px;background:#374151;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;">
-    <svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>
-      <path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/>
-      <line x1='9' y1='22' x2='9' y2='12'/>
-      <line x1='15' y1='12' x2='15' y2='22'/>
-      <rect x='9' y='12' width='6' height='10'/>
-    </svg>
-  </div>
-  <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:10px solid #374151;"></div>
-</div>`,
-        iconSize: [44, 52],
-        iconAnchor: [22, 52],
-      })
-      L.marker([HUB.lat, HUB.lng], { icon: storeIcon })
-        .bindPopup("<strong>Store / Hub</strong>")
-        .addTo(map)
+      // Hub marker
+      const hubEl = document.createElement("div")
+      hubEl.innerHTML = `<div style="width:44px;height:52px;position:relative;">
+        <div style="width:44px;height:44px;background:#374151;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;">
+          <svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>
+            <path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/>
+            <polyline points='9 22 9 12 15 12 15 22'/>
+          </svg>
+        </div>
+        <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:10px solid #374151;"></div>
+      </div>`
 
-      window.requestAnimationFrame(() => map.invalidateSize())
+      hubMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+        map,
+        position: HUB,
+        content: hubEl,
+        title: "Store / Hub",
+      })
     }
 
     initMap()
 
     return () => {
       mounted = false
-      if (mapRef.current) {
-        mapRef.current.remove()
-        mapRef.current = null
-      }
-      orderLayerRef.current = null
-      driverLayerRef.current = null
-      routeLineRef.current = null
+      orderMarkersRef.current.forEach((m) => (m.map = null))
+      orderMarkersRef.current = []
+      driverMarkersRef.current.forEach((m) => (m.map = null))
+      driverMarkersRef.current = []
+      if (hubMarkerRef.current) hubMarkerRef.current.map = null
+      if (directionsRendererRef.current) directionsRendererRef.current.setMap(null)
+      mapRef.current = null
     }
   }, [isLoading])
 
+  // ── Update markers + route ──
   useEffect(() => {
-    let cancelled = false
+    const map = mapRef.current
+    if (!map) return
 
-    async function updateMap() {
-      const map = mapRef.current
-      const orderLayer = orderLayerRef.current
-      const driverLayer = driverLayerRef.current
-      if (!map || !orderLayer || !driverLayer) return
-
-      const L = await import("leaflet")
-      if (cancelled) return
-
-      orderLayer.clearLayers()
-      driverLayer.clearLayers()
-
-      if (routeLineRef.current) {
-        map.removeLayer(routeLineRef.current)
-        routeLineRef.current = null
-      }
-
-      const allPoints: Array<[number, number]> = []
-
-      visibleOrders.forEach((order) => {
-        const coords = orderCoords[order.id]
-        if (!coords) return
-
-        const point: [number, number] = [coords.lat, coords.lng]
-        allPoints.push(point)
-
-        const isAssigned = Boolean(order.assignedDriver)
-        const isSelected = selectedOrderId === order.id
-        const iconColor = isAssigned ? "#2563eb" : "#dc2626"
-
-        const marker = L.marker(point, {
-          icon: createPinIcon(L, iconColor, isSelected ? 18 : 14, isSelected),
-        }).addTo(orderLayer)
-
-        marker.bindPopup(
-          `<strong>${order.orderNumber}</strong><br/>${order.customerName}<br/>${isAssigned ? "Assigned" : "Unassigned"}<br/>${order.address}`
-        )
-
-        marker.on("click", () => {
-          setSelectedOrderId(order.id)
-        })
-      })
-
-      activeDrivers.forEach((driver) => {
-        if (!driver.lastLocation) return
-
-        const point: [number, number] = [driver.lastLocation.lat, driver.lastLocation.lng]
-        allPoints.push(point)
-
-        const isSelectedDriver = Boolean(selectedDriver && selectedDriver.id === driver.id)
-
-        const marker = L.marker(point, {
-          icon: createPinIcon(L, "#111111", isSelectedDriver ? 18 : 14, isSelectedDriver),
-        }).addTo(driverLayer)
-
-        marker.bindPopup(`<strong>${driver.name}</strong><br/>Driver location`)
-      })
-
-      if (selectedDriver?.lastLocation && selectedDestination) {
-        try {
-          const from = `${selectedDriver.lastLocation.lng},${selectedDriver.lastLocation.lat}`
-          const to = `${selectedDestination.lng},${selectedDestination.lat}`
-          const osrm = `https://router.project-osrm.org/route/v1/driving/${from};${to}?overview=full&geometries=geojson`
-          const res = await fetch(osrm)
-          if (res.ok) {
-            const data = (await res.json()) as {
-              routes?: Array<{ geometry?: { coordinates: Array<[number, number]> } }>
-            }
-            const coords = data.routes?.[0]?.geometry?.coordinates
-            if (coords && coords.length > 1) {
-              const latLngs: Array<[number, number]> = coords.map(([lng, lat]) => [lat, lng])
-              routeLineRef.current = L.polyline(latLngs, {
-                color: "#0ea5e9",
-                weight: 4,
-                opacity: 0.9,
-              }).addTo(map)
-            }
-          }
-        } catch {
-          // Keep pins visible even if route service fails.
-        }
-      }
-
-      if (selectedDriver?.lastLocation && selectedDestination) {
-        const focusPoints: Array<[number, number]> = [
-          [selectedDriver.lastLocation.lat, selectedDriver.lastLocation.lng],
-          [selectedDestination.lat, selectedDestination.lng],
-        ]
-        map.fitBounds(L.latLngBounds(focusPoints), { padding: [36, 36] })
-      } else if (allPoints.length > 1) {
-        map.fitBounds(L.latLngBounds(allPoints), { padding: [36, 36], maxZoom: 14 })
-      } else if (allPoints.length === 1) {
-        map.setView(allPoints[0], 14)
-      } else {
-        map.setView([LAGOS_CENTER.lat, LAGOS_CENTER.lng], 12)
-      }
-
-      window.requestAnimationFrame(() => map.invalidateSize())
+    orderMarkersRef.current.forEach((m) => (m.map = null))
+    orderMarkersRef.current = []
+    driverMarkersRef.current.forEach((m) => (m.map = null))
+    driverMarkersRef.current = []
+    if (directionsRendererRef.current) {
+      directionsRendererRef.current.setMap(null)
+      directionsRendererRef.current = null
     }
 
-    updateMap()
+    const bounds = new google.maps.LatLngBounds()
+    let hasPoints = false
 
-    return () => {
-      cancelled = true
+    visibleOrders.forEach((order) => {
+      const coords = orderCoords[order.id]
+      if (!coords) return
+
+      const isAssigned = Boolean(order.assignedDriver)
+      const isSelected = selectedOrderId === order.id
+      const color = isAssigned ? "#2563eb" : "#dc2626"
+      const size = isSelected ? 18 : 14
+
+      const el = document.createElement("div")
+      el.style.cssText = `width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:${isSelected ? "0 0 0 4px rgba(0,0,0,0.12)," : ""} 0 2px 8px rgba(0,0,0,0.35);cursor:pointer;`
+
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        map,
+        position: coords,
+        content: el,
+        title: `${order.orderNumber} - ${order.customerName}`,
+      })
+      marker.addListener("click", () => setSelectedOrderId(order.id))
+      orderMarkersRef.current.push(marker)
+      bounds.extend(coords)
+      hasPoints = true
+    })
+
+    activeDrivers.forEach((driver) => {
+      if (!driver.lastLocation) return
+      const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
+      const isSelectedDriver = Boolean(selectedDriver && selectedDriver.id === driver.id)
+      const size = isSelectedDriver ? 18 : 14
+
+      const el = document.createElement("div")
+      el.style.cssText = `width:${size}px;height:${size}px;border-radius:9999px;background:#111;border:2px solid #fff;box-shadow:${isSelectedDriver ? "0 0 0 4px rgba(0,0,0,0.12)," : ""} 0 2px 8px rgba(0,0,0,0.35);`
+
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        map,
+        position: pos,
+        content: el,
+        title: driver.name,
+      })
+      driverMarkersRef.current.push(marker)
+      bounds.extend(pos)
+      hasPoints = true
+    })
+
+    if (selectedDriver?.lastLocation && selectedDestination) {
+      const directionsService = new google.maps.DirectionsService()
+      const directionsRenderer = new google.maps.DirectionsRenderer({
+        map,
+        suppressMarkers: true,
+        polylineOptions: { strokeColor: "#0ea5e9", strokeWeight: 4, strokeOpacity: 0.9 },
+      })
+      directionsRendererRef.current = directionsRenderer
+
+      directionsService.route(
+        {
+          origin: { lat: selectedDriver.lastLocation.lat, lng: selectedDriver.lastLocation.lng },
+          destination: selectedDestination,
+          travelMode: google.maps.TravelMode.DRIVING,
+        },
+        (result, status) => {
+          if (status === google.maps.DirectionsStatus.OK && result) {
+            directionsRenderer.setDirections(result)
+          }
+        }
+      )
+
+      const focusBounds = new google.maps.LatLngBounds()
+      focusBounds.extend({ lat: selectedDriver.lastLocation.lat, lng: selectedDriver.lastLocation.lng })
+      focusBounds.extend(selectedDestination)
+      map.fitBounds(focusBounds, 36)
+    } else if (hasPoints) {
+      map.fitBounds(bounds, 36)
+    } else {
+      map.setCenter(LAGOS_CENTER)
+      map.setZoom(12)
     }
   }, [activeDrivers, orderCoords, selectedDestination, selectedDriver, selectedOrderId, visibleOrders])
 
   const focusOrderOnMap = (order: Order) => {
     setSelectedOrderId(order.id)
-
     const map = mapRef.current
     const coords = orderCoords[order.id]
     if (!map || !coords) return
-
-    map.flyTo([coords.lat, coords.lng], 14, {
-      duration: 0.6,
-    })
+    map.panTo(coords)
+    map.setZoom(14)
   }
 
   if (isLoading) {

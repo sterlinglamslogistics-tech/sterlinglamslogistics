@@ -952,11 +952,13 @@ export default function OrdersPage() {
                                 addressDebounceRef.current = setTimeout(async () => {
                                   setAddressSearching(true)
                                   try {
-                                    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=${encodeURIComponent(val)}&countrycodes=ng`
-                                    const res = await fetch(url, { headers: { Accept: "application/json" } })
+                                    const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? ""
+                                    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(val)}&components=country:NG&key=${API_KEY}`
+                                    const res = await fetch(url)
                                     if (res.ok) {
-                                      const data = (await res.json()) as Array<{ display_name: string; lat: string; lon: string }>
-                                      setAddressSuggestions(data)
+                                      const json = await res.json()
+                                      const results = (json.results ?? []) as Array<{ formatted_address: string; geometry: { location: { lat: number; lng: number } } }>
+                                      setAddressSuggestions(results.slice(0, 6).map(r => ({ display_name: r.formatted_address, lat: String(r.geometry.location.lat), lon: String(r.geometry.location.lng) })))
                                     }
                                   } catch { /* ignore */ }
                                   setAddressSearching(false)

@@ -8,13 +8,16 @@ import { useDriver } from "@/components/driver-context"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { cn } from "@/lib/utils"
+import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
 
 export default function DriverMapPage() {
   const router = useRouter()
   const { session, driver, orders, isOnline, loadingSession, setDrawerOpen } = useDriver()
-  const mapRef = useRef<HTMLDivElement>(null)
-  const leafletMapRef = useRef<unknown>(null)
-  const markersRef = useRef<unknown[]>([])
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<google.maps.Map | null>(null)
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const driverMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const hubMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [mapReady, setMapReady] = useState(false)
 
@@ -31,46 +34,39 @@ export default function DriverMapPage() {
       )
     : []
 
-  // Initialize Leaflet map
+  // Initialize Google Map
   useEffect(() => {
-    if (!mapRef.current || leafletMapRef.current) return
+    if (!mapContainerRef.current || mapRef.current) return
 
     let cancelled = false
 
     async function initMap() {
-      const L = (await import("leaflet")).default
-
-      if (cancelled || !mapRef.current) return
-
-      // Fix Leaflet default icon paths
-      delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-      })
+      await loadGoogleMaps()
+      if (cancelled || !mapContainerRef.current) return
 
       const hubLat = Number(process.env.NEXT_PUBLIC_HUB_LAT) || 6.4541
       const hubLng = Number(process.env.NEXT_PUBLIC_HUB_LNG) || 3.4347
 
-      const map = L.map(mapRef.current!, {
-        zoomControl: false,
-      }).setView([hubLat, hubLng], 13)
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors",
-      }).addTo(map)
-
-      // Store location marker
-      const storeIcon = L.divIcon({
-        html: `<div style="background:#e91e8c;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">S</div>`,
-        className: "",
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
+      const map = new google.maps.Map(mapContainerRef.current!, {
+        center: { lat: hubLat, lng: hubLng },
+        zoom: 13,
+        mapId: "driver-map",
+        disableDefaultUI: true,
+        zoomControl: true,
       })
-      L.marker([hubLat, hubLng], { icon: storeIcon }).addTo(map).bindPopup("Sterlin Glams Store")
 
-      leafletMapRef.current = map
+      // Store / Hub marker
+      const hubEl = document.createElement("div")
+      hubEl.innerHTML = `<div style="background:#e91e8c;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">S</div>`
+
+      hubMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+        map,
+        position: { lat: hubLat, lng: hubLng },
+        content: hubEl,
+        title: "Sterlin Glams Store",
+      })
+
+      mapRef.current = map
       setMapReady(true)
     }
 
@@ -83,27 +79,26 @@ export default function DriverMapPage() {
 
   // Update markers when orders change
   useEffect(() => {
-    if (!mapReady || !leafletMapRef.current) return
+    if (!mapReady || !mapRef.current) return
 
     let cancelled = false
 
     async function updateMarkers() {
-      const L = (await import("leaflet")).default
-      const map = leafletMapRef.current as import("leaflet").Map
+      const map = mapRef.current!
 
       // Clear old markers
       for (const m of markersRef.current) {
-        map.removeLayer(m as import("leaflet").Layer)
+        m.map = null
       }
       markersRef.current = []
 
-      // We'll use the geocode from Nominatim for order addresses
       const orderMeta: Array<{ order: Order; num: number; time: string }> = []
+
       for (let i = 0; i < activeOrders.length; i++) {
         if (cancelled) return
         const order = activeOrders[i]
         const num = i + 1
-        // Figure out a time string from the order
+
         const ts = order.startedAt ?? order.createdAt
         let timeStr = ""
         if (ts) {
@@ -113,55 +108,47 @@ export default function DriverMapPage() {
           }
         }
 
-        try {
-          const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(order.address)}`
-          const res = await fetch(url, { headers: { Accept: "application/json" } })
-          if (!res.ok) continue
-          const data = (await res.json()) as Array<{ lat: string; lon: string }>
-          if (!data.length) continue
+        const coords = await geocodeAddress(order.address)
+        if (!coords) continue
 
-          const lat = Number(data[0].lat)
-          const lng = Number(data[0].lon)
-          if (Number.isNaN(lat) || Number.isNaN(lng)) continue
-
-          // If this is the first order, show a time bubble marker; otherwise a numbered marker
-          const markerIcon = activeOrders.length === 1
-            ? L.divIcon({
-                html: `<div style="background:#1f1f1f;color:#fff;border-radius:16px;padding:4px 10px;font-size:11px;font-weight:bold;white-space:nowrap;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${timeStr || num}</div>`,
-                className: "",
-                iconSize: [60, 28],
-                iconAnchor: [30, 14],
-              })
-            : L.divIcon({
-                html: `<div style="background:#1f1f1f;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${num}</div>`,
-                className: "",
-                iconSize: [28, 28],
-                iconAnchor: [14, 14],
-              })
-
-          const marker = L.marker([lat, lng], { icon: markerIcon }).addTo(map)
-          orderMeta.push({ order, num, time: timeStr })
-          const meta = orderMeta[orderMeta.length - 1]
-          marker.on("click", () => setSelectedOrder({ ...meta.order, _mapNum: meta.num, _mapTime: meta.time } as Order & { _mapNum: number; _mapTime: string }))
-          markersRef.current.push(marker)
-        } catch {
-          // Skip if geocoding fails
+        const el = document.createElement("div")
+        if (activeOrders.length === 1) {
+          el.innerHTML = `<div style="background:#1f1f1f;color:#fff;border-radius:16px;padding:4px 10px;font-size:11px;font-weight:bold;white-space:nowrap;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${timeStr || num}</div>`
+        } else {
+          el.innerHTML = `<div style="background:#1f1f1f;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${num}</div>`
         }
+
+        const marker = new google.maps.marker.AdvancedMarkerElement({
+          map,
+          position: coords,
+          content: el,
+          title: `${order.orderNumber} - ${order.customerName}`,
+        })
+
+        orderMeta.push({ order, num, time: timeStr })
+        const meta = orderMeta[orderMeta.length - 1]
+        marker.addListener("click", () =>
+          setSelectedOrder({ ...meta.order, _mapNum: meta.num, _mapTime: meta.time } as Order & { _mapNum: number; _mapTime: string })
+        )
+        markersRef.current.push(marker)
       }
 
       // Add driver location marker
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.map = null
+        driverMarkerRef.current = null
+      }
+
       if (driver?.lastLocation) {
-        const driverIcon = L.divIcon({
-          html: `<div style="background:#3b82f6;border-radius:50%;width:16px;height:16px;border:3px solid #fff;box-shadow:0 0 0 3px rgba(59,130,246,.4),0 2px 6px rgba(0,0,0,.3);"></div>`,
-          className: "",
-          iconSize: [16, 16],
-          iconAnchor: [8, 8],
+        const driverEl = document.createElement("div")
+        driverEl.innerHTML = `<div style="background:#3b82f6;border-radius:50%;width:16px;height:16px;border:3px solid #fff;box-shadow:0 0 0 3px rgba(59,130,246,.4),0 2px 6px rgba(0,0,0,.3);"></div>`
+
+        driverMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+          map,
+          position: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
+          content: driverEl,
+          title: "Your location",
         })
-        const driverMarker = L.marker(
-          [driver.lastLocation.lat, driver.lastLocation.lng],
-          { icon: driverIcon }
-        ).addTo(map)
-        markersRef.current.push(driverMarker)
       }
     }
 
@@ -198,18 +185,16 @@ export default function DriverMapPage() {
       </div>
 
       {/* Map */}
-      <div ref={mapRef} className="h-full w-full" />
+      <div ref={mapContainerRef} className="h-full w-full" />
 
       {/* My location button */}
       {driver?.lastLocation && (
         <button
           type="button"
           onClick={() => {
-            if (leafletMapRef.current && driver.lastLocation) {
-              (leafletMapRef.current as import("leaflet").Map).setView(
-                [driver.lastLocation.lat, driver.lastLocation.lng],
-                15
-              )
+            if (mapRef.current && driver.lastLocation) {
+              mapRef.current.panTo({ lat: driver.lastLocation.lat, lng: driver.lastLocation.lng })
+              mapRef.current.setZoom(15)
             }
           }}
           className="absolute bottom-24 right-4 z-[20] flex h-10 w-10 items-center justify-center rounded-full bg-background shadow-lg border"

@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime, updateOrder } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Driver, Order } from "@/lib/data"
+import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null
@@ -82,42 +83,9 @@ const HUB = {
   lng: Number(process.env.NEXT_PUBLIC_HUB_LNG) || 3.5554814,
 }
 
-const geocodeCache = new Map<string, { lat: number; lng: number }>()
-
-async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
-  const query = address.trim()
-  if (!query) return null
-
-  const cached = geocodeCache.get(query)
-  if (cached) return cached
-
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-      },
-    })
-    if (!response.ok) return null
-
-    const data = (await response.json()) as Array<{ lat: string; lon: string }>
-    if (!data.length) return null
-
-    const lat = Number(data[0].lat)
-    const lng = Number(data[0].lon)
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return null
-
-    const coords = { lat, lng }
-    geocodeCache.set(query, coords)
-    return coords
-  } catch {
-    return null
-  }
-}
-
 function animateMarkerTo(
-  marker: import("leaflet").Marker,
-  target: [number, number],
+  marker: google.maps.marker.AdvancedMarkerElement,
+  target: { lat: number; lng: number },
   frameRef: { current: number | null },
   durationMs = 900
 ) {
@@ -126,14 +94,12 @@ function animateMarkerTo(
     frameRef.current = null
   }
 
-  const start = marker.getLatLng()
-  const fromLat = start.lat
-  const fromLng = start.lng
-  const toLat = target[0]
-  const toLng = target[1]
+  const pos = marker.position as google.maps.LatLngLiteral | google.maps.LatLng | null
+  const fromLat = pos ? (typeof (pos as google.maps.LatLng).lat === "function" ? (pos as google.maps.LatLng).lat() : (pos as google.maps.LatLngLiteral).lat) : target.lat
+  const fromLng = pos ? (typeof (pos as google.maps.LatLng).lng === "function" ? (pos as google.maps.LatLng).lng() : (pos as google.maps.LatLngLiteral).lng) : target.lng
 
-  if (Math.abs(fromLat - toLat) < 0.000001 && Math.abs(fromLng - toLng) < 0.000001) {
-    marker.setLatLng(target)
+  if (Math.abs(fromLat - target.lat) < 0.000001 && Math.abs(fromLng - target.lng) < 0.000001) {
+    marker.position = target
     return
   }
 
@@ -141,9 +107,9 @@ function animateMarkerTo(
   const step = (now: number) => {
     const progress = Math.min((now - startedAt) / durationMs, 1)
     const eased = 1 - Math.pow(1 - progress, 3)
-    const lat = fromLat + (toLat - fromLat) * eased
-    const lng = fromLng + (toLng - fromLng) * eased
-    marker.setLatLng([lat, lng])
+    const lat = fromLat + (target.lat - fromLat) * eased
+    const lng = fromLng + (target.lng - fromLng) * eased
+    marker.position = { lat, lng }
 
     if (progress < 1) {
       frameRef.current = window.requestAnimationFrame(step)
@@ -178,12 +144,11 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const activeDriverSubscriptionRef = useRef<(() => void) | null>(null)
   const activeDriverIdRef = useRef<string | null>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<import("leaflet").Map | null>(null)
-  const driverMarkerRef = useRef<import("leaflet").Marker | null>(null)
-  const destinationMarkerRef = useRef<import("leaflet").Marker | null>(null)
-  const routeLineRef = useRef<import("leaflet").Polyline | null>(null)
+  const mapRef = useRef<google.maps.Map | null>(null)
+  const driverMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const destinationMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
   const driverAnimFrameRef = useRef<number | null>(null)
-  const destinationAnimFrameRef = useRef<number | null>(null)
   const ratingSyncRef = useRef<string | null>(null)
 
   const requestedRating = useMemo(() => parseRating(searchParams.get("rating")), [searchParams])
@@ -306,7 +271,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
 
   const etaMs = useMemo(() => {
     if (!order || order.status === "delivered") return 0
-    // Use OSRM road-network duration (ticks down from when it was last fetched)
+    // Use Google Directions duration (ticks down from when it was last fetched)
     if (liveRoute) {
       const elapsed = now - liveRoute.fetchedAt
       return Math.max(0, liveRoute.durationMs - elapsed)
@@ -327,42 +292,35 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     async function initMap() {
       if (!mapContainerRef.current || mapRef.current) return
 
-      const L = await import("leaflet")
+      await loadGoogleMaps()
       if (!mounted || !mapContainerRef.current) return
 
-      const map = L.map(mapContainerRef.current, {
-        zoomControl: false,
-      }).setView([HUB.lat, HUB.lng], 13)
+      const map = new google.maps.Map(mapContainerRef.current, {
+        center: { lat: HUB.lat, lng: HUB.lng },
+        zoom: 13,
+        mapId: "tracking-map",
+        disableDefaultUI: false,
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: false,
+      })
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      }).addTo(map)
-
-      L.control.zoom({ position: "bottomright" }).addTo(map)
       mapRef.current = map
-      window.requestAnimationFrame(() => map.invalidateSize())
     }
 
     initMap()
 
     return () => {
       mounted = false
-      if (mapRef.current) {
-        mapRef.current.remove()
-        mapRef.current = null
-      }
+      if (driverMarkerRef.current) { driverMarkerRef.current.map = null; driverMarkerRef.current = null }
+      if (destinationMarkerRef.current) { destinationMarkerRef.current.map = null; destinationMarkerRef.current = null }
+      if (directionsRendererRef.current) { directionsRendererRef.current.setMap(null); directionsRendererRef.current = null }
       if (driverAnimFrameRef.current !== null) {
         window.cancelAnimationFrame(driverAnimFrameRef.current)
         driverAnimFrameRef.current = null
       }
-      if (destinationAnimFrameRef.current !== null) {
-        window.cancelAnimationFrame(destinationAnimFrameRef.current)
-        destinationAnimFrameRef.current = null
-      }
-      driverMarkerRef.current = null
-      destinationMarkerRef.current = null
-      routeLineRef.current = null
+      mapRef.current = null
     }
   }, [loading])
 
@@ -373,49 +331,54 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
       const map = mapRef.current
       if (!map) return
 
-      const L = await import("leaflet")
+      await loadGoogleMaps()
       if (cancelled) return
 
-      if (routeLineRef.current) {
-        map.removeLayer(routeLineRef.current)
-        routeLineRef.current = null
+      // Clear old directions route
+      if (directionsRendererRef.current) {
+        directionsRendererRef.current.setMap(null)
+        directionsRendererRef.current = null
       }
 
-      const points: Array<[number, number]> = []
+      const bounds = new google.maps.LatLngBounds()
+      let hasPoints = false
 
+      // Driver marker
       if (driver?.lastLocation) {
-        const point: [number, number] = [driver.lastLocation.lat, driver.lastLocation.lng]
-        points.push(point)
+        const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
+        bounds.extend(pos)
+        hasPoints = true
+
         if (!driverMarkerRef.current) {
-          const driverIcon = L.divIcon({
-            className: "",
-            html: `<div style="width:44px;height:44px;background:#1a1a2e;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;"><svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/><polyline points='9 22 9 12 15 12 15 22'/></svg></div>`,
-            iconSize: [44, 44],
-            iconAnchor: [22, 22],
+          const driverEl = document.createElement("div")
+          driverEl.innerHTML = `<div style="width:44px;height:44px;background:#1a1a2e;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;"><svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/><polyline points='9 22 9 12 15 12 15 22'/></svg></div>`
+
+          driverMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+            map,
+            position: pos,
+            content: driverEl,
+            title: driver.name,
           })
-          driverMarkerRef.current = L.marker(point, { icon: driverIcon })
-            .bindPopup(`<strong>${driver.name}</strong><br/>Driver location`)
-            .addTo(map)
         } else {
-          driverMarkerRef.current.setPopupContent(`<strong>${driver.name}</strong><br/>Driver location`)
-          animateMarkerTo(driverMarkerRef.current, point, driverAnimFrameRef)
+          animateMarkerTo(driverMarkerRef.current, pos, driverAnimFrameRef)
         }
       } else if (driverMarkerRef.current) {
         if (driverAnimFrameRef.current !== null) {
           window.cancelAnimationFrame(driverAnimFrameRef.current)
           driverAnimFrameRef.current = null
         }
-        map.removeLayer(driverMarkerRef.current)
+        driverMarkerRef.current.map = null
         driverMarkerRef.current = null
       }
 
+      // Destination marker
       if (destinationCoord) {
-        const point: [number, number] = [destinationCoord.lat, destinationCoord.lng]
-        points.push(point)
+        bounds.extend(destinationCoord)
+        hasPoints = true
+
         if (!destinationMarkerRef.current) {
-          const destinationIcon = L.divIcon({
-            className: "",
-            html: `<div style="width:36px;height:46px;display:flex;flex-direction:column;align-items:center;">
+          const destEl = document.createElement("div")
+          destEl.innerHTML = `<div style="width:36px;height:46px;display:flex;flex-direction:column;align-items:center;">
   <div style="width:36px;height:36px;background:#1a1a2e;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;">
     <svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'>
       <path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/>
@@ -423,75 +386,64 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     </svg>
   </div>
   <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:10px solid #1a1a2e;margin-top:-2px;"></div>
-</div>`,
-            iconSize: [36, 46],
-            iconAnchor: [18, 46],
+</div>`
+
+          destinationMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+            map,
+            position: destinationCoord,
+            content: destEl,
+            title: "Delivery destination",
           })
-          destinationMarkerRef.current = L.marker(point, { icon: destinationIcon })
-            .bindPopup("<strong>Delivery destination</strong>")
-            .addTo(map)
         } else {
-          destinationMarkerRef.current.setPopupContent("<strong>Delivery destination</strong>")
-          animateMarkerTo(destinationMarkerRef.current, point, destinationAnimFrameRef)
+          destinationMarkerRef.current.position = destinationCoord
         }
       } else if (destinationMarkerRef.current) {
-        if (destinationAnimFrameRef.current !== null) {
-          window.cancelAnimationFrame(destinationAnimFrameRef.current)
-          destinationAnimFrameRef.current = null
-        }
-        map.removeLayer(destinationMarkerRef.current)
+        destinationMarkerRef.current.map = null
         destinationMarkerRef.current = null
       }
 
+      // Route via Directions API
       if (driver?.lastLocation && destinationCoord) {
-        try {
-          const from = `${driver.lastLocation.lng},${driver.lastLocation.lat}`
-          const to = `${destinationCoord.lng},${destinationCoord.lat}`
-          const osrm = `https://router.project-osrm.org/route/v1/driving/${from};${to}?overview=full&geometries=geojson`
-          const res = await fetch(osrm)
-          if (res.ok) {
-            const data = (await res.json()) as {
-              routes?: Array<{
-                distance?: number
-                duration?: number
-                geometry?: { coordinates: Array<[number, number]> }
-              }>
-            }
-            const route = data.routes?.[0]
-            const coords = route?.geometry?.coordinates
-            if (coords && coords.length > 1) {
-              const latLngs: Array<[number, number]> = coords.map(([lng, lat]) => [lat, lng])
-              routeLineRef.current = L.polyline(latLngs, {
-                color: "#374151",
-                weight: 5,
-                opacity: 0.75,
-              }).addTo(map)
-            }
-            if (!cancelled && typeof route?.distance === "number" && typeof route?.duration === "number") {
-              setLiveRoute({
-                distanceKm: route.distance / 1000,
-                durationMs: route.duration * 1000,
-                fetchedAt: Date.now(),
-              })
+        const directionsService = new google.maps.DirectionsService()
+        const directionsRenderer = new google.maps.DirectionsRenderer({
+          map,
+          suppressMarkers: true,
+          polylineOptions: { strokeColor: "#374151", strokeWeight: 5, strokeOpacity: 0.75 },
+        })
+        directionsRendererRef.current = directionsRenderer
+
+        directionsService.route(
+          {
+            origin: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
+            destination: destinationCoord,
+            travelMode: google.maps.TravelMode.DRIVING,
+          },
+          (result, status) => {
+            if (cancelled) return
+            if (status === google.maps.DirectionsStatus.OK && result) {
+              directionsRenderer.setDirections(result)
+              const leg = result.routes?.[0]?.legs?.[0]
+              if (leg) {
+                setLiveRoute({
+                  distanceKm: (leg.distance?.value ?? 0) / 1000,
+                  durationMs: (leg.duration?.value ?? 0) * 1000,
+                  fetchedAt: Date.now(),
+                })
+              }
             }
           }
-        } catch {
-          // Keep markers visible even if OSRM fails.
-        }
+        )
       } else {
-        // No route possible — clear stale live-route data
         if (!cancelled) setLiveRoute(null)
       }
 
-      if (points.length > 1) {
-        map.fitBounds(L.latLngBounds(points), { padding: [24, 24] })
-      } else if (points.length === 1) {
-        map.setView(points[0], 14)
+      // Fit bounds
+      if (hasPoints) {
+        map.fitBounds(bounds, 24)
       } else {
-        map.setView([HUB.lat, HUB.lng], 13)
+        map.setCenter({ lat: HUB.lat, lng: HUB.lng })
+        map.setZoom(13)
       }
-
-      window.requestAnimationFrame(() => map.invalidateSize())
     }
 
     renderMapData()

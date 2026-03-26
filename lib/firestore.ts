@@ -37,22 +37,16 @@ async function geocodeAddress(address: string): Promise<LatLng | null> {
   if (cached) return cached
 
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-      },
-    })
+    const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? ""
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${API_KEY}`
+    const response = await fetch(url)
     if (!response.ok) return null
 
-    const data = (await response.json()) as Array<{ lat: string; lon: string }>
-    if (!data.length) return null
+    const data = await response.json()
+    const loc = data.results?.[0]?.geometry?.location
+    if (!loc) return null
 
-    const lat = Number(data[0].lat)
-    const lng = Number(data[0].lon)
-    if (Number.isNaN(lat) || Number.isNaN(lng)) return null
-
-    const coords = { lat, lng }
+    const coords: LatLng = { lat: loc.lat, lng: loc.lng }
     geocodeCache.set(query, coords)
     return coords
   } catch {

@@ -1,7 +1,5 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@import 'leaflet/dist/leaflet.css';
-
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -137,9 +135,4 @@
   }
 }
 
-/* Leaflet fallback essentials to avoid blank map when CSS loads late */
-.leaflet-container {
-  position: relative;
-  overflow: hidden;
-  background: #e5e7eb;
-}
+
