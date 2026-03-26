@@ -56,11 +56,17 @@ function mapWooOrder(wc: WooOrder) {
     .filter(Boolean)
     .join(" ") || "WooCommerce Customer"
 
-  const items = (wc.line_items ?? []).map((li) => ({
-    name: li.name ?? "Item",
-    qty: li.quantity ?? 1,
-    price: Number(li.total) || 0,
-  }))
+  const items = (wc.line_items ?? []).map((li) => {
+    const metaParts = (li.meta_data ?? [])
+      .filter((m) => m.key && !m.key.startsWith("_"))
+      .map((m) => `+${m.key} : ${m.value ?? ""}`)
+    return {
+      name: li.name ?? "Item",
+      qty: li.quantity ?? 1,
+      price: Number(li.total) || 0,
+      ...(metaParts.length ? { meta: metaParts.join("\n") } : {}),
+    }
+  })
 
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0)
   const total = Number(wc.total) || subtotal
@@ -87,7 +93,7 @@ function mapWooOrder(wc: WooOrder) {
     items,
     subtotal,
     taxRate: 0,
-    tax: 0,
+    tax: Number(wc.total_tax) || 0,
     deliveryFees: shippingTotal,
     deliveryTips: 0,
     discount: discountTotal,
@@ -117,12 +123,14 @@ interface WooLineItem {
   name?: string
   quantity?: number
   total?: string
+  meta_data?: Array<{ key?: string; value?: string; display_key?: string; display_value?: string }>
 }
 
 interface WooOrder {
   id: number
   status?: string
   total?: string
+  total_tax?: string
   shipping_total?: string
   discount_total?: string
   customer_note?: string

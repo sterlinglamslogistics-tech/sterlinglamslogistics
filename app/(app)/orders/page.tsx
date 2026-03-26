@@ -84,6 +84,7 @@ const orderFormSchema = z.object({
     name: z.string(),
     price: z.number(),
     qty: z.number(),
+    meta: z.string().optional(),
   })).optional(),
   taxRate: z.number().optional(),
   deliveryFees: z.number().optional(),
@@ -159,7 +160,7 @@ export default function OrdersPage() {
       address: "",
       deliveryDate: new Date().toISOString().split("T")[0],
       deliveryTime: "",
-      items: [{ name: "", price: 0, qty: 1 }],
+      items: [{ name: "", price: 0, qty: 1, meta: "" }],
       taxRate: 0,
       deliveryFees: 0,
       deliveryTips: 0,
@@ -265,6 +266,18 @@ export default function OrdersPage() {
     if (typeof distanceKm !== "number" || Number.isNaN(distanceKm)) return "--"
     return `${distanceKm.toFixed(2)} km`
   }
+
+  function formatTimeAmPm(time: string | undefined | null): string {
+    if (!time) return "N/A"
+    const parts = time.split(":")
+    const h = parseInt(parts[0], 10)
+    const m = parseInt(parts[1], 10)
+    if (isNaN(h) || isNaN(m)) return time
+    const period = h >= 12 ? "p.m." : "a.m."
+    const hour12 = h % 12 || 12
+    return `${hour12}:${m.toString().padStart(2, "0")} ${period}`
+  }
+
   function openNewOrderDialog() {
     setEditingOrder(null)
     form.reset({
@@ -279,7 +292,7 @@ export default function OrdersPage() {
       address: "",
       deliveryDate: new Date().toISOString().split("T")[0],
       deliveryTime: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
-      items: [{ name: "", price: 0, qty: 1 }],
+      items: [{ name: "", price: 0, qty: 1, meta: "" }],
       taxRate: 0,
       deliveryFees: 0,
       deliveryTips: 0,
@@ -307,7 +320,7 @@ export default function OrdersPage() {
       address: order.address,
       deliveryDate: order.deliveryDate ?? "",
       deliveryTime: order.deliveryTime ?? "",
-      items: order.items?.length ? order.items.map(i => ({ name: i.name, price: i.price ?? 0, qty: i.qty ?? 1 })) : [{ name: "", price: 0, qty: 1 }],
+      items: order.items?.length ? order.items.map(i => ({ name: i.name, price: i.price ?? 0, qty: i.qty ?? 1, meta: i.meta ?? "" })) : [{ name: "", price: 0, qty: 1, meta: "" }],
       taxRate: order.taxRate ?? 0,
       deliveryFees: order.deliveryFees ?? 0,
       deliveryTips: order.deliveryTips ?? 0,
@@ -839,7 +852,7 @@ export default function OrdersPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setAddressSuggestions([]); setAddressPreviewCoord(null) } }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-center text-xl">
               {editingOrder ? "Edit Order" : "New Order"}
@@ -1004,54 +1017,66 @@ export default function OrdersPage() {
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">Items:</p>
                     {(form.watch("items") ?? []).map((_, idx) => (
-                      <div key={idx} className="grid grid-cols-[1fr_80px_60px_28px] gap-1 items-end">
-                        <Input
-                          placeholder="Name"
-                          value={form.watch(`items.${idx}.name`)}
-                          onChange={(e) => {
-                            const items = [...(form.getValues("items") ?? [])]
-                            items[idx] = { ...items[idx], name: e.target.value }
-                            form.setValue("items", items)
-                          }}
-                        />
-                        <Input
-                          type="number"
-                          placeholder="Price"
-                          value={form.watch(`items.${idx}.price`) || ""}
-                          onChange={(e) => {
-                            const items = [...(form.getValues("items") ?? [])]
-                            items[idx] = { ...items[idx], price: parseFloat(e.target.value) || 0 }
-                            form.setValue("items", items)
-                          }}
-                        />
-                        <Input
-                          type="number"
-                          placeholder="qty"
-                          value={form.watch(`items.${idx}.qty`) || ""}
-                          onChange={(e) => {
-                            const items = [...(form.getValues("items") ?? [])]
-                            items[idx] = { ...items[idx], qty: parseInt(e.target.value) || 1 }
-                            form.setValue("items", items)
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="flex h-9 items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
-                          onClick={() => {
-                            const items = [...(form.getValues("items") ?? [])]
-                            if (items.length > 1) {
-                              items.splice(idx, 1)
+                      <div key={idx} className="space-y-1">
+                        <div className="grid grid-cols-[1fr_100px_70px_28px] gap-2 items-end">
+                          <Input
+                            placeholder="Item name"
+                            value={form.watch(`items.${idx}.name`)}
+                            onChange={(e) => {
+                              const items = [...(form.getValues("items") ?? [])]
+                              items[idx] = { ...items[idx], name: e.target.value }
                               form.setValue("items", items)
-                            }
+                            }}
+                          />
+                          <Input
+                            type="number"
+                            placeholder="Price"
+                            value={form.watch(`items.${idx}.price`) || ""}
+                            onChange={(e) => {
+                              const items = [...(form.getValues("items") ?? [])]
+                              items[idx] = { ...items[idx], price: parseFloat(e.target.value) || 0 }
+                              form.setValue("items", items)
+                            }}
+                          />
+                          <Input
+                            type="number"
+                            placeholder="Qty"
+                            value={form.watch(`items.${idx}.qty`) || ""}
+                            onChange={(e) => {
+                              const items = [...(form.getValues("items") ?? [])]
+                              items[idx] = { ...items[idx], qty: parseInt(e.target.value) || 1 }
+                              form.setValue("items", items)
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="flex h-9 items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
+                            onClick={() => {
+                              const items = [...(form.getValues("items") ?? [])]
+                              if (items.length > 1) {
+                                items.splice(idx, 1)
+                                form.setValue("items", items)
+                              }
+                            }}
+                          >×</button>
+                        </div>
+                        <Input
+                          placeholder="Attributes (e.g. +pa_color : blue)"
+                          className="h-7 text-xs"
+                          value={form.watch(`items.${idx}.meta`) || ""}
+                          onChange={(e) => {
+                            const items = [...(form.getValues("items") ?? [])]
+                            items[idx] = { ...items[idx], meta: e.target.value }
+                            form.setValue("items", items)
                           }}
-                        >×</button>
+                        />
                       </div>
                     ))}
                     <button
                       type="button"
                       className="text-xs text-primary hover:underline"
                       onClick={() => {
-                        const items = [...(form.getValues("items") ?? []), { name: "", price: 0, qty: 1 }]
+                        const items = [...(form.getValues("items") ?? []), { name: "", price: 0, qty: 1, meta: "" }]
                         form.setValue("items", items)
                       }}
                     >+ Add item</button>
@@ -1209,16 +1234,18 @@ export default function OrdersPage() {
           if (!open) setSelectedOrder(null)
         }}
       >
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="max-w-[700px] max-h-[90vh] overflow-y-auto">
           {selectedOrder && (
             <>
               <DialogHeader>
-                <div className="flex justify-between items-center w-full">
+                <div className="flex justify-between items-start w-full">
                   <div>
                     <DialogTitle className="text-xl font-bold">
                       Order #: {selectedOrder.orderNumber}
                     </DialogTitle>
-                    <StatusBadge status={selectedOrder.status} />
+                    <p className="text-sm text-muted-foreground">
+                      Status: {selectedOrder.status === "unassigned" ? "Unassigned" : selectedOrder.status === "picked-up" ? "Picked Up" : selectedOrder.status === "in-transit" ? "In Transit" : selectedOrder.status.charAt(0).toUpperCase() + selectedOrder.status.slice(1)}
+                    </p>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -1245,28 +1272,136 @@ export default function OrdersPage() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+                <DialogDescription className="sr-only">Order details</DialogDescription>
               </DialogHeader>
 
-              <div className="space-y-2 mt-4">
-                <p>
-                  <span className="font-semibold">Customer:</span> {selectedOrder.customerName}
+              {/* Deliver to / Pick-up From */}
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="rounded-md border p-3 space-y-1">
+                  <p className="font-semibold text-sm">Deliver to</p>
+                  <p className="text-sm font-medium">{selectedOrder.customerName}</p>
+                  <p className="text-sm text-muted-foreground">{selectedOrder.address}</p>
+                  <p className="text-sm text-muted-foreground">{selectedOrder.phone}</p>
+                  {selectedOrder.customerEmail && (
+                    <p className="text-sm text-muted-foreground">{selectedOrder.customerEmail}</p>
+                  )}
+                </div>
+                <div className="rounded-md border p-3 space-y-1">
+                  <p className="font-semibold text-sm">Pick-up From</p>
+                  <p className="text-sm font-medium">{selectedOrder.pickupName || "Sterlin Glams"}</p>
+                  <p className="text-sm text-muted-foreground">{selectedOrder.pickupAddress || "Sterlin Glams – Ikota Ajah Lagos"}</p>
+                  <p className="text-sm text-muted-foreground">{selectedOrder.pickupPhone || "+2349160009893"}</p>
+                </div>
+              </div>
+
+              {/* Order items */}
+              <div className="rounded-md border p-3 space-y-3">
+                <p className="font-semibold text-sm">Order</p>
+                {(selectedOrder.items ?? []).length > 0 ? (selectedOrder.items ?? []).map((item, idx) => (
+                  <div key={idx}>
+                    <div className="flex justify-between items-start">
+                      <p className="text-sm">
+                        <span className="text-muted-foreground mr-2">{item.qty ?? 1}</span>
+                        x {item.name}
+                      </p>
+                      <p className="text-sm font-medium whitespace-nowrap ml-4">{formatCurrency((item.price ?? 0) * (item.qty ?? 1))}</p>
+                    </div>
+                    {item.meta && (
+                      <p className="text-xs text-muted-foreground ml-8 whitespace-pre-line">{item.meta}</p>
+                    )}
+                  </div>
+                )) : (
+                  <p className="text-sm text-muted-foreground">No items</p>
+                )}
+                <div className="border-t pt-2 space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tax</span>
+                    <span>{selectedOrder.tax ? formatCurrency(selectedOrder.tax) : "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Delivery Fees</span>
+                    <span>{selectedOrder.deliveryFees ? formatCurrency(selectedOrder.deliveryFees) : "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Delivery Tips</span>
+                    <span>{selectedOrder.deliveryTips ? formatCurrency(selectedOrder.deliveryTips) : "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span>{selectedOrder.discount ? formatCurrency(selectedOrder.discount) : "N/A"}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold">
+                    <span>Total</span>
+                    <span>{formatCurrency(selectedOrder.amount)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Delivery Details */}
+              <div className="rounded-md border p-3 space-y-2">
+                <p className="font-semibold text-sm">Delivery Details</p>
+                <div className="grid grid-cols-2 gap-x-4 text-sm">
+                  <p>
+                    <span className="text-muted-foreground">Order Placement Time: </span>
+                    {formatOrderTime(selectedOrder.createdAt)}
+                  </p>
+                  <p>
+                    <span className="text-muted-foreground">Driver: </span>
+                    {getDriverDisplayName(selectedOrder.assignedDriver)}
+                  </p>
+                </div>
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Requested Pickup Time: </span>
+                  {formatTimeAmPm(selectedOrder.pickupTime)}
                 </p>
-                <p>
-                  <span className="font-semibold">Phone:</span> {selectedOrder.phone}
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Requested Delivery Time: </span>
+                  {selectedOrder.deliveryDate
+                    ? `${new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "numeric" }).format(new Date(selectedOrder.deliveryDate + "T12:00:00"))}${selectedOrder.deliveryTime ? " " + formatTimeAmPm(selectedOrder.deliveryTime) : ""}`
+                    : "N/A"}
                 </p>
-                <p>
-                  <span className="font-semibold">Email:</span> {selectedOrder.customerEmail || "-"}
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Order Accept Time: </span>
+                  {formatOrderTime(selectedOrder.startedAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.startedAt)}
                 </p>
-                <p>
-                  <span className="font-semibold">Address:</span> {selectedOrder.address}
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Order Pickup Time: </span>
+                  {formatOrderTime(selectedOrder.pickedUpAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.pickedUpAt)}
                 </p>
-                <p>
-                  <span className="font-semibold">Amount:</span> {formatCurrency(selectedOrder.amount)}
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Order Delivery Time: </span>
+                  {formatOrderTime(selectedOrder.inTransitAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.inTransitAt)}
                 </p>
-                <p>
-                  <span className="font-semibold">Driver:</span>{" "}
-                  {getDriverDisplayName(selectedOrder.assignedDriver)}
+                <p className="text-sm">
+                  <span className="text-muted-foreground">Order Completion Time: </span>
+                  {formatOrderTime(selectedOrder.deliveredAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.deliveredAt)}
                 </p>
+                <div className="border-t pt-2 text-sm">
+                  <span className="text-muted-foreground">Delivery Instruction: </span>
+                  {selectedOrder.deliveryInstruction || "N/A"}
+                </div>
+              </div>
+
+              {/* Payment Details / Proof */}
+              <div className="rounded-md border p-3">
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div className="space-y-1">
+                    <p className="font-semibold">Payment Details</p>
+                    <p><span className="text-muted-foreground">Payment Method: </span>{selectedOrder.paymentMethod || "N/A"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold">Proof of Delivery</p>
+                    <p className="text-muted-foreground">{selectedOrder.proofOfDelivery || "N/A"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold">Proof of Pickup</p>
+                    <p className="text-muted-foreground">{selectedOrder.proofOfPickup || "N/A"}</p>
+                  </div>
+                </div>
+                <div className="border-t mt-2 pt-2 text-sm">
+                  <span className="text-muted-foreground">Delivery Note: </span>
+                  {selectedOrder.deliveryNote || "N/A"}
+                </div>
               </div>
             </>
           )}

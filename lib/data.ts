@@ -5,6 +5,7 @@ export interface OrderItem {
   name: string
   qty?: number
   price?: number
+  meta?: string
 }
 
 export interface Order {
@@ -38,6 +39,9 @@ export interface Order {
   discount?: number
   deliveryInstruction?: string
   paymentMethod?: string
+  proofOfDelivery?: string
+  proofOfPickup?: string
+  deliveryNote?: string
 
   customerRating?: number
   driverRating?: number
