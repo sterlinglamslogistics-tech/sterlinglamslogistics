@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   LogOut,
+  Bell,
   BellOff,
   HelpCircle,
 } from "lucide-react"
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useAuth } from "@/components/auth-provider"
 import { ThemeToggle } from "@/components/theme-provider"
+import { useOrderAlert } from "@/components/order-alert-provider"
 
 const navItems = [
   { label: "Dispatch", href: "/dispatch", icon: Send },
@@ -36,6 +38,7 @@ export function AppSidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const { user, logout } = useAuth()
+  const { muted, toggleMute } = useOrderAlert()
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -87,11 +90,17 @@ export function AppSidebar() {
         {/* Right side actions */}
         <div className="ml-auto flex items-center gap-2">
           <button
-            className="rounded-md p-2 text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Notifications"
-            title="Notifications"
+            onClick={toggleMute}
+            className={cn(
+              "rounded-md p-2 transition-colors",
+              muted
+                ? "text-muted-foreground hover:text-foreground"
+                : "text-foreground hover:text-primary"
+            )}
+            aria-label={muted ? "Unmute notifications" : "Mute notifications"}
+            title={muted ? "Notifications muted — click to unmute" : "Notifications on — click to mute"}
           >
-            <BellOff className="size-4" />
+            {muted ? <BellOff className="size-4" /> : <Bell className="size-4" />}
           </button>
           <button
             className="rounded-md p-2 text-muted-foreground hover:text-foreground transition-colors"
