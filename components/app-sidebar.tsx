@@ -57,8 +57,8 @@ export function AppSidebar() {
           <Image
             src="/placeholder-logo.png"
             alt="Sterlinglams"
-            width={40}
-            height={40}
+            width={80}
+            height={80}
             className="rounded-lg"
           />
         </Link>
