@@ -102,7 +102,6 @@ export default function DispatchPage() {
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<"unassigned" | "active" | "drivers">("unassigned")
 
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   /* ── Map refs ── */
   const mapElRef = useRef<HTMLDivElement | null>(null)
@@ -409,7 +408,6 @@ export default function DispatchPage() {
     if (!mapRef.current) return
     mapRef.current.panTo({ lat, lng })
     mapRef.current.setZoom(15)
-    setSidebarOpen(false)
   }
 
   /* ── Loading ── */
@@ -422,13 +420,9 @@ export default function DispatchPage() {
   }
 
   return (
-    <div className="relative flex h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="grid h-[calc(100vh-3.5rem)] gap-0 overflow-hidden lg:grid-cols-[380px_minmax(0,1fr)]">
       {/* ═══ Sidebar ═══ */}
-      <aside
-        className={`absolute inset-y-0 left-0 z-20 flex w-[380px] max-w-[85vw] flex-col border-r bg-card shadow-xl transition-transform xl:relative xl:z-auto xl:translate-x-0 xl:shadow-none ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
+      <aside className="hidden lg:flex h-full min-h-0 flex-col border-r bg-card">
         {/* header */}
         <div className="border-b px-4 py-3">
           <h1 className="text-xl font-semibold text-foreground">Live Dispatch</h1>
@@ -686,22 +680,7 @@ export default function DispatchPage() {
       </aside>
 
       {/* ═══ Map ═══ */}
-      <section className="relative h-full flex-1 overflow-hidden">
-        {/* Mobile sidebar toggle */}
-        <button
-          onClick={() => setSidebarOpen((o) => !o)}
-          className="absolute left-3 top-3 z-10 rounded-md border bg-white px-3 py-1.5 text-xs font-medium shadow-md xl:hidden dark:bg-card"
-        >
-          ☰ Orders
-        </button>
-
-        {/* Mobile backdrop */}
-        {sidebarOpen && (
-          <div
-            className="absolute inset-0 z-10 bg-black/30 xl:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
+      <section className="relative h-full overflow-hidden bg-card">
         <div ref={mapElRef} className="h-full w-full" />
 
         {/* Legend */}
