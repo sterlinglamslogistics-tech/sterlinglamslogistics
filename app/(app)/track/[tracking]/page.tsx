@@ -84,7 +84,7 @@ const HUB = {
 }
 
 function animateMarkerTo(
-  marker: google.maps.marker.AdvancedMarkerElement,
+  marker: google.maps.Marker,
   target: { lat: number; lng: number },
   frameRef: { current: number | null },
   durationMs = 900
@@ -94,12 +94,12 @@ function animateMarkerTo(
     frameRef.current = null
   }
 
-  const pos = marker.position as google.maps.LatLngLiteral | google.maps.LatLng | null
-  const fromLat = pos ? (typeof (pos as google.maps.LatLng).lat === "function" ? (pos as google.maps.LatLng).lat() : (pos as google.maps.LatLngLiteral).lat) : target.lat
-  const fromLng = pos ? (typeof (pos as google.maps.LatLng).lng === "function" ? (pos as google.maps.LatLng).lng() : (pos as google.maps.LatLngLiteral).lng) : target.lng
+  const pos = marker.getPosition()
+  const fromLat = pos ? pos.lat() : target.lat
+  const fromLng = pos ? pos.lng() : target.lng
 
   if (Math.abs(fromLat - target.lat) < 0.000001 && Math.abs(fromLng - target.lng) < 0.000001) {
-    marker.position = target
+    marker.setPosition(target)
     return
   }
 
@@ -109,7 +109,7 @@ function animateMarkerTo(
     const eased = 1 - Math.pow(1 - progress, 3)
     const lat = fromLat + (target.lat - fromLat) * eased
     const lng = fromLng + (target.lng - fromLng) * eased
-    marker.position = { lat, lng }
+    marker.setPosition({ lat, lng })
 
     if (progress < 1) {
       frameRef.current = window.requestAnimationFrame(step)
@@ -145,8 +145,8 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const activeDriverIdRef = useRef<string | null>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
-  const driverMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
-  const destinationMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const driverMarkerRef = useRef<google.maps.Marker | null>(null)
+  const destinationMarkerRef = useRef<google.maps.Marker | null>(null)
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
   const driverAnimFrameRef = useRef<number | null>(null)
   const ratingSyncRef = useRef<string | null>(null)
@@ -298,7 +298,6 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
       const map = new google.maps.Map(mapContainerRef.current, {
         center: { lat: HUB.lat, lng: HUB.lng },
         zoom: 13,
-        mapId: "tracking-map",
         disableDefaultUI: false,
         zoomControl: true,
         streetViewControl: false,
@@ -313,8 +312,8 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
 
     return () => {
       mounted = false
-      if (driverMarkerRef.current) { driverMarkerRef.current.map = null; driverMarkerRef.current = null }
-      if (destinationMarkerRef.current) { destinationMarkerRef.current.map = null; destinationMarkerRef.current = null }
+      if (driverMarkerRef.current) { driverMarkerRef.current.setMap(null); driverMarkerRef.current = null }
+      if (destinationMarkerRef.current) { destinationMarkerRef.current.setMap(null); destinationMarkerRef.current = null }
       if (directionsRendererRef.current) { directionsRendererRef.current.setMap(null); directionsRendererRef.current = null }
       if (driverAnimFrameRef.current !== null) {
         window.cancelAnimationFrame(driverAnimFrameRef.current)
@@ -350,14 +349,16 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         hasPoints = true
 
         if (!driverMarkerRef.current) {
-          const driverEl = document.createElement("div")
-          driverEl.innerHTML = `<div style="width:44px;height:44px;background:#1a1a2e;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;"><svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/><polyline points='9 22 9 12 15 12 15 22'/></svg></div>`
-
-          driverMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+          const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><circle cx="22" cy="22" r="20" fill="%231a1a2e" stroke="white" stroke-width="3"/><path d="M13 24l9-7 9 7v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 13 32z" fill="none" stroke="white" stroke-width="1.8"/><polyline points="19,33.5 19,27 25,27 25,33.5" fill="none" stroke="white" stroke-width="1.8"/></svg>`
+          driverMarkerRef.current = new google.maps.Marker({
             map,
             position: pos,
-            content: driverEl,
             title: driver.name,
+            icon: {
+              url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
+              scaledSize: new google.maps.Size(44, 44),
+              anchor: new google.maps.Point(22, 22),
+            },
           })
         } else {
           animateMarkerTo(driverMarkerRef.current, pos, driverAnimFrameRef)
@@ -367,7 +368,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
           window.cancelAnimationFrame(driverAnimFrameRef.current)
           driverAnimFrameRef.current = null
         }
-        driverMarkerRef.current.map = null
+        driverMarkerRef.current.setMap(null)
         driverMarkerRef.current = null
       }
 
@@ -377,28 +378,22 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         hasPoints = true
 
         if (!destinationMarkerRef.current) {
-          const destEl = document.createElement("div")
-          destEl.innerHTML = `<div style="width:36px;height:46px;display:flex;flex-direction:column;align-items:center;">
-  <div style="width:36px;height:36px;background:#1a1a2e;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;">
-    <svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'>
-      <path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/>
-      <circle cx='12' cy='10' r='3'/>
-    </svg>
-  </div>
-  <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:10px solid #1a1a2e;margin-top:-2px;"></div>
-</div>`
-
-          destinationMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+          const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="46"><circle cx="18" cy="18" r="16" fill="%231a1a2e" stroke="white" stroke-width="3"/><path d="M25 15c0 5-7 10-7 10s-7-5-7-10a7 7 0 0 1 14 0z" fill="none" stroke="white" stroke-width="2"/><circle cx="18" cy="15" r="2.5" fill="none" stroke="white" stroke-width="2"/><polygon points="18,44 13,36 23,36" fill="%231a1a2e"/></svg>`
+          destinationMarkerRef.current = new google.maps.Marker({
             map,
             position: destinationCoord,
-            content: destEl,
             title: "Delivery destination",
+            icon: {
+              url: `data:image/svg+xml;charset=UTF-8,${destSvg}`,
+              scaledSize: new google.maps.Size(36, 46),
+              anchor: new google.maps.Point(18, 46),
+            },
           })
         } else {
-          destinationMarkerRef.current.position = destinationCoord
+          destinationMarkerRef.current.setPosition(destinationCoord)
         }
       } else if (destinationMarkerRef.current) {
-        destinationMarkerRef.current.map = null
+        destinationMarkerRef.current.setMap(null)
         destinationMarkerRef.current = null
       }
 

@@ -15,9 +15,9 @@ export default function DriverMapPage() {
   const { session, driver, orders, isOnline, loadingSession, setDrawerOpen } = useDriver()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
-  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
-  const driverMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
-  const hubMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const markersRef = useRef<google.maps.Marker[]>([])
+  const driverMarkerRef = useRef<google.maps.Marker | null>(null)
+  const hubMarkerRef = useRef<google.maps.Marker | null>(null)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [mapReady, setMapReady] = useState(false)
 
@@ -50,20 +50,21 @@ export default function DriverMapPage() {
       const map = new google.maps.Map(mapContainerRef.current!, {
         center: { lat: hubLat, lng: hubLng },
         zoom: 13,
-        mapId: "driver-map",
         disableDefaultUI: true,
         zoomControl: true,
       })
 
       // Store / Hub marker
-      const hubEl = document.createElement("div")
-      hubEl.innerHTML = `<div style="background:#e91e8c;color:#fff;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">S</div>`
-
-      hubMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+      const hubSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="%23e91e8c" stroke="white" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="sans-serif">S</text></svg>`
+      hubMarkerRef.current = new google.maps.Marker({
         map,
         position: { lat: hubLat, lng: hubLng },
-        content: hubEl,
         title: "Sterlin Glams Store",
+        icon: {
+          url: `data:image/svg+xml;charset=UTF-8,${hubSvg}`,
+          scaledSize: new google.maps.Size(32, 32),
+          anchor: new google.maps.Point(16, 16),
+        },
       })
 
       mapRef.current = map
@@ -88,7 +89,7 @@ export default function DriverMapPage() {
 
       // Clear old markers
       for (const m of markersRef.current) {
-        m.map = null
+        m.setMap(null)
       }
       markersRef.current = []
 
@@ -111,18 +112,22 @@ export default function DriverMapPage() {
         const coords = await geocodeAddress(order.address)
         if (!coords) continue
 
-        const el = document.createElement("div")
-        if (activeOrders.length === 1) {
-          el.innerHTML = `<div style="background:#1f1f1f;color:#fff;border-radius:16px;padding:4px 10px;font-size:11px;font-weight:bold;white-space:nowrap;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${timeStr || num}</div>`
-        } else {
-          el.innerHTML = `<div style="background:#1f1f1f;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);">${num}</div>`
-        }
+        const label = activeOrders.length === 1 ? (timeStr || String(num)) : String(num)
+        const markerSvg = activeOrders.length === 1
+          ? `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="28"><rect x="1" y="1" width="58" height="26" rx="13" fill="%231f1f1f" stroke="white" stroke-width="2"/><text x="30" y="18" text-anchor="middle" fill="white" font-size="11" font-weight="bold" font-family="sans-serif">${label}</text></svg>`
+          : `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><circle cx="14" cy="14" r="12" fill="%231f1f1f" stroke="white" stroke-width="2"/><text x="14" y="18" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="sans-serif">${num}</text></svg>`
+        const iconSize = activeOrders.length === 1 ? 60 : 28
+        const iconH = activeOrders.length === 1 ? 28 : 28
 
-        const marker = new google.maps.marker.AdvancedMarkerElement({
+        const marker = new google.maps.Marker({
           map,
           position: coords,
-          content: el,
           title: `${order.orderNumber} - ${order.customerName}`,
+          icon: {
+            url: `data:image/svg+xml;charset=UTF-8,${markerSvg}`,
+            scaledSize: new google.maps.Size(iconSize, iconH),
+            anchor: new google.maps.Point(iconSize / 2, iconH / 2),
+          },
         })
 
         orderMeta.push({ order, num, time: timeStr })
@@ -135,19 +140,23 @@ export default function DriverMapPage() {
 
       // Add driver location marker
       if (driverMarkerRef.current) {
-        driverMarkerRef.current.map = null
+        driverMarkerRef.current.setMap(null)
         driverMarkerRef.current = null
       }
 
       if (driver?.lastLocation) {
-        const driverEl = document.createElement("div")
-        driverEl.innerHTML = `<div style="background:#3b82f6;border-radius:50%;width:16px;height:16px;border:3px solid #fff;box-shadow:0 0 0 3px rgba(59,130,246,.4),0 2px 6px rgba(0,0,0,.3);"></div>`
-
-        driverMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+        driverMarkerRef.current = new google.maps.Marker({
           map,
           position: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
-          content: driverEl,
           title: "Your location",
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: "#3b82f6",
+            fillOpacity: 1,
+            strokeColor: "#fff",
+            strokeWeight: 3,
+            scale: 8,
+          },
         })
       }
     }

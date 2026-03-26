@@ -20,7 +20,7 @@ export function loadGoogleMaps(): Promise<typeof google.maps> {
     }
 
     const script = document.createElement("script")
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=places,marker`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=places`
     script.async = true
     script.defer = true
     script.onload = () => resolve(window.google.maps)

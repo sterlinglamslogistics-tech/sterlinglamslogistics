@@ -29,9 +29,9 @@ export default function RoutesPage() {
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
-  const orderMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
-  const driverMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
-  const hubMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null)
+  const orderMarkersRef = useRef<google.maps.Marker[]>([])
+  const driverMarkersRef = useRef<google.maps.Marker[]>([])
+  const hubMarkerRef = useRef<google.maps.Marker | null>(null)
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
 
   useEffect(() => {
@@ -124,7 +124,6 @@ export default function RoutesPage() {
       const map = new google.maps.Map(mapContainerRef.current, {
         center: LAGOS_CENTER,
         zoom: 12,
-        mapId: "routes-map",
         disableDefaultUI: false,
         zoomControl: true,
         streetViewControl: false,
@@ -134,22 +133,16 @@ export default function RoutesPage() {
       mapRef.current = map
 
       // Hub marker
-      const hubEl = document.createElement("div")
-      hubEl.innerHTML = `<div style="width:44px;height:52px;position:relative;">
-        <div style="width:44px;height:44px;background:#374151;border-radius:9999px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,0.4);border:3px solid #fff;">
-          <svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>
-            <path d='M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/>
-            <polyline points='9 22 9 12 15 12 15 22'/>
-          </svg>
-        </div>
-        <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:10px solid #374151;"></div>
-      </div>`
-
-      hubMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+      const hubSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="52"><circle cx="22" cy="22" r="20" fill="%23374151" stroke="white" stroke-width="3"/><path d="M13 24l9-7 9 7v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 13 32z" fill="none" stroke="white" stroke-width="1.8"/><polyline points="19,33.5 19,27 25,27 25,33.5" fill="none" stroke="white" stroke-width="1.8"/><polygon points="22,50 16,40 28,40" fill="%23374151"/></svg>`
+      hubMarkerRef.current = new google.maps.Marker({
         map,
         position: HUB,
-        content: hubEl,
         title: "Store / Hub",
+        icon: {
+          url: `data:image/svg+xml;charset=UTF-8,${hubSvg}`,
+          scaledSize: new google.maps.Size(44, 52),
+          anchor: new google.maps.Point(22, 50),
+        },
       })
     }
 
@@ -157,11 +150,11 @@ export default function RoutesPage() {
 
     return () => {
       mounted = false
-      orderMarkersRef.current.forEach((m) => (m.map = null))
+      orderMarkersRef.current.forEach((m) => m.setMap(null))
       orderMarkersRef.current = []
-      driverMarkersRef.current.forEach((m) => (m.map = null))
+      driverMarkersRef.current.forEach((m) => m.setMap(null))
       driverMarkersRef.current = []
-      if (hubMarkerRef.current) hubMarkerRef.current.map = null
+      if (hubMarkerRef.current) hubMarkerRef.current.setMap(null)
       if (directionsRendererRef.current) directionsRendererRef.current.setMap(null)
       mapRef.current = null
     }
@@ -172,9 +165,9 @@ export default function RoutesPage() {
     const map = mapRef.current
     if (!map) return
 
-    orderMarkersRef.current.forEach((m) => (m.map = null))
+    orderMarkersRef.current.forEach((m) => m.setMap(null))
     orderMarkersRef.current = []
-    driverMarkersRef.current.forEach((m) => (m.map = null))
+    driverMarkersRef.current.forEach((m) => m.setMap(null))
     driverMarkersRef.current = []
     if (directionsRendererRef.current) {
       directionsRendererRef.current.setMap(null)
@@ -191,16 +184,20 @@ export default function RoutesPage() {
       const isAssigned = Boolean(order.assignedDriver)
       const isSelected = selectedOrderId === order.id
       const color = isAssigned ? "#2563eb" : "#dc2626"
-      const size = isSelected ? 18 : 14
+      const scale = isSelected ? 9 : 7
 
-      const el = document.createElement("div")
-      el.style.cssText = `width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:${isSelected ? "0 0 0 4px rgba(0,0,0,0.12)," : ""} 0 2px 8px rgba(0,0,0,0.35);cursor:pointer;`
-
-      const marker = new google.maps.marker.AdvancedMarkerElement({
+      const marker = new google.maps.Marker({
         map,
         position: coords,
-        content: el,
         title: `${order.orderNumber} - ${order.customerName}`,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: "#fff",
+          strokeWeight: 2,
+          scale,
+        },
       })
       marker.addListener("click", () => setSelectedOrderId(order.id))
       orderMarkersRef.current.push(marker)
@@ -212,16 +209,20 @@ export default function RoutesPage() {
       if (!driver.lastLocation) return
       const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
       const isSelectedDriver = Boolean(selectedDriver && selectedDriver.id === driver.id)
-      const size = isSelectedDriver ? 18 : 14
+      const scale = isSelectedDriver ? 9 : 7
 
-      const el = document.createElement("div")
-      el.style.cssText = `width:${size}px;height:${size}px;border-radius:9999px;background:#111;border:2px solid #fff;box-shadow:${isSelectedDriver ? "0 0 0 4px rgba(0,0,0,0.12)," : ""} 0 2px 8px rgba(0,0,0,0.35);`
-
-      const marker = new google.maps.marker.AdvancedMarkerElement({
+      const marker = new google.maps.Marker({
         map,
         position: pos,
-        content: el,
         title: driver.name,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: "#111",
+          fillOpacity: 1,
+          strokeColor: "#fff",
+          strokeWeight: 2,
+          scale,
+        },
       })
       driverMarkersRef.current.push(marker)
       bounds.extend(pos)
