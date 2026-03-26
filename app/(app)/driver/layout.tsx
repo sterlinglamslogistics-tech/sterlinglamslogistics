@@ -1,6 +1,5 @@
 import type { Metadata } from "next"
-import { Toaster } from "@/components/ui/toaster"
-import { DriverTabs } from "@/components/driver-tabs"
+import { DriverShell } from "@/components/driver-shell"
 
 export const metadata: Metadata = {
   title: "Sterlinglams - Driver App",
@@ -13,10 +12,8 @@ export default function DriverLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-screen bg-background pb-24">
-      <DriverTabs />
+    <DriverShell>
       {children}
-      <Toaster />
-    </div>
+    </DriverShell>
   )
 }

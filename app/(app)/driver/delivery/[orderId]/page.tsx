@@ -21,12 +21,7 @@ import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 import { notifyOrderEvent } from "@/lib/notify-client"
-
-interface DriverSession {
-  id: string
-  name: string
-  phone: string
-}
+import { useDriver } from "@/components/driver-context"
 
 export default function DeliveryCompletionPage({
   params,
@@ -35,8 +30,8 @@ export default function DeliveryCompletionPage({
 }) {
   const { orderId } = use(params)
   const router = useRouter()
+  const { session } = useDriver()
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [session, setSession] = useState<DriverSession | null>(null)
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -48,16 +43,6 @@ export default function DeliveryCompletionPage({
   const [showCamera, setShowCamera] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-
-  // Auth check
-  useEffect(() => {
-    const raw = localStorage.getItem("driverSession")
-    if (!raw) {
-      router.replace("/driver")
-      return
-    }
-    setSession(JSON.parse(raw) as DriverSession)
-  }, [router])
 
   // Load order
   useEffect(() => {

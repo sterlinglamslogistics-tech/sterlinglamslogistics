@@ -1,32 +1,25 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import {
   MapPin,
   Phone,
   Navigation,
-  CheckCircle2,
-  Clock,
-  Package,
   Loader2,
+  Menu,
+  ScanLine,
   Truck,
-  RefreshCw,
 } from "lucide-react"
-import { fetchDriverById, fetchOrdersByDriver, updateOrder, updateDriver, updateDriverLocation } from "@/lib/firestore"
+import { updateOrder, updateDriver } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 import { notifyOrderEvent } from "@/lib/notify-client"
-
-interface DriverSession {
-  id: string
-  name: string
-  phone: string
-}
+import { useDriver } from "@/components/driver-context"
+import Image from "next/image"
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -56,97 +49,35 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function DriverDashboard() {
   const router = useRouter()
-  const [session, setSession] = useState<DriverSession | null>(null)
-  const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [isAvailable, setIsAvailable] = useState(false)
-  const watchIdRef = useRef<number | null>(null)
-  const [updatingAvailability, setUpdatingAvailability] = useState(false)
+  const {
+    session,
+    driver,
+    orders,
+    isOnline,
+    loadingSession,
+    loadingOrders,
+    setDrawerOpen,
+    goOnline,
+    refreshOrders,
+  } = useDriver()
+  const [showOnlineToast, setShowOnlineToast] = useState(false)
+  const [routeModalOpen, setRouteModalOpen] = useState(false)
 
-  // Check auth on mount
+  // Redirect to login if no session
   useEffect(() => {
-    const raw = localStorage.getItem("driverSession")
-    if (!raw) {
+    if (!loadingSession && !session) {
       router.replace("/driver")
-      return
     }
-    const parsed = JSON.parse(raw) as DriverSession
-    setSession(parsed)
-  }, [router])
+  }, [loadingSession, session, router])
 
-  const loadOrders = useCallback(async () => {
-    if (!session) return
-    try {
-      const data = await fetchOrdersByDriver(session.id)
-      // show active deliveries first
-      const sorted = data.sort((a, b) => {
-        const priority: Record<string, number> = {
-          started: 0,
-          "picked-up": 1,
-          "in-transit": 2,
-          delivered: 3,
-          failed: 4,
-          cancelled: 5,
-          unassigned: 6,
-        }
-        return (priority[a.status] ?? 5) - (priority[b.status] ?? 5)
-      })
-      setOrders(sorted)
-    } catch {
-      toast({ title: "Error", description: "Failed to load deliveries.", variant: "destructive" })
-    } finally {
-      setLoading(false)
-    }
-  }, [session])
-
+  // Show "You are online" toast when going online
   useEffect(() => {
-    if (session) loadOrders()
-  }, [session, loadOrders])
-
-  useEffect(() => {
-    async function loadDriverAvailability() {
-      if (!session) return
-      const driver = await fetchDriverById(session.id)
-      if (!driver) return
-      setIsAvailable(driver.status === "available")
+    if (isOnline) {
+      setShowOnlineToast(true)
+      const timer = setTimeout(() => setShowOnlineToast(false), 3000)
+      return () => clearTimeout(timer)
     }
-    loadDriverAvailability()
-  }, [session])
-
-  // Auto-start GPS tracking as soon as the driver session is available
-  useEffect(() => {
-    if (!session) return
-    if (!navigator.geolocation) return
-    if (watchIdRef.current !== null) return // already watching
-
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        try {
-          await updateDriverLocation(session.id, pos.coords.latitude, pos.coords.longitude)
-        } catch {
-          // silently ignore location push failures
-        }
-      },
-      () => {
-        // silently ignore GPS permission/unavailable errors
-      },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-    )
-
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current)
-        watchIdRef.current = null
-      }
-    }
-  }, [session])
-
-  async function handleRefresh() {
-    setRefreshing(true)
-    await loadOrders()
-    setRefreshing(false)
-  }
+  }, [isOnline])
 
   function handleNavigate(address: string) {
     const encoded = encodeURIComponent(address)
@@ -163,9 +94,7 @@ export default function DriverDashboard() {
       const pickedUpAt = new Date()
       await updateOrder(order.id, { status: "picked-up", pickedUpAt })
       await updateDriver(session.id, { status: "on-delivery" })
-      setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: "picked-up", pickedUpAt } : o))
-      )
+      await refreshOrders()
       toast({ title: "Picked up", description: `${order.orderNumber} marked as picked up.` })
     } catch {
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
@@ -177,9 +106,7 @@ export default function DriverDashboard() {
     try {
       const inTransitAt = new Date()
       await updateOrder(order.id, { status: "in-transit", inTransitAt })
-      setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: "in-transit", inTransitAt } : o))
-      )
+      await refreshOrders()
       notifyOrderEvent("out_for_delivery", {
         orderId: order.id,
         orderNumber: order.orderNumber,
@@ -196,200 +123,217 @@ export default function DriverDashboard() {
     }
   }
 
-  async function handleMarkDelivered(order: Order) {
-    router.push(`/driver/delivery/${order.id}`)
-  }
-
-  async function handleAvailabilityToggle(checked: boolean) {
-    if (!session) return
-    setUpdatingAvailability(true)
-    try {
-      await updateDriver(session.id, { status: checked ? "available" : "offline" })
-      setIsAvailable(checked)
-      toast({
-        title: checked ? "You are now available" : "You are now offline",
-        description: checked
-          ? "Dispatch can now assign deliveries to you."
-          : "You will not appear in available driver list.",
-      })
-    } catch {
-      toast({ title: "Error", description: "Failed to update availability.", variant: "destructive" })
-    } finally {
-      setUpdatingAvailability(false)
-    }
+  function handleViewOrder(order: Order) {
+    router.push(`/driver/order/${order.id}`)
   }
 
   const activeOrders = orders.filter(
     (o) => o.status === "started" || o.status === "picked-up" || o.status === "in-transit"
   )
-  const completedOrders = orders.filter((o) => o.status === "delivered")
-  const hasTransitOrder = orders.some((o) => o.status === "in-transit")
 
-  if (!session) return null
+  if (loadingSession || !session) return null
 
+  // Offline state - Welcome screen (Screenshot 1)
+  if (!isOnline) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center px-6">
+        <div className="mb-6 flex h-28 w-28 items-center justify-center rounded-full bg-green-100 text-4xl font-bold text-green-700">
+          {driver?.name?.charAt(0)?.toUpperCase() ?? "D"}
+        </div>
+        <h1 className="mb-1 text-2xl font-bold">
+          Hello, {driver?.name?.split(" ")[0]?.toLowerCase() ?? "driver"}
+        </h1>
+        <p className="mb-2 text-sm text-muted-foreground">Welcome back</p>
+        <p className="mb-8 text-center text-sm text-muted-foreground">
+          Start taking orders
+        </p>
+        <button
+          type="button"
+          onClick={goOnline}
+          className="rounded-full bg-green-600 px-16 py-4 text-base font-semibold text-white shadow-lg hover:bg-green-700 active:scale-95 transition-transform"
+        >
+          Go Online
+        </button>
+      </div>
+    )
+  }
+
+  // Online state - Orders list (Screenshot 2)
   return (
     <div className="mx-auto max-w-md px-4 pb-8">
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center justify-between bg-background py-4">
+      <div className="sticky top-0 z-40 flex items-center justify-between bg-background py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-            <Truck className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold">{session.name}</h1>
-            <p className="text-xs text-muted-foreground">Driver</p>
-          </div>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="rounded-lg p-1.5 hover:bg-muted"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <h1 className="text-lg font-bold">Orders</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing}>
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          </Button>
-        </div>
-      </div>
-
-      {/* Availability Toggle */}
-      <div className="mb-4 flex items-center justify-between rounded-xl border bg-card px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold">Availability</p>
-          <p className="text-xs text-muted-foreground">
-            {hasTransitOrder
-              ? "Unavailable while delivery is in transit"
-              : isAvailable
-                ? "Visible to dispatch"
-                : "Hidden from dispatch"}
-          </p>
-        </div>
-        <Switch
-          checked={isAvailable}
-          disabled={updatingAvailability || hasTransitOrder}
-          onCheckedChange={handleAvailabilityToggle}
-          aria-label="Toggle availability"
-        />
-      </div>
-
-      {/* Stats */}
-      <div className="mb-6 grid grid-cols-3 gap-3">
-        <div className="rounded-xl border bg-card p-3 text-center">
-          <Package className="mx-auto mb-1 h-5 w-5 text-blue-500" />
-          <p className="text-2xl font-bold">{activeOrders.length}</p>
-          <p className="text-xs text-muted-foreground">Active</p>
-        </div>
-        <div className="rounded-xl border bg-card p-3 text-center">
-          <CheckCircle2 className="mx-auto mb-1 h-5 w-5 text-green-500" />
-          <p className="text-2xl font-bold">{completedOrders.length}</p>
-          <p className="text-xs text-muted-foreground">Delivered</p>
-        </div>
-        <div className="rounded-xl border bg-card p-3 text-center">
-          <Clock className="mx-auto mb-1 h-5 w-5 text-orange-500" />
-          <p className="text-2xl font-bold">{orders.length}</p>
-          <p className="text-xs text-muted-foreground">Total</p>
+        <div className="flex items-center gap-1">
+          {activeOrders.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setRouteModalOpen(true)}
+              className="rounded-lg p-2 hover:bg-muted"
+              title="Route Options"
+            >
+              <Navigation className="h-5 w-5" />
+            </button>
+          )}
+          <button type="button" className="rounded-lg p-2 hover:bg-muted">
+            <ScanLine className="h-5 w-5" />
+          </button>
         </div>
       </div>
 
-      {/* Active Deliveries */}
-      <div className="mb-6">
-        <h2 className="mb-3 text-lg font-semibold">Active Deliveries</h2>
-        {loading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : activeOrders.length === 0 ? (
-          <div className="rounded-xl border border-dashed bg-card p-8 text-center">
-            <Package className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No active deliveries</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {activeOrders.map((order) => (
-              <div key={order.id} className="rounded-xl border bg-card p-4 shadow-sm">
-                <div className="mb-2 flex items-start justify-between">
-                  <div>
+      {/* Online toast notification */}
+      {showOnlineToast && (
+        <div className="mb-3 rounded-xl bg-green-600 px-4 py-2.5 text-center text-sm font-medium text-white shadow-lg animate-in fade-in slide-in-from-top-2">
+          You are online and accepting orders
+        </div>
+      )}
+
+      {/* Orders list */}
+      {loadingOrders ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : activeOrders.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Truck className="mb-3 h-12 w-12 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">No active orders</p>
+          <p className="text-xs text-muted-foreground">New orders will appear here</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {activeOrders.map((order) => (
+            <div
+              key={order.id}
+              className="rounded-xl border bg-card p-4 shadow-sm"
+            >
+              <div className="mb-2 flex items-start justify-between">
+                <div className="flex-1" onClick={() => handleViewOrder(order)}>
+                  <div className="flex items-center gap-2">
                     <p className="font-semibold">{order.orderNumber}</p>
-                    <p className="text-sm text-muted-foreground">{order.customerName}</p>
+                    <StatusBadge status={order.status} />
                   </div>
-                  <StatusBadge status={order.status} />
+                  <p className="text-sm text-muted-foreground">{order.customerName}</p>
                 </div>
-
-                <div className="mb-3 space-y-1">
-                  <div className="flex items-start gap-2 text-sm">
-                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span>{order.address}</span>
+                {order.status !== "started" && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleNavigate(order.address)}
+                      className="rounded-lg p-1.5 hover:bg-muted"
+                    >
+                      <Navigation className="h-4 w-4 text-blue-600" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCall(order.phone)}
+                      className="rounded-lg p-1.5 hover:bg-muted"
+                    >
+                      <Phone className="h-4 w-4 text-green-600" />
+                    </button>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span>{order.phone}</span>
-                  </div>
-                  <p className="text-sm font-medium">{formatCurrency(order.amount)}</p>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => handleNavigate(order.address)}
-                  >
-                    <Navigation className="mr-1 h-3 w-3" /> Navigate
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => handleCall(order.phone)}
-                  >
-                    <Phone className="mr-1 h-3 w-3" /> Call
-                  </Button>
-                </div>
-
-                <div className="mt-2">
-                  {order.status === "started" ? (
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => handleMarkPickedUp(order)}
-                    >
-                      <Truck className="mr-1 h-3 w-3" /> Mark as Picked Up
-                    </Button>
-                  ) : order.status === "picked-up" ? (
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => handleMarkOnTheWay(order)}
-                    >
-                      <Navigation className="mr-1 h-3 w-3" /> Mark as On the Way
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="w-full bg-green-600 hover:bg-green-700"
-                      onClick={() => handleMarkDelivered(order)}
-                    >
-                      <CheckCircle2 className="mr-1 h-3 w-3" /> Delivered
-                    </Button>
-                  )}
-                </div>
+                )}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
 
-      {/* Completed Deliveries */}
-      {completedOrders.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-lg font-semibold">Completed</h2>
-          <div className="space-y-2">
-            {completedOrders.map((order) => (
-              <div key={order.id} className="flex items-center justify-between rounded-xl border bg-card p-3 opacity-75">
-                <div>
-                  <p className="text-sm font-medium">{order.orderNumber}</p>
-                  <p className="text-xs text-muted-foreground">{order.customerName}</p>
-                </div>
-                <StatusBadge status={order.status} />
+              <div className="mb-3 flex items-start gap-2 text-sm text-muted-foreground">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{order.address}</span>
               </div>
-            ))}
-          </div>
+
+              {/* Action button */}
+              {order.status === "started" && (
+                <button
+                  type="button"
+                  onClick={() => handleMarkPickedUp(order)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white hover:bg-orange-600 active:scale-[0.98] transition-transform"
+                >
+                  Mark as Picked Up
+                  <span className="text-base">→</span>
+                </button>
+              )}
+              {order.status === "picked-up" && (
+                <button
+                  type="button"
+                  onClick={() => handleMarkOnTheWay(order)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 active:scale-[0.98] transition-transform"
+                >
+                  Mark as On the Way
+                  <span className="text-base">→</span>
+                </button>
+              )}
+              {order.status === "in-transit" && (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/driver/delivery/${order.id}`)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700 active:scale-[0.98] transition-transform"
+                >
+                  Complete Delivery
+                  <span className="text-base">→</span>
+                </button>
+              )}
+            </div>
+          ))}
         </div>
+      )}
+
+      {/* Route Options Modal (Screenshot 4) */}
+      {routeModalOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50"
+            onClick={() => setRouteModalOpen(false)}
+          />
+          <div className="fixed inset-x-4 top-1/2 z-50 mx-auto max-w-sm -translate-y-1/2 rounded-2xl border-2 border-yellow-400 bg-background p-6 shadow-2xl">
+            <h3 className="mb-5 text-center text-lg font-bold">Route Options</h3>
+            <div className="space-y-3">
+              <button
+                type="button"
+                className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+                onClick={() => {
+                  toast({ title: "Picking up all orders..." })
+                  setRouteModalOpen(false)
+                }}
+              >
+                Pick Up all orders
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+                onClick={() => {
+                  toast({ title: "Route optimized" })
+                  setRouteModalOpen(false)
+                }}
+              >
+                Optimize Route
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+                onClick={() => {
+                  toast({ title: "Customers notified" })
+                  setRouteModalOpen(false)
+                }}
+              >
+                Notify Customers
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-xl border-2 border-muted-foreground/30 py-3 text-sm font-semibold text-muted-foreground hover:bg-muted"
+                onClick={() => setRouteModalOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

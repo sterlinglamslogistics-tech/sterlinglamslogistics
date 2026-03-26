@@ -2,33 +2,38 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, Loader2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Loader2, Package } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { fetchOrdersByDriver } from "@/lib/firestore"
 import type { Order } from "@/lib/data"
 import { formatCurrency } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
+import { useDriver } from "@/components/driver-context"
+import { cn } from "@/lib/utils"
 
-interface DriverSession {
-  id: string
-  name: string
-  phone: string
+function isToday(date: unknown): boolean {
+  if (!date) return false
+  const d = date instanceof Date ? date : new Date(date as string)
+  if (Number.isNaN(d.getTime())) return false
+  const now = new Date()
+  return d.toDateString() === now.toDateString()
+}
+
+function isYesterday(date: unknown): boolean {
+  if (!date) return false
+  const d = date instanceof Date ? date : new Date(date as string)
+  if (Number.isNaN(d.getTime())) return false
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  return d.toDateString() === yesterday.toDateString()
 }
 
 export default function DriverCompletedOrdersPage() {
   const router = useRouter()
-  const [session, setSession] = useState<DriverSession | null>(null)
+  const { session } = useDriver()
   const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState<Order[]>([])
-
-  useEffect(() => {
-    const raw = localStorage.getItem("driverSession")
-    if (!raw) {
-      router.replace("/driver")
-      return
-    }
-    setSession(JSON.parse(raw) as DriverSession)
-  }, [router])
+  const [tab, setTab] = useState<"today" | "yesterday">("today")
 
   useEffect(() => {
     async function loadCompletedOrders() {
@@ -39,8 +44,8 @@ export default function DriverCompletedOrdersPage() {
         const completed = allOrders
           .filter((order) => order.status === "delivered")
           .sort((a, b) => {
-            const aTime = a.deliveredAt ? new Date(a.deliveredAt as unknown as string).getTime() : 0
-            const bTime = b.deliveredAt ? new Date(b.deliveredAt as unknown as string).getTime() : 0
+            const aTime = a.deliveredAt ? new Date(a.deliveredAt as string).getTime() : 0
+            const bTime = b.deliveredAt ? new Date(b.deliveredAt as string).getTime() : 0
             return bTime - aTime
           })
         setOrders(completed)
@@ -54,27 +59,63 @@ export default function DriverCompletedOrdersPage() {
     loadCompletedOrders()
   }, [session])
 
-  if (!session) return null
+  const todayOrders = orders.filter((o) => isToday(o.deliveredAt))
+  const yesterdayOrders = orders.filter((o) => isYesterday(o.deliveredAt))
+  const displayedOrders = tab === "today" ? todayOrders : yesterdayOrders
 
   return (
-    <div className="mx-auto max-w-md px-4 pb-8 pt-4">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold">Completed Orders</h1>
-        <p className="text-sm text-muted-foreground">All successfully delivered orders.</p>
+    <div className="mx-auto max-w-md px-4 pb-8">
+      {/* Header */}
+      <div className="sticky top-0 z-40 flex items-center gap-3 bg-background py-3">
+        <button
+          type="button"
+          onClick={() => router.back()}
+          className="rounded-lg p-1.5 hover:bg-muted"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <h1 className="text-lg font-bold">Completed Orders</h1>
       </div>
 
+      {/* Tabs */}
+      <div className="mb-4 flex rounded-xl border bg-muted/50 p-1">
+        <button
+          type="button"
+          onClick={() => setTab("today")}
+          className={cn(
+            "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
+            tab === "today" ? "bg-background shadow-sm" : "text-muted-foreground"
+          )}
+        >
+          Today ({todayOrders.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("yesterday")}
+          className={cn(
+            "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
+            tab === "yesterday" ? "bg-background shadow-sm" : "text-muted-foreground"
+          )}
+        >
+          Yesterday ({yesterdayOrders.length})
+        </button>
+      </div>
+
+      {/* Orders list */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
-      ) : orders.length === 0 ? (
-        <div className="rounded-xl border border-dashed bg-card p-8 text-center">
-          <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No completed orders yet.</p>
+      ) : displayedOrders.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Package className="mb-3 h-16 w-16 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">
+            There are currently no finished orders
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {orders.map((order) => (
+          {displayedOrders.map((order) => (
             <div key={order.id} className="rounded-xl border bg-card p-4">
               <div className="mb-2 flex items-start justify-between">
                 <div>
@@ -85,7 +126,6 @@ export default function DriverCompletedOrdersPage() {
                   Delivered
                 </Badge>
               </div>
-
               <p className="text-sm text-muted-foreground">{order.address}</p>
               <p className="mt-1 text-sm font-medium">{formatCurrency(order.amount)}</p>
             </div>
