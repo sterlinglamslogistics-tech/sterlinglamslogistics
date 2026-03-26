@@ -19,7 +19,7 @@ import {
   HelpCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useAuth } from "@/components/auth-provider"
 import { ThemeToggle } from "@/components/theme-provider"
 import { useOrderAlert } from "@/components/order-alert-provider"
@@ -36,8 +36,22 @@ const navItems = [
 export function AppSidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
   const { user, logout } = useAuth()
   const { muted, toggleMute } = useOrderAlert()
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false)
+      }
+    }
+    if (profileOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [profileOpen])
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -110,32 +124,36 @@ export function AppSidebar() {
           </button>
           <ThemeToggle />
           {/* User avatar with dropdown */}
-          <div className="relative group">
+          <div className="relative" ref={profileRef}>
             <button
+              onClick={() => setProfileOpen((v) => !v)}
               className="flex size-8 items-center justify-center rounded-full bg-emerald-500 text-xs font-semibold text-white"
               aria-label="Account menu"
             >
               {user?.email ? user.email[0].toUpperCase() : "A"}
             </button>
-            <div className="absolute right-0 top-full mt-1 hidden w-48 rounded-md border bg-popover p-1 shadow-lg group-hover:block">
+            {profileOpen && (
+            <div className="absolute right-0 top-full mt-1 w-48 rounded-md border bg-popover p-1 shadow-lg">
               <p className="truncate px-3 py-1.5 text-xs text-muted-foreground">
                 {user?.email ?? "admin@sterlinglams.com"}
               </p>
               <Link
                 href="/settings"
+                onClick={() => setProfileOpen(false)}
                 className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-foreground hover:bg-accent"
               >
                 <Settings className="size-3.5" />
                 Settings
               </Link>
               <button
-                onClick={logout}
+                onClick={() => { setProfileOpen(false); logout() }}
                 className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-destructive hover:bg-accent"
               >
                 <LogOut className="size-3.5" />
                 Sign out
               </button>
             </div>
+            )}
           </div>
         </div>
       </div>
