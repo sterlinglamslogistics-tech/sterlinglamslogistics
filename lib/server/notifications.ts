@@ -206,7 +206,7 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #f0d6e2;box-shadow:0 18px 50px rgba(233,30,140,.08);">
         <tr>
           <td style="padding:32px 32px 20px;text-align:center;background:linear-gradient(180deg,#fff7fb 0%,#ffffff 100%);">
-            <img src="${logoUrl}" alt="Sterlin Glams Logistics" width="124" height="124" style="display:block;margin:0 auto 16px;max-width:124px;height:auto;" />
+            <img src="${logoUrl}" alt="Sterlin Glams Logistics" width="124" height="124" style="display:block;margin:0 auto 16px;max-width:124px;height:auto;border:0;outline:none;text-decoration:none;" />
   `
 
   const summaryCard = `
@@ -403,7 +403,7 @@ async function sendEmailNotification(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from,
+      from: `Sterlin Glams <${from}>`,
       to,
       subject,
       text: body,
