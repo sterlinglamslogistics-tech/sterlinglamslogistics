@@ -18,6 +18,27 @@ export interface Order {
   status: OrderStatus
   assignedDriver: string | null
   items?: OrderItem[]
+
+  // Pick-up From
+  pickupName?: string
+  pickupPhone?: string
+  pickupAddress?: string
+  pickupTime?: string
+
+  // Deliver to scheduling
+  deliveryDate?: string
+  deliveryTime?: string
+
+  // Order Details (optional)
+  subtotal?: number
+  taxRate?: number
+  tax?: number
+  deliveryFees?: number
+  deliveryTips?: number
+  discount?: number
+  deliveryInstruction?: string
+  paymentMethod?: string
+
   customerRating?: number
   driverRating?: number
   customerFeedback?: string

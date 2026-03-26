@@ -62,16 +62,40 @@ function mapWooOrder(wc: WooOrder) {
     price: Number(li.total) || 0,
   }))
 
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0)
+  const total = Number(wc.total) || subtotal
+  const shippingTotal = Number(wc.shipping_total) || 0
+  const discountTotal = Number(wc.discount_total) || 0
+
+  const now = new Date()
+
   return {
     orderNumber: `WC-${wc.id}`,
+    // Pick-up defaults
+    pickupName: "Sterlin Glams",
+    pickupPhone: "+234 9160009893",
+    pickupAddress: "Sterlin Glams – Ikota Ajah Lagos",
+    pickupTime: now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+    // Deliver to
     customerName,
     phone: shipping.phone || wc.billing?.phone || "",
     customerEmail: wc.billing?.email || null,
     address: addressParts.join(", ") || "No address provided",
-    amount: Number(wc.total) || 0,
+    deliveryDate: now.toISOString().split("T")[0],
+    deliveryTime: "",
+    // Order details
+    items,
+    subtotal,
+    taxRate: 0,
+    tax: 0,
+    deliveryFees: shippingTotal,
+    deliveryTips: 0,
+    discount: discountTotal,
+    amount: total,
+    deliveryInstruction: wc.customer_note ?? "",
+    paymentMethod: wc.payment_method_title ?? "",
     status: "unassigned" as const,
     assignedDriver: null,
-    items,
   }
 }
 
@@ -99,6 +123,10 @@ interface WooOrder {
   id: number
   status?: string
   total?: string
+  shipping_total?: string
+  discount_total?: string
+  customer_note?: string
+  payment_method_title?: string
   billing?: WooAddress
   shipping?: WooAddress
   line_items?: WooLineItem[]

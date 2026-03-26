@@ -62,6 +62,12 @@ const UNASSIGNED_DRIVER = "unassigned" as const
 
 const orderFormSchema = z.object({
   orderNumber: z.string().min(1, "Order number is required"),
+  // Pick-up From
+  pickupName: z.string().min(1, "Pickup name is required"),
+  pickupPhone: z.string().min(1, "Pickup phone is required"),
+  pickupAddress: z.string().min(1, "Pickup address is required"),
+  pickupTime: z.string().min(1, "Pickup time is required"),
+  // Deliver to
   customerName: z.string().min(1, "Customer name is required"),
   phone: z.string().min(1, "Phone number is required"),
   customerEmail: z
@@ -71,7 +77,20 @@ const orderFormSchema = z.object({
     .optional()
     .or(z.literal("")),
   address: z.string().min(1, "Address is required"),
-  amount: z.number().min(0, "Amount must be positive"),
+  deliveryDate: z.string().min(1, "Delivery date is required"),
+  deliveryTime: z.string().min(1, "Delivery time is required"),
+  // Order details
+  items: z.array(z.object({
+    name: z.string(),
+    price: z.number(),
+    qty: z.number(),
+  })).optional(),
+  taxRate: z.number().optional(),
+  deliveryFees: z.number().optional(),
+  deliveryTips: z.number().optional(),
+  discount: z.number().optional(),
+  deliveryInstruction: z.string().optional(),
+  paymentMethod: z.string().optional(),
   assignedDriver: z.string().optional(),
 })
 
@@ -130,11 +149,23 @@ export default function OrdersPage() {
     resolver: zodResolver(orderFormSchema),
     defaultValues: {
       orderNumber: "",
+      pickupName: "Sterlin Glams",
+      pickupPhone: "+234 9160009893",
+      pickupAddress: "Sterlin Glams – Ikota Ajah Lagos",
+      pickupTime: "",
       customerName: "",
       phone: "",
       customerEmail: "",
       address: "",
-      amount: 0,
+      deliveryDate: new Date().toISOString().split("T")[0],
+      deliveryTime: "",
+      items: [{ name: "", price: 0, qty: 1 }],
+      taxRate: 0,
+      deliveryFees: 0,
+      deliveryTips: 0,
+      discount: 0,
+      deliveryInstruction: "",
+      paymentMethod: "",
       assignedDriver: "",
     },
   })
@@ -238,11 +269,23 @@ export default function OrdersPage() {
     setEditingOrder(null)
     form.reset({
       orderNumber: "",
+      pickupName: "Sterlin Glams",
+      pickupPhone: "+234 9160009893",
+      pickupAddress: "Sterlin Glams – Ikota Ajah Lagos",
+      pickupTime: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
       customerName: "",
       phone: "",
       customerEmail: "",
       address: "",
-      amount: 0,
+      deliveryDate: new Date().toISOString().split("T")[0],
+      deliveryTime: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+      items: [{ name: "", price: 0, qty: 1 }],
+      taxRate: 0,
+      deliveryFees: 0,
+      deliveryTips: 0,
+      discount: 0,
+      deliveryInstruction: "",
+      paymentMethod: "",
       assignedDriver: UNASSIGNED_DRIVER,
     })
     setAddressSuggestions([])
@@ -254,11 +297,23 @@ export default function OrdersPage() {
     setEditingOrder(order)
     form.reset({
       orderNumber: order.orderNumber,
+      pickupName: order.pickupName ?? "Sterlin Glams",
+      pickupPhone: order.pickupPhone ?? "+234 9160009893",
+      pickupAddress: order.pickupAddress ?? "Sterlin Glams – Ikota Ajah Lagos",
+      pickupTime: order.pickupTime ?? "",
       customerName: order.customerName,
       phone: order.phone,
       customerEmail: order.customerEmail ?? "",
       address: order.address,
-      amount: order.amount,
+      deliveryDate: order.deliveryDate ?? "",
+      deliveryTime: order.deliveryTime ?? "",
+      items: order.items?.length ? order.items.map(i => ({ name: i.name, price: i.price ?? 0, qty: i.qty ?? 1 })) : [{ name: "", price: 0, qty: 1 }],
+      taxRate: order.taxRate ?? 0,
+      deliveryFees: order.deliveryFees ?? 0,
+      deliveryTips: order.deliveryTips ?? 0,
+      discount: order.discount ?? 0,
+      deliveryInstruction: order.deliveryInstruction ?? "",
+      paymentMethod: order.paymentMethod ?? "",
       assignedDriver: order.assignedDriver ?? UNASSIGNED_DRIVER,
     })
     setAddressSuggestions([])
@@ -285,9 +340,22 @@ export default function OrdersPage() {
     }
   }
 
+  function computeTotals(data: OrderFormData) {
+    const validItems = (data.items ?? []).filter(i => i.name.trim())
+    const subtotal = validItems.reduce((s, i) => s + (i.price * i.qty), 0)
+    const taxRate = data.taxRate ?? 0
+    const tax = Math.round(subtotal * taxRate) / 100
+    const deliveryFees = data.deliveryFees ?? 0
+    const deliveryTips = data.deliveryTips ?? 0
+    const discount = data.discount ?? 0
+    const total = subtotal + tax + deliveryFees + deliveryTips - discount
+    return { subtotal, tax, total: Math.max(total, 0), validItems }
+  }
+
   async function onSubmit(data: OrderFormData) {
     try {
       setIsSaving(true)
+      const { subtotal, tax, total, validItems } = computeTotals(data)
 
       if (editingOrder) {
         // Update existing order
@@ -300,11 +368,26 @@ export default function OrdersPage() {
 
         await updateOrder(editingOrder.id, {
           orderNumber: data.orderNumber,
+          pickupName: data.pickupName,
+          pickupPhone: data.pickupPhone,
+          pickupAddress: data.pickupAddress,
+          pickupTime: data.pickupTime,
           customerName: data.customerName,
           phone: data.phone,
           customerEmail: normalizedCustomerEmail,
           address: data.address,
-          amount: data.amount,
+          deliveryDate: data.deliveryDate,
+          deliveryTime: data.deliveryTime,
+          items: validItems,
+          subtotal,
+          taxRate: data.taxRate ?? 0,
+          tax,
+          deliveryFees: data.deliveryFees ?? 0,
+          deliveryTips: data.deliveryTips ?? 0,
+          discount: data.discount ?? 0,
+          amount: total,
+          deliveryInstruction: data.deliveryInstruction ?? "",
+          paymentMethod: data.paymentMethod ?? "",
           assignedDriver: nextAssignedDriver,
           status: nextStatus,
         })
@@ -315,11 +398,26 @@ export default function OrdersPage() {
               ? {
                   ...order,
                   orderNumber: data.orderNumber,
+                  pickupName: data.pickupName,
+                  pickupPhone: data.pickupPhone,
+                  pickupAddress: data.pickupAddress,
+                  pickupTime: data.pickupTime,
                   customerName: data.customerName,
                   phone: data.phone,
                   customerEmail: normalizedCustomerEmail,
                   address: data.address,
-                  amount: data.amount,
+                  deliveryDate: data.deliveryDate,
+                  deliveryTime: data.deliveryTime,
+                  items: validItems,
+                  subtotal,
+                  taxRate: data.taxRate ?? 0,
+                  tax,
+                  deliveryFees: data.deliveryFees ?? 0,
+                  deliveryTips: data.deliveryTips ?? 0,
+                  discount: data.discount ?? 0,
+                  amount: total,
+                  deliveryInstruction: data.deliveryInstruction ?? "",
+                  paymentMethod: data.paymentMethod ?? "",
                   assignedDriver: nextAssignedDriver,
                   status: nextStatus,
                 }
@@ -338,14 +436,28 @@ export default function OrdersPage() {
 
         const orderId = await createOrder({
           orderNumber: data.orderNumber,
+          pickupName: data.pickupName,
+          pickupPhone: data.pickupPhone,
+          pickupAddress: data.pickupAddress,
+          pickupTime: data.pickupTime,
           customerName: data.customerName,
           phone: data.phone,
           customerEmail: normalizedCustomerEmail,
           address: data.address,
-          amount: data.amount,
+          deliveryDate: data.deliveryDate,
+          deliveryTime: data.deliveryTime,
+          items: validItems,
+          subtotal,
+          taxRate: data.taxRate ?? 0,
+          tax,
+          deliveryFees: data.deliveryFees ?? 0,
+          deliveryTips: data.deliveryTips ?? 0,
+          discount: data.discount ?? 0,
+          amount: total,
+          deliveryInstruction: data.deliveryInstruction ?? "",
+          paymentMethod: data.paymentMethod ?? "",
           status: initialStatus,
           assignedDriver: assignedDriverValue,
-
         })
         console.log("Created order with ID", orderId)
         toast({ title: "Order created" })
@@ -353,11 +465,26 @@ export default function OrdersPage() {
         const newOrder: Order = {
           id: orderId,
           orderNumber: data.orderNumber,
+          pickupName: data.pickupName,
+          pickupPhone: data.pickupPhone,
+          pickupAddress: data.pickupAddress,
+          pickupTime: data.pickupTime,
           customerName: data.customerName,
           phone: data.phone,
           customerEmail: normalizedCustomerEmail,
           address: data.address,
-          amount: data.amount,
+          deliveryDate: data.deliveryDate,
+          deliveryTime: data.deliveryTime,
+          items: validItems,
+          subtotal,
+          taxRate: data.taxRate ?? 0,
+          tax,
+          deliveryFees: data.deliveryFees ?? 0,
+          deliveryTips: data.deliveryTips ?? 0,
+          discount: data.discount ?? 0,
+          amount: total,
+          deliveryInstruction: data.deliveryInstruction ?? "",
+          paymentMethod: data.paymentMethod ?? "",
           status: initialStatus,
           assignedDriver: assignedDriverValue,
           createdAt: new Date(),
@@ -712,194 +839,318 @@ export default function OrdersPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setAddressSuggestions([]); setAddressPreviewCoord(null) } }}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingOrder ? "Edit Order" : "Create New Order"}
+            <DialogTitle className="text-center text-xl">
+              {editingOrder ? "Edit Order" : "New Order"}
             </DialogTitle>
-            <DialogDescription>
-              {editingOrder
-                ? "Make changes to the order details below."
-                : "Fill in the details to create a new order."}
+            <DialogDescription className="sr-only">
+              {editingOrder ? "Edit order details" : "Create a new order"}
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="orderNumber"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Order Number</FormLabel>
-                    <FormControl>
-                      <Input placeholder="ORD-001" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="customerName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Customer Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="John Doe" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="phone"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Phone</FormLabel>
-                    <FormControl>
-                      <Input placeholder="+1 (555) 123-4567" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="customerEmail"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email (Optional)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="customer@example.com" type="email" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Address</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          autoComplete="off"
-                          placeholder="Start typing an address…"
-                          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          value={field.value}
+            <form onSubmit={form.handleSubmit(onSubmit)}>
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* ─── Left Column ─── */}
+                <div className="space-y-5">
+                  {/* Order Number */}
+                  <FormField control={form.control} name="orderNumber" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Order Number: <span className="text-destructive">*</span></FormLabel>
+                      <FormControl><Input placeholder="Enter order number" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  {/* Pick-up From */}
+                  <fieldset className="space-y-3">
+                    <legend className="text-sm font-semibold">Pick-up From:</legend>
+                    <FormField control={form.control} name="pickupName" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name: <span className="text-destructive">*</span></FormLabel>
+                        <FormControl><Input placeholder="Enter pickup name" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="pickupPhone" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone No: <span className="text-destructive">*</span></FormLabel>
+                        <FormControl><Input placeholder="+234 000-000-0000" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="pickupAddress" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Address: <span className="text-destructive">*</span></FormLabel>
+                        <FormControl><Input placeholder="Enter pickup address" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="pickupTime" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Pickup Time: <span className="text-destructive">*</span></FormLabel>
+                        <FormControl><Input type="time" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </fieldset>
+
+                  {/* Deliver to */}
+                  <fieldset className="space-y-3">
+                    <legend className="text-sm font-semibold">Deliver to:</legend>
+                    <FormField control={form.control} name="customerName" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Name: <span className="text-destructive">*</span></FormLabel>
+                        <FormControl><Input placeholder="Enter customer name" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="phone" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone No: <span className="text-destructive">*</span></FormLabel>
+                        <FormControl><Input placeholder="+234 000-000-0000" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="customerEmail" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email:</FormLabel>
+                        <FormControl><Input placeholder="Enter an email" type="email" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="address" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Address: <span className="text-destructive">*</span></FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              autoComplete="off"
+                              placeholder="Enter a location"
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              value={field.value}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                field.onChange(val)
+                                setAddressPreviewCoord(null)
+                                if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
+                                if (val.trim().length < 3) { setAddressSuggestions([]); return }
+                                addressDebounceRef.current = setTimeout(async () => {
+                                  setAddressSearching(true)
+                                  try {
+                                    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=${encodeURIComponent(val)}&countrycodes=ng`
+                                    const res = await fetch(url, { headers: { Accept: "application/json" } })
+                                    if (res.ok) {
+                                      const data = (await res.json()) as Array<{ display_name: string; lat: string; lon: string }>
+                                      setAddressSuggestions(data)
+                                    }
+                                  } catch { /* ignore */ }
+                                  setAddressSearching(false)
+                                }, 400)
+                              }}
+                            />
+                            {(addressSearching || addressSuggestions.length > 0) && (
+                              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-md border bg-popover shadow-lg">
+                                {addressSearching && (
+                                  <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
+                                )}
+                                {addressSuggestions.map((s, i) => (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+                                    onClick={() => {
+                                      field.onChange(s.display_name)
+                                      setAddressSuggestions([])
+                                      setAddressPreviewCoord({ lat: Number(s.lat), lng: Number(s.lon) })
+                                    }}
+                                  >
+                                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="line-clamp-2">{s.display_name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={form.control} name="deliveryDate" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Delivery Date: <span className="text-destructive">*</span></FormLabel>
+                          <FormControl><Input type="date" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="deliveryTime" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Delivery Time: <span className="text-destructive">*</span></FormLabel>
+                          <FormControl><Input type="time" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+                  </fieldset>
+                </div>
+
+                {/* ─── Right Column: Order Details ─── */}
+                <div className="space-y-4">
+                  <p className="text-sm font-semibold">Order Details <span className="text-muted-foreground font-normal">(Optional)</span></p>
+
+                  {/* Items */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">Items:</p>
+                    {(form.watch("items") ?? []).map((_, idx) => (
+                      <div key={idx} className="grid grid-cols-[1fr_80px_60px_28px] gap-1 items-end">
+                        <Input
+                          placeholder="Name"
+                          value={form.watch(`items.${idx}.name`)}
                           onChange={(e) => {
-                            const val = e.target.value
-                            field.onChange(val)
-                            setAddressPreviewCoord(null)
-                            if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current)
-                            if (val.trim().length < 3) { setAddressSuggestions([]); return }
-                            addressDebounceRef.current = setTimeout(async () => {
-                              setAddressSearching(true)
-                              try {
-                                const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=${encodeURIComponent(val)}&countrycodes=ng`
-                                const res = await fetch(url, { headers: { Accept: "application/json" } })
-                                if (res.ok) {
-                                  const data = (await res.json()) as Array<{ display_name: string; lat: string; lon: string }>
-                                  setAddressSuggestions(data)
-                                }
-                              } catch { /* ignore */ }
-                              setAddressSearching(false)
-                            }, 400)
+                            const items = [...(form.getValues("items") ?? [])]
+                            items[idx] = { ...items[idx], name: e.target.value }
+                            form.setValue("items", items)
                           }}
                         />
-                        {(addressSearching || addressSuggestions.length > 0) && (
-                          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-md border bg-popover shadow-lg">
-                            {addressSearching && (
-                              <div className="px-3 py-2 text-xs text-muted-foreground">Searching…</div>
-                            )}
-                            {addressSuggestions.map((s, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-                                onClick={() => {
-                                  field.onChange(s.display_name)
-                                  setAddressSuggestions([])
-                                  setAddressPreviewCoord({ lat: Number(s.lat), lng: Number(s.lon) })
-                                }}
-                              >
-                                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <span className="line-clamp-2">{s.display_name}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {addressPreviewCoord && (
-                          <div className="mt-2 overflow-hidden rounded-md border">
-                            <iframe
-                              title="Address map preview"
-                              width="100%"
-                              height="160"
-                              src={`https://www.openstreetmap.org/export/embed.html?bbox=${addressPreviewCoord.lng - 0.008},${addressPreviewCoord.lat - 0.008},${addressPreviewCoord.lng + 0.008},${addressPreviewCoord.lat + 0.008}&layer=mapnik&marker=${addressPreviewCoord.lat},${addressPreviewCoord.lng}`}
-                              style={{ border: 0 }}
-                            />
-                          </div>
-                        )}
+                        <Input
+                          type="number"
+                          placeholder="Price"
+                          value={form.watch(`items.${idx}.price`) || ""}
+                          onChange={(e) => {
+                            const items = [...(form.getValues("items") ?? [])]
+                            items[idx] = { ...items[idx], price: parseFloat(e.target.value) || 0 }
+                            form.setValue("items", items)
+                          }}
+                        />
+                        <Input
+                          type="number"
+                          placeholder="qty"
+                          value={form.watch(`items.${idx}.qty`) || ""}
+                          onChange={(e) => {
+                            const items = [...(form.getValues("items") ?? [])]
+                            items[idx] = { ...items[idx], qty: parseInt(e.target.value) || 1 }
+                            form.setValue("items", items)
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="flex h-9 items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
+                          onClick={() => {
+                            const items = [...(form.getValues("items") ?? [])]
+                            if (items.length > 1) {
+                              items.splice(idx, 1)
+                              form.setValue("items", items)
+                            }
+                          }}
+                        >×</button>
                       </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="amount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Amount ($)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="25.99"
-                        {...field}
-                        value={Number.isNaN(field.value) ? "" : field.value}
-                        onChange={(e) => {
-                          const raw = e.target.value
-                          field.onChange(raw === "" ? Number.NaN : parseFloat(raw))
-                        }}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                    ))}
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => {
+                        const items = [...(form.getValues("items") ?? []), { name: "", price: 0, qty: 1 }]
+                        form.setValue("items", items)
+                      }}
+                    >+ Add item</button>
+                  </div>
 
-              <FormField
-                control={form.control}
-                name="assignedDriver"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Assigned Driver</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select driver" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="unassigned">Unassigned</SelectItem>
-                        {availableDrivers.map((driver) => (
-                          <SelectItem key={driver.id} value={driver.id}>
-                            {driver.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <DialogFooter>
+                  {/* Computed subtotal */}
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Subtotal (₦):</span>
+                    <span>{(form.watch("items") ?? []).reduce((s, i) => s + (i.price * i.qty), 0)}</span>
+                  </div>
+
+                  {/* Tax Rate */}
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">Tax Rate %:</span>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="h-8 w-32 text-right"
+                      placeholder="Enter tax rate"
+                      {...form.register("taxRate", { valueAsNumber: true })}
+                    />
+                  </div>
+
+                  {/* Tax computed */}
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Tax (₦):</span>
+                    <span>{Math.round((form.watch("items") ?? []).reduce((s, i) => s + (i.price * i.qty), 0) * (form.watch("taxRate") ?? 0)) / 100}</span>
+                  </div>
+
+                  {/* Delivery Fees */}
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">Delivery Fees (₦):</span>
+                    <Input
+                      type="number"
+                      className="h-8 w-32 text-right"
+                      placeholder="Enter delivery fees"
+                      {...form.register("deliveryFees", { valueAsNumber: true })}
+                    />
+                  </div>
+
+                  {/* Delivery Tips */}
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">Delivery Tips (₦):</span>
+                    <Input
+                      type="number"
+                      className="h-8 w-32 text-right"
+                      placeholder="Enter delivery tips amount"
+                      {...form.register("deliveryTips", { valueAsNumber: true })}
+                    />
+                  </div>
+
+                  {/* Discount */}
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">Discount (₦):</span>
+                    <Input
+                      type="number"
+                      className="h-8 w-32 text-right"
+                      placeholder="Enter discount amount"
+                      {...form.register("discount", { valueAsNumber: true })}
+                    />
+                  </div>
+
+                  {/* Total computed */}
+                  <div className="flex items-center justify-between text-sm font-semibold">
+                    <span>Total(₦):</span>
+                    <span>{(() => {
+                      const items = form.watch("items") ?? []
+                      const sub = items.reduce((s, i) => s + (i.price * i.qty), 0)
+                      const tax = Math.round(sub * (form.watch("taxRate") ?? 0)) / 100
+                      return Math.max(sub + tax + (form.watch("deliveryFees") ?? 0) + (form.watch("deliveryTips") ?? 0) - (form.watch("discount") ?? 0), 0)
+                    })()}</span>
+                  </div>
+
+                  {/* Delivery Instruction */}
+                  <div className="space-y-1">
+                    <span className="text-sm text-muted-foreground">Delivery Instruction:</span>
+                    <Textarea
+                      placeholder="Enter delivery instructions"
+                      className="resize-none"
+                      rows={2}
+                      {...form.register("deliveryInstruction")}
+                    />
+                  </div>
+
+                  {/* Payment Method */}
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-muted-foreground">Payment Method:</span>
+                    <Input
+                      className="h-8 w-32"
+                      placeholder=""
+                      {...form.register("paymentMethod")}
+                    />
+                  </div>
+
+                  <p className="text-right text-xs text-destructive">* Required</p>
+                </div>
+              </div>
+
+              <DialogFooter className="mt-6">
                 <Button
                   type="button"
                   variant="outline"
@@ -907,8 +1158,8 @@ export default function OrdersPage() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isSaving}>
-                  {isSaving ? "Saving..." : editingOrder ? "Update Order" : "Create Order"}
+                <Button type="submit" disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                  {isSaving ? "Saving..." : "Save"}
                 </Button>
               </DialogFooter>
             </form>

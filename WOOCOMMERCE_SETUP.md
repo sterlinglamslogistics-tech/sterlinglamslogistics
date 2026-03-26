@@ -32,7 +32,7 @@ Go to **sterlinglam.com → WP Admin → WooCommerce → Settings → Advanced �
 | **Name** | Sterlinglams Delivery – Processing |
 | **Status** | Active |
 | **Topic** | Order updated |
-| **Delivery URL** | `https://sterlinglams-logistics.vercel.app/api/woocommerce` |
+| **Delivery URL** | `https://sterlinglamslogistics.com/api/woocommerce` |
 | **Secret** | *(same secret from step 1)* |
 | **API Version** | WP REST API Integration v3 |
 
@@ -43,7 +43,7 @@ Go to **sterlinglam.com → WP Admin → WooCommerce → Settings → Advanced �
 | **Name** | Sterlinglams Delivery – Completed |
 | **Status** | Active |
 | **Topic** | Order updated |
-| **Delivery URL** | `https://sterlinglams-logistics.vercel.app/api/woocommerce` |
+| **Delivery URL** | `https://sterlinglamslogistics.com/api/woocommerce` |
 | **Secret** | *(same secret from step 1)* |
 | **API Version** | WP REST API Integration v3 |
 
