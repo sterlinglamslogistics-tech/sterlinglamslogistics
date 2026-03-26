@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -12,24 +12,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MapPin, Send } from "lucide-react"
-import { fetchDrivers, fetchOrders, fetchDriversByStatus, updateOrder } from "@/lib/firestore"
+import { MapPin, Search, Send, ChevronRight } from "lucide-react"
+import {
+  subscribeOrdersRealtime,
+  subscribeDriversRealtime,
+  updateOrder,
+} from "@/lib/firestore"
+import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { notifyOrderEvent } from "@/lib/notify-client"
+import { MarkerClusterer } from "@googlemaps/markerclusterer"
 
-function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, string> = {
-    unassigned: "bg-warning/15 text-warning border-warning/20",
-    started: "bg-primary/15 text-primary border-primary/20",
-    "picked-up": "bg-blue-500/15 text-blue-600 border-blue-500/20",
-    "in-transit": "bg-chart-2/15 text-chart-2 border-chart-2/20",
-    delivered: "bg-success/15 text-success border-success/20",
-    failed: "bg-destructive/15 text-destructive border-destructive/20",
-    cancelled: "bg-destructive/15 text-destructive border-destructive/20",
-  }
+/* ── Constants ── */
 
-  const labelMap: Record<string, string> = {
+type LatLng = { lat: number; lng: number }
+const LAGOS: LatLng = { lat: 6.5244, lng: 3.3792 }
+
+/* ── Helpers ── */
+
+function orderColor(status: string): string {
+  if (status === "unassigned") return "#dc2626"
+  if (status === "delivered") return "#16a34a"
+  return "#f97316"
+}
+
+function statusLabel(s: string): string {
+  const map: Record<string, string> = {
     unassigned: "Unassigned",
     started: "Started",
     "picked-up": "Picked Up",
@@ -38,152 +47,369 @@ function StatusBadge({ status }: { status: string }) {
     failed: "Failed",
     cancelled: "Cancelled",
   }
-
-  return (
-    <Badge variant="outline" className={variants[status] ?? ""}>
-      {labelMap[status] ?? status}
-    </Badge>
-  )
+  return map[s] ?? s
 }
 
+function driverStatusLabel(s: string): string {
+  const map: Record<string, string> = {
+    available: "Idle",
+    "on-delivery": "Delivering",
+    offline: "Offline",
+  }
+  return map[s] ?? s
+}
+
+function makeOrderIcon(color: string): google.maps.Symbol {
+  return {
+    path: google.maps.SymbolPath.CIRCLE,
+    fillColor: color,
+    fillOpacity: 1,
+    strokeColor: "#fff",
+    strokeWeight: 2,
+    scale: 8,
+  }
+}
+
+function makeDriverIcon(): google.maps.Icon {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><circle cx="20" cy="20" r="17" fill="%232563eb" stroke="white" stroke-width="2.5"/><rect x="11" y="15" width="11" height="9" rx="1" fill="white"/><path d="M22 17.5h4.5l3 3.5v3h-7.5z" fill="white"/><circle cx="15" cy="26" r="2" fill="%232563eb" stroke="white" stroke-width="1"/><circle cx="26" cy="26" r="2" fill="%232563eb" stroke="white" stroke-width="1"/></svg>`
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${svg}`,
+    scaledSize: new google.maps.Size(40, 40),
+    anchor: new google.maps.Point(20, 20),
+  }
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase()
+}
+
+/* ── Component ── */
+
 export default function DispatchPage() {
-  const [orderList, setOrderList] = useState<Order[]>([])
-  const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([])
-  const [allDrivers, setAllDrivers] = useState<Driver[]>([])
-  const [selectedDrivers, setSelectedDrivers] = useState<Record<string, string>>({})
-  const [activeDriverId, setActiveDriverId] = useState<string | null>(null)
+  /* ── State ── */
+  const [orders, setOrders] = useState<Order[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
+  const [orderCoords, setOrderCoords] = useState<Record<string, LatLng>>({})
   const [isLoading, setIsLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [selectedDriverMap, setSelectedDriverMap] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [tab, setTab] = useState<"unassigned" | "active" | "drivers">("unassigned")
 
-  const loadAvailableDrivers = useCallback(async () => {
-    const drivers = await fetchDriversByStatus("available")
-    setAvailableDrivers(drivers)
+  /* ── Map refs ── */
+  const mapElRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<google.maps.Map | null>(null)
+  const orderMarkersMap = useRef(new Map<string, google.maps.Marker>())
+  const driverMarkersMap = useRef(new Map<string, google.maps.Marker>())
+  const clustererRef = useRef<MarkerClusterer | null>(null)
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null)
+  const boundsSetRef = useRef(false)
+
+  /* latest data refs (for InfoWindow content) */
+  const ordersRef = useRef(orders)
+  ordersRef.current = orders
+  const driversRef = useRef(drivers)
+  driversRef.current = drivers
+
+  /* ── 1. Real-time Firestore subscriptions ── */
+  useEffect(() => {
+    let ordersLoaded = false
+    let driversLoaded = false
+
+    const unsub1 = subscribeOrdersRealtime((data) => {
+      setOrders(data)
+      ordersLoaded = true
+      if (driversLoaded) setIsLoading(false)
+    })
+    const unsub2 = subscribeDriversRealtime((data) => {
+      setDrivers(data)
+      driversLoaded = true
+      if (ordersLoaded) setIsLoading(false)
+    })
+
+    return () => {
+      unsub1()
+      unsub2()
+    }
   }, [])
 
-  const loadAllDrivers = useCallback(async () => {
-    const drivers = await fetchDrivers()
-    setAllDrivers(drivers)
-  }, [])
-
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setIsLoading(true)
-        const [orders, drivers, all] = await Promise.all([
-          fetchOrders(),
-          fetchDriversByStatus("available"),
-          fetchDrivers(),
-        ])
-        setOrderList(orders)
-        setAvailableDrivers(drivers)
-        setAllDrivers(all)
-        setError(null)
-      } catch (err) {
-        console.error("Error loading data:", err)
-setError("Failed to load data. Check your Firebase connection.")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadData()
-  }, [])
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      loadAvailableDrivers().catch((err) => {
-        console.error("Error refreshing available drivers:", err)
-      })
-      loadAllDrivers().catch((err) => {
-        console.error("Error refreshing drivers:", err)
-      })
-    }, 10000)
-    return () => window.clearInterval(id)
-  }, [loadAvailableDrivers, loadAllDrivers])
-
-  useEffect(() => {
-    if (allDrivers.length === 0) {
-      setActiveDriverId(null)
-      return
-    }
-
-    if (!activeDriverId || !allDrivers.some((d) => d.id === activeDriverId)) {
-      setActiveDriverId(allDrivers[0].id)
-    }
-  }, [allDrivers, activeDriverId])
-
-  function getDriverDisplayName(driverId: string | null) {
-    if (!driverId) return "Unassigned"
-    return allDrivers.find((d) => d.id === driverId)?.name ?? "Unknown"
-  }
-
-  const pendingOrders = orderList.filter((o) => o.status === "unassigned")
-  const assignedOrders = orderList.filter(
-    (o) =>
-      o.assignedDriver === activeDriverId &&
-      o.status !== "unassigned" &&
-      o.status !== "delivered" &&
-      o.status !== "cancelled" &&
-      o.status !== "failed"
+  /* ── 2. Geocode order addresses (only re-run when addresses change) ── */
+  const addressKey = useMemo(
+    () =>
+      orders
+        .map((o) => `${o.id}:${o.address}`)
+        .sort()
+        .join("|"),
+    [orders],
   )
 
-  const activeDriver = allDrivers.find((d) => d.id === activeDriverId) ?? null
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const results = await Promise.all(
+        orders.map(async (o) => ({ id: o.id, c: await geocodeAddress(o.address) })),
+      )
+      if (cancelled) return
+      const next: Record<string, LatLng> = {}
+      results.forEach((r) => {
+        if (r.c) next[r.id] = r.c
+      })
+      setOrderCoords(next)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressKey])
 
-  function handleSelectDriver(orderId: string, driverId: string) {
-    setSelectedDrivers((prev) => ({ ...prev, [orderId]: driverId }))
-  }
+  /* ── Derived data ── */
+  const availableDrivers = useMemo(() => drivers.filter((d) => d.status === "available"), [drivers])
 
-  async function handleDispatch(orderId: string, preferredDriverId?: string) {
-    const driverId = preferredDriverId ?? selectedDrivers[orderId]
-    if (!driverId) return
+  const unassigned = useMemo(() => orders.filter((o) => o.status === "unassigned"), [orders])
 
+  const activeOrders = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          o.assignedDriver &&
+          !["unassigned", "delivered", "failed", "cancelled"].includes(o.status),
+      ),
+    [orders],
+  )
+
+  const deliveredOrders = useMemo(() => orders.filter((o) => o.status === "delivered"), [orders])
+
+  const driversWithLocation = useMemo(() => drivers.filter((d) => d.lastLocation), [drivers])
+
+  /* search helper */
+  const applySearch = useCallback(
+    (list: Order[]) => {
+      const q = searchTerm.trim().toLowerCase()
+      if (!q) return list
+      return list.filter(
+        (o) =>
+          o.orderNumber.toLowerCase().includes(q) ||
+          o.customerName.toLowerCase().includes(q) ||
+          o.address.toLowerCase().includes(q),
+      )
+    },
+    [searchTerm],
+  )
+
+  /* ── 3. Init Google Map ── */
+  useEffect(() => {
+    if (isLoading) return
+    let mounted = true
+
+    ;(async () => {
+      if (!mapElRef.current || mapRef.current) return
+      await loadGoogleMaps()
+      if (!mounted || !mapElRef.current) return
+
+      const map = new google.maps.Map(mapElRef.current, {
+        center: LAGOS,
+        zoom: 11,
+        disableDefaultUI: false,
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: true,
+      })
+      mapRef.current = map
+      infoWindowRef.current = new google.maps.InfoWindow()
+      clustererRef.current = new MarkerClusterer({ map, markers: [] })
+    })()
+
+    return () => {
+      mounted = false
+      orderMarkersMap.current.forEach((m) => m.setMap(null))
+      orderMarkersMap.current.clear()
+      driverMarkersMap.current.forEach((m) => m.setMap(null))
+      driverMarkersMap.current.clear()
+      if (clustererRef.current) {
+        clustererRef.current.clearMarkers()
+        clustererRef.current = null
+      }
+      infoWindowRef.current = null
+      mapRef.current = null
+      boundsSetRef.current = false
+    }
+  }, [isLoading])
+
+  /* ── 4. Sync markers (efficient — only update changed) ── */
+  useEffect(() => {
+    const map = mapRef.current
+    const cl = clustererRef.current
+    if (!map || !cl) return
+
+    const bounds = new google.maps.LatLngBounds()
+    let pts = false
+
+    /* ─ Order markers ─ */
+    const shown = orders.filter((o) => !["failed", "cancelled"].includes(o.status))
+    const liveIds = new Set<string>()
+
+    shown.forEach((order) => {
+      const coords = orderCoords[order.id]
+      if (!coords) return
+      liveIds.add(order.id)
+
+      const color = orderColor(order.status)
+      const existing = orderMarkersMap.current.get(order.id)
+
+      if (existing) {
+        const p = existing.getPosition()
+        if (p && (p.lat() !== coords.lat || p.lng() !== coords.lng)) {
+          existing.setPosition(coords)
+        }
+        existing.setIcon(makeOrderIcon(color))
+        existing.setTitle(`${order.orderNumber} – ${order.customerName}`)
+      } else {
+        const m = new google.maps.Marker({
+          position: coords,
+          title: `${order.orderNumber} – ${order.customerName}`,
+          icon: makeOrderIcon(color),
+        })
+        m.addListener("click", () => {
+          const latest = ordersRef.current.find((o) => o.id === order.id)
+          if (!latest || !infoWindowRef.current) return
+          infoWindowRef.current.setContent(
+            `<div style="min-width:200px;font-family:system-ui,sans-serif;padding:4px">
+              <p style="margin:0 0 4px;font-size:14px;font-weight:600">${latest.orderNumber}</p>
+              <p style="margin:0 0 2px;font-size:12px">Customer: ${latest.customerName}</p>
+              <p style="margin:0 0 2px;font-size:12px">Order ID: ${latest.id}</p>
+              <p style="margin:0 0 2px;font-size:12px">Status: <b style="color:${orderColor(latest.status)}">${statusLabel(latest.status)}</b></p>
+              <p style="margin:0;font-size:11px;color:#666">${latest.address}</p>
+            </div>`,
+          )
+          infoWindowRef.current.open(map, m)
+        })
+        orderMarkersMap.current.set(order.id, m)
+        cl.addMarker(m)
+      }
+      bounds.extend(coords)
+      pts = true
+    })
+
+    /* Remove stale order markers */
+    orderMarkersMap.current.forEach((m, id) => {
+      if (!liveIds.has(id)) {
+        cl.removeMarker(m)
+        m.setMap(null)
+        orderMarkersMap.current.delete(id)
+      }
+    })
+
+    /* ─ Driver markers (NOT clustered) ─ */
+    const liveDriverIds = new Set<string>()
+    const driverIcon = makeDriverIcon()
+
+    drivers.forEach((d) => {
+      if (!d.lastLocation) return
+      liveDriverIds.add(d.id)
+
+      const pos = { lat: d.lastLocation.lat, lng: d.lastLocation.lng }
+      const existing = driverMarkersMap.current.get(d.id)
+
+      if (existing) {
+        const p = existing.getPosition()
+        if (p && (p.lat() !== pos.lat || p.lng() !== pos.lng)) {
+          existing.setPosition(pos)
+        }
+      } else {
+        const m = new google.maps.Marker({
+          map,
+          position: pos,
+          title: d.name,
+          icon: driverIcon,
+          zIndex: 1000,
+        })
+        m.addListener("click", () => {
+          const latest = driversRef.current.find((dr) => dr.id === d.id)
+          if (!latest || !infoWindowRef.current) return
+          infoWindowRef.current.setContent(
+            `<div style="min-width:180px;font-family:system-ui,sans-serif;padding:4px">
+              <p style="margin:0 0 4px;font-size:14px;font-weight:600">${latest.name}</p>
+              <p style="margin:0 0 2px;font-size:12px">Status: <b>${driverStatusLabel(latest.status)}</b></p>
+              <p style="margin:0;font-size:11px;color:#666">Vehicle: ${latest.vehicle}</p>
+            </div>`,
+          )
+          infoWindowRef.current.open(map, m)
+        })
+        driverMarkersMap.current.set(d.id, m)
+      }
+      bounds.extend(pos)
+      pts = true
+    })
+
+    /* Remove stale driver markers */
+    driverMarkersMap.current.forEach((m, id) => {
+      if (!liveDriverIds.has(id)) {
+        m.setMap(null)
+        driverMarkersMap.current.delete(id)
+      }
+    })
+
+    /* Auto-fit bounds on first meaningful data */
+    if (pts && !boundsSetRef.current) {
+      map.fitBounds(bounds, 50)
+      boundsSetRef.current = true
+    }
+  }, [orders, drivers, orderCoords])
+
+  /* ── Dispatch handler ── */
+  async function handleDispatch(orderId: string, driverId?: string) {
+    const did = driverId ?? selectedDriverMap[orderId]
+    if (!did) return
     try {
       setIsSaving(true)
       const startedAt = new Date()
-      const targetOrder = orderList.find((o) => o.id === orderId)
-      await updateOrder(orderId, {
-        assignedDriver: driverId,
-        status: "started",
-        startedAt,
-      })
-
-      setOrderList((prev) =>
-        prev.map((order) =>
-          order.id === orderId
-            ? { ...order, assignedDriver: driverId, status: "started", startedAt }
-            : order
-        )
+      const target = orders.find((o) => o.id === orderId)
+      await updateOrder(orderId, { assignedDriver: did, status: "started", startedAt })
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId ? { ...o, assignedDriver: did, status: "started", startedAt } : o,
+        ),
       )
-      setSelectedDrivers((prev) => {
-        const next = { ...prev }
-        delete next[orderId]
-        return next
+      setSelectedDriverMap((p) => {
+        const n = { ...p }
+        delete n[orderId]
+        return n
       })
-
-      if (targetOrder) {
-        const assignedDriverObj = allDrivers.find((d) => d.id === driverId)
+      if (target) {
+        const driverObj = drivers.find((d) => d.id === did)
         notifyOrderEvent("order_accepted", {
-          orderId: targetOrder.id,
-          orderNumber: targetOrder.orderNumber,
-          customerName: targetOrder.customerName,
-          customerPhone: targetOrder.phone,
-          customerEmail: targetOrder.customerEmail,
-          address: targetOrder.address,
-          driverName: assignedDriverObj?.name,
-          items: targetOrder.items,
+          orderId: target.id,
+          orderNumber: target.orderNumber,
+          customerName: target.customerName,
+          customerPhone: target.phone,
+          customerEmail: target.customerEmail,
+          address: target.address,
+          driverName: driverObj?.name,
+          items: target.items,
         })
       }
-
-      await loadAvailableDrivers()
-    } catch (err) {
-      console.error("Error dispatching order:", err)
+    } catch {
       setError("Failed to dispatch order")
     } finally {
       setIsSaving(false)
     }
   }
 
+  /* ── Focus helpers ── */
+  function focusOnMap(lat: number, lng: number) {
+    if (!mapRef.current) return
+    mapRef.current.panTo({ lat, lng })
+    mapRef.current.setZoom(15)
+  }
+
+  /* ── Loading ── */
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -192,171 +418,290 @@ setError("Failed to load data. Check your Firebase connection.")
     )
   }
 
-  function getInitials(name: string) {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase()
-  }
-
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Dispatch
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Dispatch center for drivers and order assignment
-        </p>
-        {error && (
-          <p className="mt-2 text-sm text-destructive">{error}</p>
-        )}
-      </div>
+    <div className="grid h-[calc(100vh-5.5rem)] gap-0 overflow-hidden xl:grid-cols-[380px_minmax(0,1fr)]">
+      {/* ═══ Sidebar ═══ */}
+      <aside className="flex h-full min-h-0 flex-col border-r bg-card">
+        {/* header */}
+        <div className="border-b px-4 py-3">
+          <h1 className="text-xl font-semibold text-foreground">Live Dispatch</h1>
+          <p className="text-xs text-muted-foreground">Real-time orders &amp; drivers</p>
+          {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+        </div>
 
-      <div className="grid gap-0 rounded-lg border bg-card xl:grid-cols-[280px_1fr_1fr]">
-        {/* Sector 1: Drivers */}
-        <div className="border-r">
-          <div className="border-b px-4 py-3 text-xl font-semibold text-foreground">Drivers</div>
-          <div className="max-h-[70vh] space-y-1 overflow-y-auto p-2">
-            {allDrivers.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-muted-foreground">No drivers found in database.</p>
-            ) : (
-              allDrivers.map((driver) => {
-                const activeCount = orderList.filter(
-                  (o) =>
-                    o.assignedDriver === driver.id &&
-                    o.status !== "unassigned" &&
-                    o.status !== "delivered" &&
-                    o.status !== "cancelled" &&
-                    o.status !== "failed"
-                ).length
-                return (
-                  <button
-                    key={driver.id}
-                    onClick={() => setActiveDriverId(driver.id)}
-                    className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition-colors ${
-                      activeDriverId === driver.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-secondary/60"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Avatar className="size-8">
-                        <AvatarFallback>{getInitials(driver.name)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{driver.name}</p>
-                        <p className="text-xs text-muted-foreground">{driver.status.replace("-", " ")}</p>
-                      </div>
-                    </div>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{activeCount}</span>
-                  </button>
-                )
-              })
-            )}
+        {/* stats */}
+        <div className="grid grid-cols-4 gap-1 border-b px-3 py-2 text-center text-[11px] font-medium">
+          <div className="rounded bg-red-500/10 py-1 text-red-700 dark:text-red-400">
+            <div className="text-lg font-bold">{unassigned.length}</div>
+            Unassigned
+          </div>
+          <div className="rounded bg-orange-500/10 py-1 text-orange-700 dark:text-orange-400">
+            <div className="text-lg font-bold">{activeOrders.length}</div>
+            Active
+          </div>
+          <div className="rounded bg-green-500/10 py-1 text-green-700 dark:text-green-400">
+            <div className="text-lg font-bold">{deliveredOrders.length}</div>
+            Delivered
+          </div>
+          <div className="rounded bg-blue-500/10 py-1 text-blue-700 dark:text-blue-400">
+            <div className="text-lg font-bold">{driversWithLocation.length}</div>
+            Drivers
           </div>
         </div>
 
-        {/* Sector 2: Assigned orders */}
-        <div className="border-r">
-          <div className="border-b px-4 py-3 text-xl font-semibold text-foreground">Assigned orders by driver</div>
-          <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
-            {activeDriver && (
-              <div className="rounded-md border bg-secondary/30 p-3">
-                <p className="text-sm font-semibold text-foreground">{activeDriver.name}</p>
-                <p className="text-xs text-muted-foreground">{activeDriver.phone}</p>
-              </div>
-            )}
+        {/* search */}
+        <div className="border-b px-3 py-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search orders…"
+              className="h-9 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
+        </div>
 
-            {assignedOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No assigned orders for selected driver.</p>
-            ) : (
-              assignedOrders.map((order) => (
-                <div key={order.id} className="rounded-md border bg-background">
-                  <div className="flex items-center justify-between border-b px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={order.status} />
+        {/* tabs */}
+        <div className="flex border-b text-sm font-medium">
+          {(
+            [
+              ["unassigned", `Unassigned (${unassigned.length})`],
+              ["active", `Active (${activeOrders.length})`],
+              ["drivers", `Drivers (${drivers.length})`],
+            ] as [typeof tab, string][]
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex-1 border-b-2 px-2 py-2.5 transition ${
+                tab === key
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* tab content */}
+        <div className="flex-1 overflow-y-auto p-3">
+          {/* ─── Unassigned ─── */}
+          {tab === "unassigned" && (
+            <div className="space-y-2">
+              {applySearch(unassigned).length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">No unassigned orders</p>
+              ) : (
+                applySearch(unassigned).map((order) => (
+                  <div key={order.id} className="rounded-lg border bg-background p-3">
+                    <div className="flex items-center justify-between">
                       <p className="text-sm font-semibold text-foreground">{order.orderNumber}</p>
+                      <span className="text-sm font-semibold text-foreground">
+                        {formatCurrency(order.amount)}
+                      </span>
                     </div>
-                    <p className="text-sm font-semibold text-foreground">{formatCurrency(order.amount)}</p>
-                  </div>
-                  <div className="space-y-2 px-3 py-3">
-                    <p className="text-sm font-medium text-foreground">{order.customerName}</p>
-                    <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <MapPin className="mt-0.5 h-3.5 w-3.5" /> {order.address}
+                    <p className="text-sm text-foreground">{order.customerName}</p>
+                    <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                      <MapPin className="mt-0.5 h-3 w-3 shrink-0" /> {order.address}
                     </p>
-                    <div className="flex items-center gap-2">
+                    <div className="mt-2 flex items-center gap-2">
                       <Select
-                        value={selectedDrivers[order.id] ?? order.assignedDriver ?? ""}
-                        onValueChange={(value) => handleSelectDriver(order.id, value)}
+                        onValueChange={(val) =>
+                          setSelectedDriverMap((p) => ({ ...p, [order.id]: val }))
+                        }
                       >
                         <SelectTrigger className="h-8 flex-1 text-xs">
-                          <SelectValue placeholder="Reassign driver" />
+                          <SelectValue placeholder="Select driver" />
                         </SelectTrigger>
                         <SelectContent>
-                          {availableDrivers.map((driver) => (
-                            <SelectItem key={driver.id} value={driver.id}>
-                              {driver.name}
+                          {availableDrivers.map((d) => (
+                            <SelectItem key={d.id} value={d.id}>
+                              {d.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="h-8"
-                        disabled={!selectedDrivers[order.id] || isSaving}
+                        className="h-8 gap-1"
+                        disabled={!selectedDriverMap[order.id] || isSaving}
                         onClick={() => handleDispatch(order.id)}
                       >
-                        Reassign
+                        <Send className="h-3 w-3" /> Dispatch
                       </Button>
                     </div>
+                    {orderCoords[order.id] && (
+                      <button
+                        onClick={() =>
+                          focusOnMap(orderCoords[order.id].lat, orderCoords[order.id].lng)
+                        }
+                        className="mt-1 text-xs text-primary hover:underline"
+                      >
+                        Show on map →
+                      </button>
+                    )}
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+                ))
+              )}
+            </div>
+          )}
 
-        {/* Sector 3: New/Pending orders */}
-        <div>
-          <div className="border-b px-4 py-3 text-xl font-semibold text-foreground">New Orders</div>
-          <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
-            {pendingOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No pending orders available.</p>
-            ) : (
-              pendingOrders.map((order) => (
-                <div key={order.id} className="rounded-md border bg-background">
-                  <div className="flex items-center justify-between border-b px-3 py-2">
-                    <p className="text-sm font-semibold text-foreground">{order.orderNumber}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground">{formatCurrency(order.amount)}</p>
-                      <Select onValueChange={(value) => handleDispatch(order.id, value)}>
-                        <SelectTrigger className="h-8 w-[115px] rounded-md border bg-secondary/50 text-xs font-medium shadow-sm">
-                          <SelectValue placeholder="+ Assign" />
-                        </SelectTrigger>
-                        <SelectContent className="shadow-xl">
-                          {availableDrivers.map((driver) => (
-                            <SelectItem key={driver.id} value={driver.id}>
-                              {driver.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+          {/* ─── Active ─── */}
+          {tab === "active" && (
+            <div className="space-y-2">
+              {applySearch(activeOrders).length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">No active orders</p>
+              ) : (
+                applySearch(activeOrders).map((order) => {
+                  const driver = drivers.find((d) => d.id === order.assignedDriver)
+                  return (
+                    <div key={order.id} className="rounded-lg border bg-background p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-foreground">{order.orderNumber}</p>
+                        <Badge
+                          variant="outline"
+                          className="bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400"
+                        >
+                          {statusLabel(order.status)}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-foreground">{order.customerName}</p>
+                      <p className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                        <MapPin className="mt-0.5 h-3 w-3 shrink-0" /> {order.address}
+                      </p>
+                      {driver && (
+                        <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+                          Driver: {driver.name}
+                        </p>
+                      )}
+                      <div className="mt-2 flex items-center gap-2">
+                        <Select
+                          onValueChange={(val) =>
+                            setSelectedDriverMap((p) => ({ ...p, [order.id]: val }))
+                          }
+                        >
+                          <SelectTrigger className="h-8 flex-1 text-xs">
+                            <SelectValue placeholder="Reassign driver" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableDrivers.map((d) => (
+                              <SelectItem key={d.id} value={d.id}>
+                                {d.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          disabled={!selectedDriverMap[order.id] || isSaving}
+                          onClick={() => handleDispatch(order.id)}
+                        >
+                          Reassign
+                        </Button>
+                      </div>
+                      {orderCoords[order.id] && (
+                        <button
+                          onClick={() =>
+                            focusOnMap(orderCoords[order.id].lat, orderCoords[order.id].lng)
+                          }
+                          className="mt-1 text-xs text-primary hover:underline"
+                        >
+                          Show on map →
+                        </button>
+                      )}
                     </div>
-                  </div>
-                  <div className="space-y-2 px-3 py-3">
-                    <p className="text-sm font-medium text-foreground">{order.customerName}</p>
-                    <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <MapPin className="mt-0.5 h-3.5 w-3.5" /> {order.address}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* ─── Drivers ─── */}
+          {tab === "drivers" && (
+            <div className="space-y-1">
+              {drivers.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">No drivers</p>
+              ) : (
+                drivers.map((d) => {
+                  const count = orders.filter(
+                    (o) =>
+                      o.assignedDriver === d.id &&
+                      !["delivered", "failed", "cancelled", "unassigned"].includes(o.status),
+                  ).length
+                  return (
+                    <button
+                      key={d.id}
+                      onClick={() =>
+                        d.lastLocation &&
+                        focusOnMap(d.lastLocation.lat, d.lastLocation.lng)
+                      }
+                      className="flex w-full items-center justify-between rounded-md border bg-background px-3 py-2 text-left transition hover:bg-secondary/40"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Avatar className="size-8">
+                          <AvatarFallback>{getInitials(d.name)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{d.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {driverStatusLabel(d.status)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={
+                            d.status === "available"
+                              ? "bg-green-500/10 text-green-700 border-green-200 dark:text-green-400"
+                              : d.status === "on-delivery"
+                                ? "bg-blue-500/10 text-blue-600 border-blue-200 dark:text-blue-400"
+                                : "bg-muted text-muted-foreground"
+                          }
+                        >
+                          {count} orders
+                        </Badge>
+                        {d.lastLocation && (
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          )}
         </div>
-      </div>
+      </aside>
+
+      {/* ═══ Map ═══ */}
+      <section className="relative h-full min-h-[400px] overflow-hidden">
+        <div ref={mapElRef} className="h-full w-full" />
+
+        {/* Legend */}
+        <div className="pointer-events-none absolute left-4 top-4 flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full bg-white/95 px-3 py-1 shadow">
+            <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-red-600" />
+            Unassigned
+          </span>
+          <span className="rounded-full bg-white/95 px-3 py-1 shadow">
+            <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-orange-500" />
+            Assigned
+          </span>
+          <span className="rounded-full bg-white/95 px-3 py-1 shadow">
+            <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-green-600" />
+            Delivered
+          </span>
+          <span className="rounded-full bg-white/95 px-3 py-1 shadow">
+            <span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full bg-blue-600" />
+            Driver
+          </span>
+        </div>
+      </section>
     </div>
   )
 }
