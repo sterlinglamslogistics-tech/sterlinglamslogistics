@@ -555,11 +555,11 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
       <div className="flex min-h-screen flex-col items-center bg-background px-6 py-8">
         {/* Logo */}
         <div className="mb-4">
-          <div className="flex h-16 w-20 items-center justify-center rounded-b-[2rem] border-2 border-t-0 border-foreground/20 bg-background">
-            <span className="font-serif text-lg italic text-[hsl(330,82%,52%)]">
-              Sterlin<br/><span className="text-xs text-[hsl(330,82%,52%)]">Glams</span>
-            </span>
-          </div>
+          <img
+            src="/placeholder-logo.png"
+            alt="Sterlin Glams Logistics"
+            className="h-24 w-auto"
+          />
         </div>
 
         <h2 className="text-lg font-bold text-foreground">Sterlin Glams</h2>
