@@ -54,6 +54,8 @@ export default function DriverDashboard() {
     driver,
     orders,
     isOnline,
+    justWentOnline,
+    consumeJustWentOnline,
     loadingSession,
     loadingOrders,
     setDrawerOpen,
@@ -70,14 +72,15 @@ export default function DriverDashboard() {
     }
   }, [loadingSession, session, router])
 
-  // Show "You are online" toast when going online
+  // Show "You are online" toast only once per Go Online action
   useEffect(() => {
-    if (isOnline) {
+    if (justWentOnline) {
       setShowOnlineToast(true)
+      consumeJustWentOnline()
       const timer = setTimeout(() => setShowOnlineToast(false), 3000)
       return () => clearTimeout(timer)
     }
-  }, [isOnline])
+  }, [justWentOnline, consumeJustWentOnline])
 
   function handleNavigate(address: string) {
     const encoded = encodeURIComponent(address)

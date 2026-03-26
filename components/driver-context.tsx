@@ -17,6 +17,8 @@ interface DriverContextValue {
   driver: Driver | null
   orders: Order[]
   isOnline: boolean
+  justWentOnline: boolean
+  consumeJustWentOnline: () => void
   loadingSession: boolean
   loadingOrders: boolean
   drawerOpen: boolean
@@ -44,6 +46,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const [loadingSession, setLoadingSession] = useState(true)
   const [loadingOrders, setLoadingOrders] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [justWentOnline, setJustWentOnline] = useState(false)
   const watchIdRef = useRef<number | null>(null)
 
   // Load session from localStorage
@@ -136,6 +139,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     try {
       await updateDriver(session.id, { status: "available" })
       setIsOnline(true)
+      setJustWentOnline(true)
       const d = await fetchDriverById(session.id)
       if (d) setDriver(d)
     } catch {
@@ -148,6 +152,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     try {
       await updateDriver(session.id, { status: "offline" })
       setIsOnline(false)
+      setJustWentOnline(false)
       const d = await fetchDriverById(session.id)
       if (d) setDriver(d)
     } catch {
@@ -171,6 +176,8 @@ export function DriverProvider({ children }: { children: ReactNode }) {
         driver,
         orders,
         isOnline,
+        justWentOnline,
+        consumeJustWentOnline: () => setJustWentOnline(false),
         loadingSession,
         loadingOrders,
         drawerOpen,
