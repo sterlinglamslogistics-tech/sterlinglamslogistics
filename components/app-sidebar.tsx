@@ -133,7 +133,7 @@ export function AppSidebar() {
               {user?.email ? user.email[0].toUpperCase() : "A"}
             </button>
             {profileOpen && (
-            <div className="absolute right-0 top-full mt-1 w-48 rounded-md border bg-popover p-1 shadow-lg">
+            <div className="absolute right-0 top-full z-[9999] mt-1 w-48 rounded-md border bg-popover p-1 shadow-lg">
               <p className="truncate px-3 py-1.5 text-xs text-muted-foreground">
                 {user?.email ?? "admin@sterlinglams.com"}
               </p>
