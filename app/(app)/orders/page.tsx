@@ -852,9 +852,9 @@ export default function OrdersPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setAddressSuggestions([]); setAddressPreviewCoord(null) } }}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-center text-xl">
+            <DialogTitle className="text-center text-2xl font-bold">
               {editingOrder ? "Edit Order" : "New Order"}
             </DialogTitle>
             <DialogDescription className="sr-only">
@@ -863,9 +863,9 @@ export default function OrdersPage() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)}>
-              <div className="grid gap-6 md:grid-cols-2">
+              <div className="grid gap-10 md:grid-cols-2">
                 {/* ─── Left Column ─── */}
-                <div className="space-y-5">
+                <div className="space-y-6">
                   {/* Order Number */}
                   <FormField control={form.control} name="orderNumber" render={({ field }) => (
                     <FormItem>
@@ -876,8 +876,8 @@ export default function OrdersPage() {
                   )} />
 
                   {/* Pick-up From */}
-                  <fieldset className="space-y-3">
-                    <legend className="text-sm font-semibold">Pick-up From:</legend>
+                  <fieldset className="space-y-4">
+                    <legend className="text-lg font-semibold">Pick-up From:</legend>
                     <FormField control={form.control} name="pickupName" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Name: <span className="text-destructive">*</span></FormLabel>
@@ -909,8 +909,8 @@ export default function OrdersPage() {
                   </fieldset>
 
                   {/* Deliver to */}
-                  <fieldset className="space-y-3">
-                    <legend className="text-sm font-semibold">Deliver to:</legend>
+                  <fieldset className="space-y-4">
+                    <legend className="text-lg font-semibold">Deliver to:</legend>
                     <FormField control={form.control} name="customerName" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Name: <span className="text-destructive">*</span></FormLabel>
@@ -1010,15 +1010,15 @@ export default function OrdersPage() {
                 </div>
 
                 {/* ─── Right Column: Order Details ─── */}
-                <div className="space-y-4">
-                  <p className="text-sm font-semibold">Order Details <span className="text-muted-foreground font-normal">(Optional)</span></p>
+                <div className="space-y-5">
+                  <p className="text-lg font-semibold">Order Details <span className="text-muted-foreground font-normal text-sm">(Optional)</span></p>
 
                   {/* Items */}
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">Items:</p>
                     {(form.watch("items") ?? []).map((_, idx) => (
                       <div key={idx} className="space-y-1">
-                        <div className="grid grid-cols-[1fr_100px_70px_28px] gap-2 items-end">
+                        <div className="grid grid-cols-[1fr_120px_80px_28px] gap-3 items-end">
                           <Input
                             placeholder="Item name"
                             value={form.watch(`items.${idx}.name`)}
@@ -1084,17 +1084,17 @@ export default function OrdersPage() {
 
                   {/* Computed subtotal */}
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Subtotal (₦):</span>
-                    <span>{(form.watch("items") ?? []).reduce((s, i) => s + (i.price * i.qty), 0)}</span>
+                    <span className="font-medium">Subtotal (₦):</span>
+                    <span className="font-medium">{(form.watch("items") ?? []).reduce((s, i) => s + (i.price * i.qty), 0)}</span>
                   </div>
 
                   {/* Tax Rate */}
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground">Tax Rate %:</span>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span className="font-medium">Tax Rate %:</span>
                     <Input
                       type="number"
                       step="0.01"
-                      className="h-8 w-32 text-right"
+                      className="h-9 w-48 text-right"
                       placeholder="Enter tax rate"
                       {...form.register("taxRate", { valueAsNumber: true })}
                     />
@@ -1102,45 +1102,45 @@ export default function OrdersPage() {
 
                   {/* Tax computed */}
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Tax (₦):</span>
+                    <span className="font-medium">Tax (₦):</span>
                     <span>{Math.round((form.watch("items") ?? []).reduce((s, i) => s + (i.price * i.qty), 0) * (form.watch("taxRate") ?? 0)) / 100}</span>
                   </div>
 
                   {/* Delivery Fees */}
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground">Delivery Fees (₦):</span>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span className="font-medium">Delivery Fees (₦):</span>
                     <Input
                       type="number"
-                      className="h-8 w-32 text-right"
+                      className="h-9 w-48 text-right"
                       placeholder="Enter delivery fees"
                       {...form.register("deliveryFees", { valueAsNumber: true })}
                     />
                   </div>
 
                   {/* Delivery Tips */}
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground">Delivery Tips (₦):</span>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span className="font-medium">Delivery Tips (₦):</span>
                     <Input
                       type="number"
-                      className="h-8 w-32 text-right"
+                      className="h-9 w-48 text-right"
                       placeholder="Enter delivery tips amount"
                       {...form.register("deliveryTips", { valueAsNumber: true })}
                     />
                   </div>
 
                   {/* Discount */}
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground">Discount (₦):</span>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span className="font-medium">Discount (₦):</span>
                     <Input
                       type="number"
-                      className="h-8 w-32 text-right"
+                      className="h-9 w-48 text-right"
                       placeholder="Enter discount amount"
                       {...form.register("discount", { valueAsNumber: true })}
                     />
                   </div>
 
                   {/* Total computed */}
-                  <div className="flex items-center justify-between text-sm font-semibold">
+                  <div className="flex items-center justify-between text-base font-bold border-t pt-3">
                     <span>Total(₦):</span>
                     <span>{(() => {
                       const items = form.watch("items") ?? []
@@ -1152,26 +1152,26 @@ export default function OrdersPage() {
 
                   {/* Delivery Instruction */}
                   <div className="space-y-1">
-                    <span className="text-sm text-muted-foreground">Delivery Instruction:</span>
+                    <span className="text-sm font-medium">Delivery Instruction:</span>
                     <Textarea
                       placeholder="Enter delivery instructions"
                       className="resize-none"
-                      rows={2}
+                      rows={3}
                       {...form.register("deliveryInstruction")}
                     />
                   </div>
 
                   {/* Payment Method */}
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground">Payment Method:</span>
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span className="font-medium">Payment Method:</span>
                     <Input
-                      className="h-8 w-32"
+                      className="h-9 w-48"
                       placeholder=""
                       {...form.register("paymentMethod")}
                     />
                   </div>
 
-                  <p className="text-right text-xs text-destructive">* Required</p>
+                  <p className="text-right text-sm text-destructive">* Required</p>
                 </div>
               </div>
 
