@@ -9,6 +9,7 @@ import {
   Package,
   Users,
   Route,
+  Star,
   BarChart3,
   Settings,
   Menu,
@@ -25,6 +26,7 @@ const navItems = [
   { label: "Orders", href: "/orders", icon: Package },
   { label: "Drivers", href: "/drivers", icon: Users },
   { label: "Routes", href: "/routes", icon: Route },
+  { label: "Reviews", href: "/reviews", icon: Star },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
 ]

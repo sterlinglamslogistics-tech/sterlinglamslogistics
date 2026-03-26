@@ -19,6 +19,8 @@ export interface Order {
   assignedDriver: string | null
   items?: OrderItem[]
   customerRating?: number
+  driverRating?: number
+  customerFeedback?: string
   customerRatedAt?: unknown
   distanceKm?: number
   createdAt?: unknown
