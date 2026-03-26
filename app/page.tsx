@@ -28,8 +28,8 @@ export default function LandingPage() {
             <Image
               src="/placeholder-logo.png"
               alt="Sterlinglams"
-              width={80}
-              height={80}
+              width={120}
+              height={120}
               className="rounded-lg"
             />
           </Link>
@@ -259,8 +259,8 @@ export default function LandingPage() {
                 <Image
                   src="/placeholder-logo.png"
                   alt="Sterlinglams"
-                  width={44}
-                  height={44}
+                  width={60}
+                  height={60}
                   className="rounded-lg"
                 />
                 <span className="text-base font-semibold">Sterlinglams Logistics</span>

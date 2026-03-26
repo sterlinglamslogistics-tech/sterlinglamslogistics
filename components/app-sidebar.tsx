@@ -63,22 +63,14 @@ export function AppSidebar() {
         )}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 border-b border-sidebar-border px-5 py-5">
+        <div className="flex items-center justify-between border-b border-sidebar-border px-5 py-4">
           <Image
             src="/placeholder-logo.png"
             alt="Sterlinglams"
-            width={36}
-            height={36}
+            width={120}
+            height={120}
             className="rounded-lg"
           />
-          <div className="flex flex-col">
-            <span className="text-sm font-bold tracking-tight text-sidebar-foreground">
-              Sterlinglams
-            </span>
-            <span className="text-xs text-sidebar-foreground/60">
-              Logistics
-            </span>
-          </div>
           <button
             onClick={() => setMobileOpen(false)}
             className="ml-auto lg:hidden"

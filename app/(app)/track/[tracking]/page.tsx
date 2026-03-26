@@ -558,7 +558,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
           <img
             src="/placeholder-logo.png"
             alt="Sterlin Glams Logistics"
-            className="h-24 w-auto"
+            className="h-32 w-auto"
           />
         </div>
 
