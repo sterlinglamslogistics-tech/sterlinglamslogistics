@@ -1,6 +1,12 @@
 export type OrderStatus = "unassigned" | "started" | "picked-up" | "in-transit" | "delivered" | "failed" | "cancelled"
 export type DriverStatus = "available" | "on-delivery" | "offline"
 
+export interface OrderItem {
+  name: string
+  qty?: number
+  price?: number
+}
+
 export interface Order {
   id: string
   orderNumber: string
@@ -11,6 +17,7 @@ export interface Order {
   amount: number
   status: OrderStatus
   assignedDriver: string | null
+  items?: OrderItem[]
   customerRating?: number
   customerRatedAt?: unknown
   distanceKm?: number
@@ -19,7 +26,6 @@ export interface Order {
   pickedUpAt?: unknown
   inTransitAt?: unknown
   deliveredAt?: unknown
-
 }
 
 export interface Driver {

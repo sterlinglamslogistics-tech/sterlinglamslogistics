@@ -7,6 +7,9 @@ interface NotificationPayload {
   customerPhone: string
   customerEmail?: string | null
   trackingUrl?: string
+  address?: string
+  driverName?: string
+  items?: Array<{ name: string; qty?: number; price?: number }>
 }
 
 export interface NotificationSettings {
@@ -152,6 +155,29 @@ function renderSocialLinks(siteOrigin: string) {
   `
 }
 
+function renderItemsTable(items: Array<{ name: string; qty?: number; price?: number }>) {
+  if (!items.length) return ""
+
+  const rows = items
+    .map((item) => {
+      const qty = typeof item.qty === "number" && item.qty > 0 ? `&times;${item.qty}` : ""
+      const price =
+        typeof item.price === "number"
+          ? new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(item.price)
+          : ""
+      return `
+        <tr>
+          <td style="padding:4px 0;color:#1f1f1f;font-size:13px;line-height:20px;">${escapeHtml(item.name)} ${qty}</td>
+          <td style="padding:4px 0;color:#1f1f1f;font-size:13px;line-height:20px;text-align:right;font-weight:600;">${price}</td>
+        </tr>`
+    })
+    .join("")
+
+  return `
+    <div style="margin:0 0 12px;font-size:13px;line-height:20px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#6b7280;">Items</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 12px;border-bottom:1px solid #f5d1e3;padding-bottom:8px;">${rows}</table>`
+}
+
 function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
   const customerName = escapeHtml(payload.customerName?.trim() || "Glam Star")
   const orderNumber = escapeHtml(payload.orderNumber)
@@ -168,8 +194,12 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
   const summaryRows = [
     renderSummaryRow("Order", payload.orderNumber),
     renderSummaryRow("Status", statusLabel),
+    ...(payload.driverName ? [renderSummaryRow("Driver", payload.driverName)] : []),
+    ...(payload.address ? [renderSummaryRow("Address", payload.address)] : []),
     renderSummaryRow("ETA", etaLabel),
   ].join("")
+
+  const itemsHtml = payload.items?.length ? renderItemsTable(payload.items) : ""
 
   const layoutStart = `
     <div style="margin:0;background-color:#f7f4f5;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;color:#1f1f1f;">
@@ -185,10 +215,41 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
                 <td style="padding:18px 20px;">
                   <div style="margin:0 0 12px;font-size:15px;line-height:22px;font-weight:700;color:#1f1f1f;">Order summary</div>
                   <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${summaryRows}</table>
+                  ${itemsHtml}
                 </td>
               </tr>
             </table>
   `
+
+  if (event === "order_accepted") {
+    const driverLine = payload.driverName
+      ? ` Your rider <strong>${escapeHtml(payload.driverName)}</strong> will be handling the delivery.`
+      : " A rider has been assigned and will be on the way soon."
+
+    return `
+      ${layoutStart}
+              <div style="font-size:24px;line-height:32px;font-weight:700;color:#c21874;">Your Order Has Been Accepted</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              ${summaryCard}
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Hello ${customerName},</p>
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Thank you for shopping with Sterlin Glams. We&rsquo;re happy to let you know that your order <strong>${orderNumber}</strong> has been accepted and is being prepared.${driverLine}</p>
+              <p style="margin:0 0 24px;font-size:16px;line-height:26px;">We&rsquo;ll send you another update once your order is on the way. You can track your order at any time using the link below.</p>
+              ${trackingUrl ? `<div style="margin:0 0 28px;"><a href="${trackingUrl}" style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 22px;border-radius:999px;">Track Your Order</a></div>` : ""}
+              ${trackingUrl ? `<p style="margin:0 0 24px;font-size:13px;line-height:22px;color:#6b7280;word-break:break-word;">If the button does not work, copy and paste this link into your browser:<br />${trackingUrl}</p>` : ""}
+              <p style="margin:0 0 12px;font-size:16px;line-height:26px;">Thank you for choosing Sterlin Glams.</p>
+              <p style="margin:0;font-size:16px;line-height:26px;">Warm regards,<br /><strong>Sterlin Glams Logistics</strong></p>
+              <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid #f3e4eb;text-align:center;">
+                ${renderSocialLinks(siteOrigin)}
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `
+  }
 
   if (event === "out_for_delivery") {
     return `
@@ -254,6 +315,7 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
     `
   }
 
+  // Fallback for any future event types
   const fallbackMessage = escapeHtml(buildMessage(event, payload)).replaceAll("\n", "<br />")
 
   return `
@@ -262,7 +324,9 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
           </td>
         </tr>
         <tr>
-          <td style="padding:0 32px 32px;font-size:16px;line-height:26px;">${fallbackMessage}
+          <td style="padding:0 32px 32px;">
+            ${summaryCard}
+            <p style="font-size:16px;line-height:26px;">${fallbackMessage}</p>
             <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid #f3e4eb;text-align:center;">
               ${renderSocialLinks(siteOrigin)}
             </div>

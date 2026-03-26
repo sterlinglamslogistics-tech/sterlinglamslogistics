@@ -176,6 +176,9 @@ export default function DeliveryCompletionPage({
         customerName: order.customerName,
         customerPhone: order.phone,
         customerEmail: order.customerEmail,
+        address: order.address,
+        driverName: session?.name,
+        items: order.items,
       })
       toast({ title: "Delivery completed!", description: `${order.orderNumber} marked as delivered.` })
       router.push("/driver/dashboard")

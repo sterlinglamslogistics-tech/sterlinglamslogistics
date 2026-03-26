@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server"
 import { fetchOrderByTracking, updateOrder } from "@/lib/firestore"
 
-function getRedirectUrl(request: Request, tracking: string, rating: number) {
+function getRedirectUrl(request: Request, tracking: string, rating: number, submitted: boolean) {
   const url = new URL(request.url)
-  return new URL(`/track/${encodeURIComponent(tracking)}?rating=${rating}&submitted=1`, url.origin)
+  const dest = new URL(`/track/${encodeURIComponent(tracking)}`, url.origin)
+  if (rating >= 1 && rating <= 5) dest.searchParams.set("rating", String(rating))
+  if (submitted) dest.searchParams.set("submitted", "1")
+  return dest
 }
 
 export async function GET(
@@ -15,20 +18,29 @@ export async function GET(
   const rating = Number(ratingValue)
 
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-    return NextResponse.redirect(getRedirectUrl(request, tracking, 0))
+    return NextResponse.redirect(getRedirectUrl(request, tracking, 0, false))
   }
 
   try {
     const order = await fetchOrderByTracking(tracking)
-    if (order) {
-      await updateOrder(order.id, {
-        customerRating: rating,
-        customerRatedAt: new Date(),
-      })
+    if (!order) {
+      return NextResponse.redirect(getRedirectUrl(request, tracking, rating, false))
     }
+
+    // Only accept ratings for delivered orders
+    if (order.status !== "delivered") {
+      return NextResponse.redirect(getRedirectUrl(request, tracking, 0, false))
+    }
+
+    // Allow re-rating (customer can change their mind)
+    await updateOrder(order.id, {
+      customerRating: rating,
+      customerRatedAt: new Date(),
+    })
+
+    return NextResponse.redirect(getRedirectUrl(request, tracking, rating, true))
   } catch (error) {
     console.error("Failed to save rating:", error)
+    return NextResponse.redirect(getRedirectUrl(request, tracking, rating, false))
   }
-
-  return NextResponse.redirect(getRedirectUrl(request, tracking, rating))
 }

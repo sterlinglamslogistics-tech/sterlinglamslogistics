@@ -183,12 +183,16 @@ export default function OrdersPage() {
       )
 
       if (targetOrder) {
+        const assignedDriverObj = allDrivers.find((d) => d.id === driverId)
         notifyOrderEvent("order_accepted", {
           orderId: targetOrder.id,
           orderNumber: targetOrder.orderNumber,
           customerName: targetOrder.customerName,
           customerPhone: targetOrder.phone,
           customerEmail: targetOrder.customerEmail,
+          address: targetOrder.address,
+          driverName: assignedDriverObj?.name,
+          items: targetOrder.items,
         })
       }
     } catch (err) {
@@ -450,6 +454,7 @@ export default function OrdersPage() {
       )
 
       const selectedOrders = orderList.filter((o) => selectedOrderIds.includes(o.id))
+      const bulkDriverObj = allDrivers.find((d) => d.id === bulkDriverId)
       for (const item of selectedOrders) {
         notifyOrderEvent("order_accepted", {
           orderId: item.id,
@@ -457,6 +462,9 @@ export default function OrdersPage() {
           customerName: item.customerName,
           customerPhone: item.phone,
           customerEmail: item.customerEmail,
+          address: item.address,
+          driverName: bulkDriverObj?.name,
+          items: item.items,
         })
       }
 

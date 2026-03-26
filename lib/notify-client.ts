@@ -6,6 +6,9 @@ interface OrderNotificationPayload {
   customerName: string
   customerPhone: string
   customerEmail?: string | null
+  address?: string
+  driverName?: string
+  items?: Array<{ name: string; qty?: number; price?: number }>
 }
 
 export async function notifyOrderEvent(event: OrderEvent, payload: OrderNotificationPayload) {

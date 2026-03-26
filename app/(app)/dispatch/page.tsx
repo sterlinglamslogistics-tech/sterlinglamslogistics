@@ -162,12 +162,16 @@ setError("Failed to load data. Check your Firebase connection.")
       })
 
       if (targetOrder) {
+        const assignedDriverObj = allDrivers.find((d) => d.id === driverId)
         notifyOrderEvent("order_accepted", {
           orderId: targetOrder.id,
           orderNumber: targetOrder.orderNumber,
           customerName: targetOrder.customerName,
           customerPhone: targetOrder.phone,
           customerEmail: targetOrder.customerEmail,
+          address: targetOrder.address,
+          driverName: assignedDriverObj?.name,
+          items: targetOrder.items,
         })
       }
 

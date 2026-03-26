@@ -186,6 +186,9 @@ export default function DriverDashboard() {
         customerName: order.customerName,
         customerPhone: order.phone,
         customerEmail: order.customerEmail,
+        address: order.address,
+        driverName: session?.name,
+        items: order.items,
       })
       toast({ title: "In transit", description: `${order.orderNumber} is now on the way.` })
     } catch {
