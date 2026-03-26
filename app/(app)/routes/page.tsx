@@ -281,8 +281,8 @@ export default function RoutesPage() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-5.5rem)] gap-4 overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
-      <aside className="flex h-full min-h-0 flex-col rounded-xl border bg-card">
+    <div className="grid h-[calc(100vh-3.5rem)] gap-0 overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className="flex h-full min-h-0 flex-col border-r bg-card">
         <div className="border-b px-4 py-3">
           <h1 className="text-2xl font-semibold text-foreground">Orders ({filteredOrders.length})</h1>
         </div>
@@ -351,7 +351,7 @@ export default function RoutesPage() {
         </div>
       </aside>
 
-      <section className="relative h-full overflow-hidden rounded-xl border bg-card">
+      <section className="relative h-full overflow-hidden bg-card">
         <div ref={mapContainerRef} className="h-full w-full" />
 
         <div className="pointer-events-none absolute left-4 top-4 flex flex-wrap gap-2 text-xs">

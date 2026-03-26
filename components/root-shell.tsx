@@ -59,11 +59,13 @@ export function RootShell({ children }: { children: React.ReactNode }) {
     return null // will redirect via useEffect
   }
 
+  const isMapRoute = pathname === "/dispatch" || pathname === "/routes"
+
   return (
     <>
       <AppSidebar />
       <main className="min-h-[calc(100vh-3.5rem)] bg-background">
-        <div className="px-4 py-6 lg:px-6">{children}</div>
+        {isMapRoute ? children : <div className="px-4 py-6 lg:px-6">{children}</div>}
       </main>
     </>
   )
