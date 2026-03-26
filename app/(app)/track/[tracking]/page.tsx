@@ -168,6 +168,12 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const [orderOpen, setOrderOpen] = useState(false)
   const [liveRoute, setLiveRoute] = useState<{ distanceKm: number; durationMs: number; fetchedAt: number } | null>(null)
   const [ratingState, setRatingState] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [showRatingPage, setShowRatingPage] = useState(false)
+  const [serviceRating, setServiceRating] = useState(0)
+  const [driverRating, setDriverRating] = useState(0)
+  const [feedback, setFeedback] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
 
   const activeDriverSubscriptionRef = useRef<(() => void) | null>(null)
   const activeDriverIdRef = useRef<string | null>(null)
@@ -252,6 +258,14 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     const id = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
+
+  // Auto-switch to rating page 5 seconds after delivery
+  useEffect(() => {
+    if (!order || order.status !== "delivered") return
+    if (submitted) return
+    const timer = setTimeout(() => setShowRatingPage(true), 5000)
+    return () => clearTimeout(timer)
+  }, [order?.status, submitted])
 
   useEffect(() => {
     if (!order || order.status !== "delivered" || !requestedRating) return
@@ -508,6 +522,163 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const stepIndex = getStepIndex(order.status)
   const etaTime = formatEtaTime(etaMs)
   const isActive = order.status !== "delivered" && order.status !== "cancelled" && order.status !== "failed"
+
+  // ── Rating / Feedback page ──
+  if (showRatingPage && order.status === "delivered" && !submitted) {
+    async function handleSubmitRating() {
+      setSubmitting(true)
+      try {
+        const updates: Record<string, unknown> = {}
+        if (serviceRating > 0) {
+          updates.customerRating = serviceRating
+          updates.customerRatedAt = new Date()
+        }
+        if (driverRating > 0) {
+          updates.driverRating = driverRating
+        }
+        if (feedback.trim()) {
+          updates.customerFeedback = feedback.trim()
+        }
+        if (Object.keys(updates).length > 0) {
+          await updateOrder(order.id, updates)
+        }
+        setSubmitted(true)
+        setShowRatingPage(false)
+      } catch {
+        // allow retry
+      } finally {
+        setSubmitting(false)
+      }
+    }
+
+    return (
+      <div className="flex min-h-screen flex-col items-center bg-background px-6 py-8">
+        {/* Logo */}
+        <div className="mb-4">
+          <div className="flex h-16 w-20 items-center justify-center rounded-b-[2rem] border-2 border-t-0 border-foreground/20 bg-background">
+            <span className="font-serif text-lg italic text-[hsl(330,82%,52%)]">
+              Sterlin<br/><span className="text-xs text-[hsl(330,82%,52%)]">Glams</span>
+            </span>
+          </div>
+        </div>
+
+        <h2 className="text-lg font-bold text-foreground">Sterlin Glams</h2>
+        <button
+          type="button"
+          onClick={() => {
+            setShowRatingPage(false)
+            setSubmitted(true)
+          }}
+          className="mb-6 text-sm font-medium text-green-600 hover:underline"
+        >
+          Delivery details
+        </button>
+
+        {/* Overall service rating */}
+        <div className="mb-2 flex items-center gap-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setServiceRating(i + 1)}
+              className="transition-transform active:scale-110"
+            >
+              <Star
+                className={`h-10 w-10 ${
+                  i < serviceRating
+                    ? "fill-yellow-400 text-yellow-400"
+                    : "fill-yellow-400/20 text-yellow-400/40"
+                }`}
+              />
+            </button>
+          ))}
+        </div>
+
+        <div className="my-6 h-px w-full bg-border" />
+
+        {/* Driver service rating */}
+        <h3 className="mb-4 text-lg font-bold text-foreground">How was the driver service?</h3>
+
+        <div className="mb-4 flex items-center gap-4">
+          {/* Driver avatar */}
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted text-lg font-bold text-muted-foreground">
+            {driver?.name?.split(" ").map((n) => n[0]).join("").slice(0, 2) ?? "D"}
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-foreground">{driver?.name ?? "Driver"}</p>
+            <p className="text-xs text-muted-foreground">Your driver</p>
+          </div>
+          <div className="flex items-center gap-1">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setDriverRating(i + 1)}
+                className="transition-transform active:scale-110"
+              >
+                <Star
+                  className={`h-7 w-7 ${
+                    i < driverRating
+                      ? "fill-yellow-400 text-yellow-400"
+                      : "fill-yellow-400/20 text-yellow-400/40"
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="my-4 h-px w-full bg-border" />
+
+        {/* Feedback */}
+        <textarea
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          placeholder="We always appreciate your feedback to make our service better."
+          className="mb-6 w-full rounded-xl border bg-background p-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-green-500/50"
+          rows={4}
+        />
+
+        {/* Submit */}
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={handleSubmitRating}
+          className="w-full rounded-xl bg-green-700 py-4 text-base font-semibold text-white hover:bg-green-800 disabled:opacity-60"
+        >
+          {submitting ? "Submitting..." : "Submit"}
+        </button>
+      </div>
+    )
+  }
+
+  // ── Submitted thank you (briefly, then back to tracking) ──
+  if (submitted && order.status === "delivered") {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6">
+        <div className="flex items-center gap-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Star
+              key={i}
+              className={`h-8 w-8 ${
+                i < (serviceRating || order.customerRating || 0)
+                  ? "fill-yellow-400 text-yellow-400"
+                  : "text-muted"
+              }`}
+            />
+          ))}
+        </div>
+        <p className="text-lg font-semibold">Thank you for your feedback!</p>
+        <button
+          type="button"
+          onClick={() => setSubmitted(false)}
+          className="text-sm text-green-600 hover:underline"
+        >
+          View delivery details
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="grid h-screen xl:grid-cols-[420px_minmax(0,1fr)]" style={{ minHeight: "100dvh" }}>
