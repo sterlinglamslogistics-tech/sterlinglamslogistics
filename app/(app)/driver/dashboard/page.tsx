@@ -64,6 +64,9 @@ export default function DriverDashboard() {
   } = useDriver()
   const [showOnlineToast, setShowOnlineToast] = useState(false)
   const [routeModalOpen, setRouteModalOpen] = useState(false)
+  // Optimize route flow: "check" | "confirm" | "choose-last" | "done" | null
+  const [optimizeStep, setOptimizeStep] = useState<"check" | "confirm" | "choose-last" | "done" | null>(null)
+  const [selectedLastStop, setSelectedLastStop] = useState<string | null>(null)
 
   // Redirect to login if no session
   useEffect(() => {
@@ -287,8 +290,8 @@ export default function DriverDashboard() {
         </div>
       )}
 
-      {/* Route Options Modal (Screenshot 4) */}
-      {routeModalOpen && (
+      {/* Route Options Modal */}
+      {routeModalOpen && !optimizeStep && (
         <>
           <div
             className="fixed inset-0 z-50 bg-black/50"
@@ -311,8 +314,12 @@ export default function DriverDashboard() {
                 type="button"
                 className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
                 onClick={() => {
-                  toast({ title: "Route optimized" })
+                  // Start the optimize route flow
                   setRouteModalOpen(false)
+                  const allPickedUp = activeOrders.every(
+                    (o) => o.status === "picked-up" || o.status === "in-transit"
+                  )
+                  setOptimizeStep(allPickedUp ? "confirm" : "check")
                 }}
               >
                 Optimize Route
@@ -335,6 +342,136 @@ export default function DriverDashboard() {
                 Close
               </button>
             </div>
+          </div>
+        </>
+      )}
+
+      {/* Optimize Step 1: "all orders must be picked up" */}
+      {optimizeStep === "check" && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" />
+          <div className="fixed inset-x-6 top-1/2 z-50 mx-auto max-w-sm -translate-y-1/2 rounded-2xl border-2 border-yellow-400 bg-background p-6 shadow-2xl">
+            <p className="mb-6 text-center text-base font-semibold">
+              For route optimization, all orders must be picked up
+            </p>
+            <button
+              type="button"
+              className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+              onClick={() => setOptimizeStep(null)}
+            >
+              OK
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Optimize Step 2: "Do you want to re-optimize route?" */}
+      {optimizeStep === "confirm" && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" />
+          <div className="fixed inset-x-6 top-1/2 z-50 mx-auto max-w-sm -translate-y-1/2 rounded-2xl bg-background p-6 shadow-2xl">
+            <p className="mb-6 text-center text-base font-semibold">
+              Do you want to re-optimize route?
+            </p>
+            <div className="space-y-3">
+              <button
+                type="button"
+                className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+                onClick={() => {
+                  setSelectedLastStop(null)
+                  setOptimizeStep("choose-last")
+                }}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-xl border py-3 text-sm font-semibold text-foreground hover:bg-muted"
+                onClick={() => setOptimizeStep(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Optimize Step 3: "Choose the last stop" bottom sheet */}
+      {optimizeStep === "choose-last" && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50"
+            onClick={() => setOptimizeStep(null)}
+          />
+          <div className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4">
+            <div className="rounded-t-2xl bg-background px-5 pb-6 pt-4 shadow-2xl">
+              <div className="mb-4 flex justify-center">
+                <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+              </div>
+              <h3 className="mb-4 text-center text-base font-bold">
+                Choose the last stop (optional)
+              </h3>
+              <div className="mb-4 max-h-60 space-y-3 overflow-y-auto">
+                {activeOrders.map((order) => (
+                  <button
+                    key={order.id}
+                    type="button"
+                    className="flex w-full items-start gap-3 rounded-xl border p-3 text-left transition-colors hover:bg-muted"
+                    onClick={() => setSelectedLastStop(order.id)}
+                  >
+                    <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground/40">
+                      {selectedLastStop === order.id && (
+                        <div className="h-3 w-3 rounded-full bg-green-600" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium">{order.address}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  className="w-full rounded-xl border py-3 text-sm font-semibold text-foreground hover:bg-muted"
+                  onClick={() => setOptimizeStep("done")}
+                >
+                  Choose
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+                  onClick={() => {
+                    setSelectedLastStop(null)
+                    setOptimizeStep("done")
+                  }}
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Optimize Step 4: "order resorted" confirmation */}
+      {optimizeStep === "done" && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" />
+          <div className="fixed inset-x-6 top-1/2 z-50 mx-auto max-w-sm -translate-y-1/2 rounded-2xl border-2 border-yellow-400 bg-background p-6 shadow-2xl">
+            <p className="mb-6 text-center text-base font-semibold">
+              order resorted
+            </p>
+            <button
+              type="button"
+              className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
+              onClick={() => {
+                setOptimizeStep(null)
+                refreshOrders()
+              }}
+            >
+              OK
+            </button>
           </div>
         </>
       )}
