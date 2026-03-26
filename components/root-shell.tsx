@@ -62,8 +62,8 @@ export function RootShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <AppSidebar />
-      <main className="min-h-screen bg-background pl-0 lg:pl-64">
-        <div className="mx-auto max-w-7xl px-4 py-6 pt-16 lg:px-8 lg:pt-6">{children}</div>
+      <main className="min-h-[calc(100vh-3.5rem)] bg-background">
+        <div className="mx-auto max-w-[1600px] px-4 py-6 lg:px-6">{children}</div>
       </main>
     </>
   )
