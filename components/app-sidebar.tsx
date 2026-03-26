@@ -31,7 +31,6 @@ const navItems = [
   { label: "Routes", href: "/routes", icon: Route },
   { label: "Reviews", href: "/reviews", icon: Star },
   { label: "Reports", href: "/reports", icon: BarChart3 },
-  { label: "Integrations", href: "/settings", icon: Settings },
 ]
 
 export function AppSidebar() {
@@ -122,6 +121,13 @@ export function AppSidebar() {
               <p className="truncate px-3 py-1.5 text-xs text-muted-foreground">
                 {user?.email ?? "admin@sterlinglams.com"}
               </p>
+              <Link
+                href="/settings"
+                className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+              >
+                <Settings className="size-3.5" />
+                Settings
+              </Link>
               <button
                 onClick={logout}
                 className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-destructive hover:bg-accent"
