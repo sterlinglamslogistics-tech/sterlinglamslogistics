@@ -54,6 +54,7 @@ import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 import { notifyOrderEvent } from "@/lib/notify-client"
+import { loadGoogleMaps } from "@/lib/google-maps"
 
 type OrderTab = "current" | "completed" | "incomplete" | "history"
 
@@ -140,11 +141,14 @@ export default function OrdersPage() {
   const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false)
   const [bulkDriverId, setBulkDriverId] = useState<string>(UNASSIGNED_DRIVER)
 
-  // Address autocomplete
-  const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: string; lon: string }>>([])
+  // Address autocomplete (Google Places Autocomplete Service)
+  const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: string; lon: string; placeId?: string }>>([])
   const [addressSearching, setAddressSearching] = useState(false)
   const [addressPreviewCoord, setAddressPreviewCoord] = useState<{ lat: number; lng: number } | null>(null)
   const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null)
+  const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null)
+  const placesContainerRef = useRef<HTMLDivElement | null>(null)
 
   const form = useForm<OrderFormData>({
     resolver: zodResolver(orderFormSchema),
@@ -194,6 +198,77 @@ export default function OrdersPage() {
 
     loadData()
   }, [])
+
+  // Auto-calculate missing distances client-side using Google Maps Geocoder
+  useEffect(() => {
+    if (isLoading || orderList.length === 0) return
+
+    const HUB = {
+      lat: Number(process.env.NEXT_PUBLIC_HUB_LAT) || 6.4642667,
+      lng: Number(process.env.NEXT_PUBLIC_HUB_LNG) || 3.5554814,
+    }
+
+    function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+      const toRad = (v: number) => (v * Math.PI) / 180
+      const dLat = toRad(b.lat - a.lat)
+      const dLng = toRad(b.lng - a.lng)
+      const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
+      return Number((6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))).toFixed(2))
+    }
+
+    const missing = orderList.filter(
+      (o) => (typeof o.distanceKm !== "number" || Number.isNaN(o.distanceKm)) && o.address?.trim()
+    )
+    if (missing.length === 0) return
+
+    let cancelled = false
+
+    async function backfillDistances() {
+      try {
+        await loadGoogleMaps()
+        const geocoder = new google.maps.Geocoder()
+
+        for (const order of missing) {
+          if (cancelled) break
+          try {
+            const result = await new Promise<google.maps.GeocoderResult[] | null>((resolve) => {
+              geocoder.geocode(
+                { address: order.address, region: "NG" },
+                (results, status) => {
+                  if (status === google.maps.GeocoderStatus.OK && results?.length) {
+                    resolve(results)
+                  } else {
+                    resolve(null)
+                  }
+                }
+              )
+            })
+            if (!result) continue
+
+            const loc = result[0].geometry.location
+            const distanceKm = haversineKm(HUB, { lat: loc.lat(), lng: loc.lng() })
+
+            if (!cancelled) {
+              setOrderList((prev) =>
+                prev.map((o) => (o.id === order.id ? { ...o, distanceKm } : o))
+              )
+              // Persist to Firestore (fire-and-forget)
+              updateOrder(order.id, { distanceKm } as Partial<Order>).catch(() => {})
+            }
+          } catch {
+            // skip this order
+          }
+        }
+      } catch {
+        // Google Maps not available, skip
+      }
+    }
+
+    backfillDistances()
+    return () => { cancelled = true }
+  }, [isLoading, orderList.length])
 
   async function handleAssignDriver(orderId: string, driverId: string) {
     try {
@@ -937,6 +1012,7 @@ export default function OrdersPage() {
                         <FormLabel>Address: <span className="text-destructive">*</span></FormLabel>
                         <FormControl>
                           <div className="relative">
+                            <div ref={placesContainerRef} className="hidden" />
                             <input
                               type="text"
                               autoComplete="off"
@@ -952,17 +1028,30 @@ export default function OrdersPage() {
                                 addressDebounceRef.current = setTimeout(async () => {
                                   setAddressSearching(true)
                                   try {
-                                    const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? ""
-                                    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(val)}&components=country:NG&key=${API_KEY}`
-                                    const res = await fetch(url)
-                                    if (res.ok) {
-                                      const json = await res.json()
-                                      const results = (json.results ?? []) as Array<{ formatted_address: string; geometry: { location: { lat: number; lng: number } } }>
-                                      setAddressSuggestions(results.slice(0, 6).map(r => ({ display_name: r.formatted_address, lat: String(r.geometry.location.lat), lon: String(r.geometry.location.lng) })))
+                                    await loadGoogleMaps()
+                                    if (!autocompleteServiceRef.current) {
+                                      autocompleteServiceRef.current = new google.maps.places.AutocompleteService()
                                     }
-                                  } catch { /* ignore */ }
-                                  setAddressSearching(false)
-                                }, 400)
+                                    autocompleteServiceRef.current.getPlacePredictions(
+                                      { input: val, componentRestrictions: { country: "ng" } },
+                                      (predictions, status) => {
+                                        if (status === google.maps.places.PlacesServiceStatus.OK && predictions) {
+                                          setAddressSuggestions(predictions.slice(0, 5).map(p => ({
+                                            display_name: p.description,
+                                            lat: "",
+                                            lon: "",
+                                            placeId: p.place_id,
+                                          })))
+                                        } else {
+                                          setAddressSuggestions([])
+                                        }
+                                        setAddressSearching(false)
+                                      }
+                                    )
+                                  } catch {
+                                    setAddressSearching(false)
+                                  }
+                                }, 300)
                               }}
                             />
                             {(addressSearching || addressSuggestions.length > 0) && (
@@ -975,10 +1064,25 @@ export default function OrdersPage() {
                                     key={i}
                                     type="button"
                                     className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
-                                    onClick={() => {
+                                    onClick={async () => {
                                       field.onChange(s.display_name)
                                       setAddressSuggestions([])
-                                      setAddressPreviewCoord({ lat: Number(s.lat), lng: Number(s.lon) })
+                                      if (s.placeId) {
+                                        try {
+                                          await loadGoogleMaps()
+                                          if (!placesServiceRef.current && placesContainerRef.current) {
+                                            placesServiceRef.current = new google.maps.places.PlacesService(placesContainerRef.current)
+                                          }
+                                          placesServiceRef.current?.getDetails(
+                                            { placeId: s.placeId, fields: ["geometry"] },
+                                            (place, detailStatus) => {
+                                              if (detailStatus === google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
+                                                setAddressPreviewCoord({ lat: place.geometry.location.lat(), lng: place.geometry.location.lng() })
+                                              }
+                                            }
+                                          )
+                                        } catch { /* ignore */ }
+                                      }
                                     }}
                                   >
                                     <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />

@@ -14,9 +14,11 @@ Pick any strong random string (e.g. `openssl rand -hex 32`). You'll use it in bo
 
 1. Go to **Vercel → Project Settings → Environment Variables**
 2. Add:
+
    | Name | Value |
    |------|-------|
    | `WOOCOMMERCE_WEBHOOK_SECRET` | *(your secret from step 1)* |
+
 3. Redeploy (or it picks up on next push).
 
 ---
@@ -68,6 +70,7 @@ Go to **sterlinglam.com → WP Admin → WooCommerce → Settings → Advanced �
 ## 5. Order Number Format
 
 WooCommerce orders are prefixed with `WC-` followed by the WooCommerce order ID:
+
 - WooCommerce order **#1234** → Delivery order **WC-1234**
 
 ---

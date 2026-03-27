@@ -54,25 +54,44 @@ async function geocodeAddress(address) {
   const cached = geocodeCache.get(query)
   if (cached) return cached
 
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "delivery-backfill-distance/1.0",
-    },
-  })
+  // Try Google Maps Geocoding API first
+  const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || ""
+  if (API_KEY) {
+    try {
+      const gUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${API_KEY}`
+      const gRes = await fetch(gUrl)
+      if (gRes.ok) {
+        const gData = await gRes.json()
+        const loc = gData.results?.[0]?.geometry?.location
+        if (loc) {
+          const coords = { lat: loc.lat, lng: loc.lng }
+          geocodeCache.set(query, coords)
+          return coords
+        }
+      }
+    } catch { /* fall through to Nominatim */ }
+  }
 
-  if (!response.ok) return null
-  const data = await response.json()
-  if (!Array.isArray(data) || data.length === 0) return null
+  // Fallback to Nominatim (OpenStreetMap)
+  try {
+    const nUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
+    const nRes = await fetch(nUrl, {
+      headers: { Accept: "application/json", "User-Agent": "delivery-backfill-distance/1.0" },
+    })
+    if (!nRes.ok) return null
+    const nData = await nRes.json()
+    if (!Array.isArray(nData) || nData.length === 0) return null
 
-  const lat = Number(data[0].lat)
-  const lng = Number(data[0].lon)
-  if (Number.isNaN(lat) || Number.isNaN(lng)) return null
+    const lat = Number(nData[0].lat)
+    const lng = Number(nData[0].lon)
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null
 
-  const coords = { lat, lng }
-  geocodeCache.set(query, coords)
-  return coords
+    const coords = { lat, lng }
+    geocodeCache.set(query, coords)
+    return coords
+  } catch {
+    return null
+  }
 }
 
 loadEnvLocal()
