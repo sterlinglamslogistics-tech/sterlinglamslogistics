@@ -42,16 +42,19 @@ const requiredKeys = [
   "NEXT_PUBLIC_FIREBASE_API_KEY",
   "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
   "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+  "SEED_ADMIN_EMAIL",
+  "SEED_ADMIN_PASSWORD",
 ]
+// `!value` catches both undefined and empty string
 const missingKeys = requiredKeys.filter((key) => !process.env[key])
 if (missingKeys.length > 0) {
-  console.error("Missing Firebase environment variables:")
+  console.error("Missing or empty environment variables:")
   for (const key of missingKeys) console.error(`- ${key}`)
   process.exit(1)
 }
 
-const ADMIN_EMAIL = "admin@sterlinglams.com"
-const ADMIN_PASSWORD = "SterlinAdmin2026!"
+const ADMIN_EMAIL = /** @type {string} */ (process.env.SEED_ADMIN_EMAIL)
+const ADMIN_PASSWORD = /** @type {string} */ (process.env.SEED_ADMIN_PASSWORD)
 
 const app = initializeApp(firebaseConfig)
 const authInstance = getAuth(app)
