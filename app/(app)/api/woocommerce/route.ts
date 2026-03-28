@@ -178,13 +178,12 @@ export async function POST(req: Request) {
     )
   }
 
-  // Only accept Processing or Completed statuses
-  const accepted = ["processing", "completed"]
-  if (wc.status && !accepted.includes(wc.status)) {
+  // Only accept Completed orders
+  if (wc.status !== "completed") {
     return NextResponse.json({
       ok: true,
       skipped: true,
-      message: `Status "${wc.status}" not accepted`,
+      message: `Status "${wc.status}" not accepted – only completed orders are imported`,
     })
   }
 
