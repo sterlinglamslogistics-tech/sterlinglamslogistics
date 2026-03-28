@@ -98,16 +98,16 @@ export default function DriverMapPage() {
     }
   }, [])
 
-  // Update markers when orders change
+  // Update ORDER markers only when orders change (not on GPS updates)
   useEffect(() => {
     if (!mapReady || !mapRef.current) return
 
     let cancelled = false
 
-    async function updateMarkers() {
+    async function updateOrderMarkers() {
       const map = mapRef.current!
 
-      // Clear old markers
+      // Clear old order markers
       for (const m of markersRef.current) {
         m.setMap(null)
       }
@@ -130,11 +130,9 @@ export default function DriverMapPage() {
         }
 
         const coords = await geocodeAddress(order.address)
-        if (!coords) continue
+        if (!coords || cancelled) continue
 
         const markerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><circle cx="22" cy="22" r="20" fill="%23222222" stroke="white" stroke-width="3"/><text x="22" y="28" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="sans-serif">${num}</text></svg>`
-        const iconSize = 44
-        const iconH = 44
 
         const marker = new google.maps.Marker({
           map,
@@ -142,8 +140,8 @@ export default function DriverMapPage() {
           title: `${order.orderNumber} - ${order.customerName}`,
           icon: {
             url: `data:image/svg+xml;charset=UTF-8,${markerSvg}`,
-            scaledSize: new google.maps.Size(iconSize, iconH),
-            anchor: new google.maps.Point(iconSize / 2, iconH / 2),
+            scaledSize: new google.maps.Size(44, 44),
+            anchor: new google.maps.Point(22, 22),
           },
         })
 
@@ -154,34 +152,38 @@ export default function DriverMapPage() {
         )
         markersRef.current.push(marker)
       }
-
-      // Add driver location marker
-      if (driverMarkerRef.current) {
-        driverMarkerRef.current.setMap(null)
-        driverMarkerRef.current = null
-      }
-
-      if (driver?.lastLocation) {
-        const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="16" fill="none" stroke="%23f59e0b" stroke-width="4"/><circle cx="18" cy="18" r="7" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>`
-        driverMarkerRef.current = new google.maps.Marker({
-          map,
-          position: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
-          title: "Your location",
-          icon: {
-            url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
-            scaledSize: new google.maps.Size(36, 36),
-            anchor: new google.maps.Point(18, 18),
-          },
-        })
-      }
     }
 
-    updateMarkers()
+    updateOrderMarkers()
 
     return () => {
       cancelled = true
     }
-  }, [mapReady, ordersKey, driver?.lastLocation, isOnline])
+  }, [mapReady, ordersKey, isOnline])
+
+  // Update DRIVER location marker independently (runs on GPS updates without touching order markers)
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return
+
+    if (driverMarkerRef.current) {
+      driverMarkerRef.current.setMap(null)
+      driverMarkerRef.current = null
+    }
+
+    if (driver?.lastLocation) {
+      const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="16" fill="none" stroke="%23f59e0b" stroke-width="4"/><circle cx="18" cy="18" r="7" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>`
+      driverMarkerRef.current = new google.maps.Marker({
+        map: mapRef.current,
+        position: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
+        title: "Your location",
+        icon: {
+          url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
+          scaledSize: new google.maps.Size(36, 36),
+          anchor: new google.maps.Point(18, 18),
+        },
+      })
+    }
+  }, [mapReady, driver?.lastLocation])
 
   if (loadingSession || !session) return null
 
