@@ -108,11 +108,22 @@ function normalizeOrderStatus(status: unknown): Order["status"] {
   return "unassigned"
 }
 
+function toDate(val: unknown): Date | undefined {
+  if (!val) return undefined
+  if (val instanceof Date) return val
+  if (typeof (val as { toDate?: unknown }).toDate === "function") return (val as { toDate: () => Date }).toDate()
+  if (typeof val === "string" || typeof val === "number") { const d = new Date(val); if (!Number.isNaN(d.getTime())) return d }
+  return undefined
+}
+
 function normalizeOrderDoc(id: string, data: Record<string, unknown>): Order {
   return {
     ...(data as Omit<Order, "id" | "status">),
     id,
     status: normalizeOrderStatus(data.status),
+    createdAt: toDate(data.createdAt),
+    startedAt: toDate(data.startedAt),
+    completedAt: toDate(data.completedAt),
   } as Order
 }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,7 @@ import {
   Menu,
   ScanLine,
   Truck,
+  RefreshCw,
 } from "lucide-react"
 import { updateOrder, updateDriver } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
@@ -64,6 +65,11 @@ export default function DriverDashboard() {
   } = useDriver()
   const [showOnlineToast, setShowOnlineToast] = useState(false)
   const [routeModalOpen, setRouteModalOpen] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [pullDistance, setPullDistance] = useState(0)
+  const touchStartY = useRef(0)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const PULL_THRESHOLD = 60
   // Optimize route flow: "check" | "confirm" | "choose-last" | "done" | null
   const [optimizeStep, setOptimizeStep] = useState<"check" | "confirm" | "choose-last" | "done" | null>(null)
   const [selectedLastStop, setSelectedLastStop] = useState<string | null>(null)
@@ -84,6 +90,37 @@ export default function DriverDashboard() {
       return () => clearTimeout(timer)
     }
   }, [justWentOnline, consumeJustWentOnline])
+
+  const handlePullRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    setPullDistance(0)
+    await refreshOrders()
+    // Keep spinner visible briefly so user sees it
+    setTimeout(() => setIsRefreshing(false), 600)
+  }, [refreshOrders])
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY
+  }, [])
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (isRefreshing) return
+    const el = scrollContainerRef.current
+    // Only allow pull when scrolled to the very top
+    if (el && el.scrollTop > 0) return
+    const diff = e.touches[0].clientY - touchStartY.current
+    if (diff > 0) {
+      setPullDistance(Math.min(diff * 0.5, 80))
+    }
+  }, [isRefreshing])
+
+  const onTouchEnd = useCallback(() => {
+    if (pullDistance >= PULL_THRESHOLD) {
+      handlePullRefresh()
+    } else {
+      setPullDistance(0)
+    }
+  }, [pullDistance, handlePullRefresh])
 
   function handleNavigate(address: string) {
     const encoded = encodeURIComponent(address)
@@ -166,7 +203,28 @@ export default function DriverDashboard() {
 
   // Online state - Orders list (Screenshot 2)
   return (
-    <div className="mx-auto max-w-md px-4 pb-8">
+    <div
+      ref={scrollContainerRef}
+      className="mx-auto max-w-md px-4 pb-8 h-[calc(100vh-80px)] overflow-y-auto"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Pull-to-refresh indicator */}
+      <div
+        className="flex justify-center overflow-hidden transition-all duration-200"
+        style={{ height: isRefreshing ? 48 : pullDistance > 0 ? pullDistance : 0 }}
+      >
+        <div className="flex items-center justify-center py-2">
+          <RefreshCw
+            className={`h-6 w-6 text-muted-foreground ${isRefreshing ? "animate-spin" : ""}`}
+            style={{
+              transform: isRefreshing ? undefined : `rotate(${pullDistance * 3}deg)`,
+              opacity: isRefreshing ? 1 : Math.min(pullDistance / PULL_THRESHOLD, 1),
+            }}
+          />
+        </div>
+      </div>
       {/* Header */}
       <div className="sticky top-0 z-40 flex items-center justify-between bg-background py-3">
         <div className="flex items-center gap-3">

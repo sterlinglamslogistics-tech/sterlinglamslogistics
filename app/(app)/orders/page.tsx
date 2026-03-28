@@ -42,10 +42,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Plus, Edit, MoreHorizontal, Download, Printer, Trash2, Send, UserPlus, MapPin } from "lucide-react"
+import { Plus, Edit, MoreHorizontal, Download, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, X } from "lucide-react"
 import Link from "next/link"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -140,6 +142,7 @@ export default function OrdersPage() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([])
   const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false)
   const [bulkDriverId, setBulkDriverId] = useState<string>(UNASSIGNED_DRIVER)
+  const [reassignOrderId, setReassignOrderId] = useState<string | null>(null)
 
   // Address autocomplete (Google Places Autocomplete Service)
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: string; lon: string; placeId?: string }>>([])
@@ -708,6 +711,81 @@ export default function OrdersPage() {
     window.print()
   }
 
+  function handlePrintOrder(order: Order) {
+    const w = window.open("", "_blank")
+    if (!w) return
+    const items = (order.items ?? []).map((i) => `<tr><td>${i.name}</td><td>${i.qty}</td><td>${formatCurrency(i.price)}</td></tr>`).join("")
+    w.document.write(`<html><head><title>Order ${order.orderNumber}</title><style>body{font-family:system-ui,sans-serif;padding:24px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>
+      <h1>Order #${order.orderNumber}</h1>
+      <p><b>Customer:</b> ${order.customerName}</p>
+      <p><b>Phone:</b> ${order.phone}</p>
+      <p><b>Address:</b> ${order.address}</p>
+      <p><b>Amount:</b> ${formatCurrency(order.amount)}</p>
+      <p><b>Status:</b> ${order.status}</p>
+      <p><b>Driver:</b> ${order.assignedDriver ? getDriverDisplayName(order.assignedDriver) : "Unassigned"}</p>
+      ${order.deliveryInstruction ? `<p><b>Instructions:</b> ${order.deliveryInstruction}</p>` : ""}
+      <table><thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead><tbody>${items}</tbody></table>
+    </body></html>`)
+    w.document.close()
+    w.print()
+  }
+
+  function handlePrintLabel(order: Order) {
+    const w = window.open("", "_blank")
+    if (!w) return
+    w.document.write(`<html><head><title>Label ${order.orderNumber}</title><style>body{font-family:monospace;padding:16px;font-size:14px}h2{margin:0 0 8px}p{margin:4px 0}.barcode{font-family:'Libre Barcode 128',monospace;font-size:48px;margin-top:12px}</style><link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+128&display=swap" rel="stylesheet"></head><body>
+      <h2>#${order.orderNumber}</h2>
+      <p><b>${order.customerName}</b></p>
+      <p>${order.phone}</p>
+      <p>${order.address}</p>
+      <div class="barcode">${order.orderNumber}</div>
+    </body></html>`)
+    w.document.close()
+    setTimeout(() => w.print(), 500)
+  }
+
+  async function handleCancelOrder(order: Order) {
+    if (!window.confirm(`Cancel order ${order.orderNumber}?`)) return
+    try {
+      setIsSaving(true)
+      await updateOrder(order.id, { status: "cancelled", assignedDriver: null })
+      setOrderList((prev) =>
+        prev.map((o) => o.id === order.id ? { ...o, status: "cancelled", assignedDriver: null } : o)
+      )
+      toast({ title: "Order cancelled", description: `${order.orderNumber} has been cancelled.` })
+    } catch {
+      toast({ title: "Failed to cancel order", variant: "destructive" })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleUnassignOrder(orderId: string) {
+    try {
+      setIsSaving(true)
+      await updateOrder(orderId, { assignedDriver: null, status: "unassigned", startedAt: null })
+      setOrderList((prev) =>
+        prev.map((o) => o.id === orderId ? { ...o, assignedDriver: null, status: "unassigned", startedAt: null } : o)
+      )
+      setReassignOrderId(null)
+      toast({ title: "Order unassigned" })
+    } catch {
+      toast({ title: "Failed to unassign order", variant: "destructive" })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  function getInitials(name: string) {
+    return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+  }
+
+  function getDriverActiveOrderCount(driverId: string) {
+    return orderList.filter(
+      (o) => o.assignedDriver === driverId && !["unassigned", "delivered", "cancelled", "failed"].includes(o.status)
+    ).length
+  }
+
   async function handleBulkDelete() {
     if (selectedOrderIds.length === 0) {
       toast({ title: "Select orders first" })
@@ -839,7 +917,7 @@ export default function OrdersPage() {
               <TableHead>Placement Time</TableHead>
               <TableHead>Start Time</TableHead>
               <TableHead>Pick up Time</TableHead>
-              <TableHead>Delivery Time</TableHead>
+              {(activeTab === "completed" || activeTab === "history") && <TableHead>Delivery Time</TableHead>}
               {activeTab !== "completed" && activeTab !== "history" && <TableHead>Actions</TableHead>}
             </TableRow>
           </TableHeader>
@@ -893,30 +971,61 @@ export default function OrdersPage() {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Button asChild size="sm" variant="outline" className="h-8">
-                    <Link
-                      href={`/track/${encodeURIComponent(order.orderNumber)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Track
-                    </Link>
-                  </Button>
+                  {order.assignedDriver ? (
+                    <Button asChild size="sm" variant="outline" className="h-8">
+                      <Link
+                        href={`/track/${encodeURIComponent(order.orderNumber)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Track
+                      </Link>
+                    </Button>
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-muted-foreground">{formatDistance(order.distanceKm)}</TableCell>
                 <TableCell className="text-muted-foreground">{formatOrderTime(order.createdAt)}</TableCell>
                 <TableCell className="text-muted-foreground">{formatOrderTime(order.startedAt)}</TableCell>
                 <TableCell className="text-muted-foreground">{formatOrderTime(order.pickedUpAt)}</TableCell>
-                <TableCell className="text-muted-foreground">{formatOrderTime(order.deliveredAt)}</TableCell>
+                {(activeTab === "completed" || activeTab === "history") && (
+                  <TableCell className="text-muted-foreground">{formatOrderTime(order.deliveredAt)}</TableCell>
+                )}
                 {activeTab !== "completed" && activeTab !== "history" && (
                   <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openEditOrderDialog(order)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {order.assignedDriver && (
+                          <DropdownMenuItem onClick={() => setReassignOrderId(order.id)}>
+                            <UserPlus2 className="mr-2 h-4 w-4" /> Reassign
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => openOrderDialog(order)}>
+                          <FileText className="mr-2 h-4 w-4" /> Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditOrderDialog(order)}>
+                          <Edit className="mr-2 h-4 w-4" /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handlePrintOrder(order)}>
+                          <Printer className="mr-2 h-4 w-4" /> Print order
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handlePrintLabel(order)}>
+                          <Barcode className="mr-2 h-4 w-4" /> Print label
+                        </DropdownMenuItem>
+                        {order.assignedDriver && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleCancelOrder(order)}>
+                              <Ban className="mr-2 h-4 w-4" /> Cancel order
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 )}
               </TableRow>
@@ -925,6 +1034,63 @@ export default function OrdersPage() {
         </Table>
         )}
       </div>
+
+      {/* Reassign / Assign Order Dialog */}
+      <Dialog open={reassignOrderId !== null} onOpenChange={(open) => { if (!open) setReassignOrderId(null) }}>
+        <DialogContent className="max-w-xs p-0">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <h2 className="text-base font-semibold">Assign Order</h2>
+          </div>
+          <div className="px-4 pt-2 pb-1">
+            <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+              <span>Drivers</span>
+              <span># of Assigned Orders</span>
+            </div>
+          </div>
+          <div className="max-h-[240px] overflow-y-auto px-4">
+            {allDrivers.map((driver) => {
+              const count = getDriverActiveOrderCount(driver.id)
+              const reassignOrder = reassignOrderId ? orderList.find((o) => o.id === reassignOrderId) : null
+              const isCurrentDriver = reassignOrder?.assignedDriver === driver.id
+              return (
+                <button
+                  key={driver.id}
+                  type="button"
+                  disabled={isCurrentDriver || isSaving}
+                  onClick={() => { handleAssignDriver(driver.id === reassignOrder?.assignedDriver ? "" : reassignOrderId!, driver.id); setReassignOrderId(null) }}
+                  className={`flex w-full items-center justify-between rounded-md px-2 py-2.5 text-left transition hover:bg-secondary/60 ${
+                    isCurrentDriver ? "opacity-50" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Avatar className="size-9">
+                      <AvatarFallback className="text-xs">{getInitials(driver.name)}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{driver.name}</p>
+                      <p className="text-xs capitalize text-muted-foreground">{driver.status.replace("-", " ")}</p>
+                    </div>
+                  </div>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-semibold">{count}</span>
+                </button>
+              )
+            })}
+          </div>
+          {reassignOrderId && orderList.find((o) => o.id === reassignOrderId)?.assignedDriver && (
+            <div className="border-t px-4 py-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={isSaving}
+                onClick={() => handleUnassignOrder(reassignOrderId!)}
+              >
+                Unassign
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setAddressSuggestions([]); setAddressPreviewCoord(null) } }}>
         <DialogContent className="w-[95vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">

@@ -76,7 +76,7 @@ function mapWooOrder(wc: WooOrder) {
   const now = new Date()
 
   return {
-    orderNumber: `WC-${wc.id}`,
+    orderNumber: `${wc.id}`,
     // Pick-up defaults
     pickupName: "Sterlin Glams",
     pickupPhone: "+234 9160009893",
@@ -187,7 +187,7 @@ export async function POST(req: Request) {
     })
   }
 
-  const orderNumber = `WC-${wc.id}`
+  const orderNumber = `${wc.id}`
 
   // Deduplicate – skip if already imported
   if (await orderExists(orderNumber)) {

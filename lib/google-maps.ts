@@ -33,6 +33,8 @@ export function loadGoogleMaps(): Promise<typeof google.maps> {
 
 const geocodeCache = new Map<string, { lat: number; lng: number }>()
 
+let geocoderInstance: google.maps.Geocoder | null = null
+
 export async function geocodeAddress(
   address: string
 ): Promise<{ lat: number; lng: number } | null> {
@@ -43,14 +45,18 @@ export async function geocodeAddress(
   if (cached) return cached
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${API_KEY}`
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const data = await res.json()
-    const loc = data.results?.[0]?.geometry?.location
+    // Ensure the JS API is loaded first
+    await loadGoogleMaps()
+
+    if (!geocoderInstance) {
+      geocoderInstance = new google.maps.Geocoder()
+    }
+
+    const result = await geocoderInstance.geocode({ address: query })
+    const loc = result.results?.[0]?.geometry?.location
     if (!loc) return null
 
-    const coords = { lat: loc.lat, lng: loc.lng }
+    const coords = { lat: loc.lat(), lng: loc.lng() }
     geocodeCache.set(query, coords)
     return coords
   } catch {

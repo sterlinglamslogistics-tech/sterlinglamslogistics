@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useState, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Menu, List, MapPin, Navigation, Phone, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +12,7 @@ import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
 
 export default function DriverMapPage() {
   const router = useRouter()
-  const { session, driver, orders, isOnline, loadingSession, setDrawerOpen } = useDriver()
+  const { session, driver, orders, isOnline, loadingSession, setDrawerOpen, refreshOrders } = useDriver()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
@@ -28,11 +28,31 @@ export default function DriverMapPage() {
     }
   }, [loadingSession, session, router])
 
-  const activeOrders = isOnline
-    ? orders.filter(
+  const activeOrders = useMemo(() => {
+    if (!isOnline) return []
+    return orders
+      .filter(
         (o) => o.status === "started" || o.status === "picked-up" || o.status === "in-transit"
       )
-    : []
+      .sort((a, b) => {
+        const aTime = a.startedAt ? new Date(a.startedAt as any).getTime() : 0
+        const bTime = b.startedAt ? new Date(b.startedAt as any).getTime() : 0
+        return aTime - bTime
+      })
+  }, [orders, isOnline])
+
+  // Stable key so effect only reruns when order list actually changes
+  const ordersKey = useMemo(
+    () => activeOrders.map((o) => `${o.id}:${o.status}`).join(","),
+    [activeOrders]
+  )
+
+  // Poll for new orders every 15 seconds
+  useEffect(() => {
+    if (!session || !isOnline) return
+    const interval = setInterval(() => refreshOrders(), 15000)
+    return () => clearInterval(interval)
+  }, [session, isOnline, refreshOrders])
 
   // Initialize Google Map
   useEffect(() => {
@@ -112,12 +132,9 @@ export default function DriverMapPage() {
         const coords = await geocodeAddress(order.address)
         if (!coords) continue
 
-        const label = activeOrders.length === 1 ? (timeStr || String(num)) : String(num)
-        const markerSvg = activeOrders.length === 1
-          ? `<svg xmlns="http://www.w3.org/2000/svg" width="60" height="28"><rect x="1" y="1" width="58" height="26" rx="13" fill="%231f1f1f" stroke="white" stroke-width="2"/><text x="30" y="18" text-anchor="middle" fill="white" font-size="11" font-weight="bold" font-family="sans-serif">${label}</text></svg>`
-          : `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><circle cx="14" cy="14" r="12" fill="%231f1f1f" stroke="white" stroke-width="2"/><text x="14" y="18" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="sans-serif">${num}</text></svg>`
-        const iconSize = activeOrders.length === 1 ? 60 : 28
-        const iconH = activeOrders.length === 1 ? 28 : 28
+        const markerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><circle cx="22" cy="22" r="20" fill="%23222222" stroke="white" stroke-width="3"/><text x="22" y="28" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="sans-serif">${num}</text></svg>`
+        const iconSize = 44
+        const iconH = 44
 
         const marker = new google.maps.Marker({
           map,
@@ -145,17 +162,15 @@ export default function DriverMapPage() {
       }
 
       if (driver?.lastLocation) {
+        const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="16" fill="none" stroke="%23f59e0b" stroke-width="4"/><circle cx="18" cy="18" r="7" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>`
         driverMarkerRef.current = new google.maps.Marker({
           map,
           position: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
           title: "Your location",
           icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            fillColor: "#3b82f6",
-            fillOpacity: 1,
-            strokeColor: "#fff",
-            strokeWeight: 3,
-            scale: 8,
+            url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
+            scaledSize: new google.maps.Size(36, 36),
+            anchor: new google.maps.Point(18, 18),
           },
         })
       }
@@ -166,7 +181,7 @@ export default function DriverMapPage() {
     return () => {
       cancelled = true
     }
-  }, [mapReady, activeOrders, driver?.lastLocation, isOnline])
+  }, [mapReady, ordersKey, driver?.lastLocation, isOnline])
 
   if (loadingSession || !session) return null
 
