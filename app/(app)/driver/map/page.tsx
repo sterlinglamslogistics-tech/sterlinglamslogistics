@@ -72,6 +72,11 @@ export default function DriverMapPage() {
         zoom: 13,
         disableDefaultUI: true,
         zoomControl: true,
+        styles: [
+          { featureType: "poi", stylers: [{ visibility: "off" }] },
+          { featureType: "poi.park", stylers: [{ visibility: "simplified" }] },
+          { featureType: "transit", stylers: [{ visibility: "simplified" }] },
+        ],
       })
 
       // Store / Hub marker
@@ -171,7 +176,7 @@ export default function DriverMapPage() {
     }
 
     if (driver?.lastLocation) {
-      const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="16" fill="none" stroke="%23f59e0b" stroke-width="4"/><circle cx="18" cy="18" r="7" fill="%233b82f6" stroke="white" stroke-width="2"/></svg>`
+      const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="12" fill="%233b82f6" stroke="white" stroke-width="3"/></svg>`
       driverMarkerRef.current = new google.maps.Marker({
         map: mapRef.current,
         position: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },

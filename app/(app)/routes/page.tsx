@@ -78,63 +78,106 @@ export default function RoutesPage() {
   const unassignedOrders = useMemo(() => filteredOrders.filter((o) => !o.assignedDriver), [filteredOrders])
   const assignedOrders = useMemo(() => filteredOrders.filter((o) => Boolean(o.assignedDriver)), [filteredOrders])
 
-  // Geocode order addresses using JS API Geocoder (works with referer-restricted keys)
+  // Geocode order addresses – use stored lat/lng instantly, only geocode missing ones
   const jsGeocoderRef = useRef<google.maps.Geocoder | null>(null)
   const jsGeocachRef = useRef<Map<string, LatLng>>(new Map())
 
   useEffect(() => {
     let cancelled = false
 
-    async function refreshGeocodedOrders() {
+    // Phase 1: Instantly use any orders that already have lat/lng from Firestore
+    const instant: Record<string, LatLng> = {}
+    const needsGeocode: Order[] = []
+
+    for (const order of visibleOrders) {
+      if (typeof order.lat === "number" && typeof order.lng === "number") {
+        instant[order.id] = { lat: order.lat, lng: order.lng }
+      } else if (order.address?.trim()) {
+        const cacheKey = order.address.trim().toLowerCase()
+        const cached = jsGeocachRef.current.get(cacheKey)
+        if (cached) {
+          instant[order.id] = cached
+        } else {
+          needsGeocode.push(order)
+        }
+      }
+    }
+
+    // Show stored coords immediately
+    if (Object.keys(instant).length > 0) {
+      setOrderCoords((prev) => ({ ...prev, ...instant }))
+    }
+
+    // Phase 2: Geocode missing ones in parallel batches and save coords to Firestore
+    if (needsGeocode.length === 0) return
+
+    async function geocodeMissing() {
       await loadGoogleMaps()
       if (!jsGeocoderRef.current) {
         jsGeocoderRef.current = new google.maps.Geocoder()
       }
       const geocoder = jsGeocoderRef.current
       const cache = jsGeocachRef.current
-      const nextCoords: Record<string, LatLng> = {}
+      const BATCH_SIZE = 5
+      const newCoords: Record<string, LatLng> = {}
 
-      for (const order of visibleOrders) {
+      for (let i = 0; i < needsGeocode.length; i += BATCH_SIZE) {
         if (cancelled) break
-        const addr = order.address?.trim()
-        if (!addr) continue
+        const batch = needsGeocode.slice(i, i + BATCH_SIZE)
 
-        const cacheKey = addr.toLowerCase()
-        if (cache.has(cacheKey)) {
-          nextCoords[order.id] = cache.get(cacheKey)!
-          continue
+        const results = await Promise.allSettled(
+          batch.map((order) =>
+            new Promise<{ id: string; coords: LatLng | null }>((resolve) => {
+              const addr = order.address!.trim()
+              geocoder.geocode(
+                { address: `${addr}, Lagos, Nigeria`, region: "NG" },
+                (results, status) => {
+                  if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
+                    const loc = results[0].geometry.location
+                    resolve({ id: order.id, coords: { lat: loc.lat(), lng: loc.lng() } })
+                  } else {
+                    resolve({ id: order.id, coords: null })
+                  }
+                }
+              )
+            })
+          )
+        )
+
+        if (cancelled) break
+
+        const batchCoords: Record<string, LatLng> = {}
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value.coords) {
+            const { id, coords } = r.value
+            const order = needsGeocode.find((o) => o.id === id)
+            if (order) cache.set(order.address!.trim().toLowerCase(), coords)
+            batchCoords[id] = coords
+            newCoords[id] = coords
+          }
         }
 
-        try {
-          const result = await new Promise<LatLng | null>((resolve) => {
-            geocoder.geocode(
-              { address: `${addr}, Lagos, Nigeria`, region: "NG" },
-              (results, status) => {
-                if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
-                  const loc = results[0].geometry.location
-                  resolve({ lat: loc.lat(), lng: loc.lng() })
-                } else {
-                  resolve(null)
-                }
-              }
-            )
-          })
-          if (cancelled) break
-          if (result) {
-            cache.set(cacheKey, result)
-            nextCoords[order.id] = result
-          }
-        } catch {
-          // skip
+        // Update map progressively after each batch
+        if (Object.keys(batchCoords).length > 0) {
+          setOrderCoords((prev) => ({ ...prev, ...batchCoords }))
         }
       }
 
+      // Save geocoded coords to Firestore in background so next load is instant
       if (!cancelled) {
-        setOrderCoords(nextCoords)
+        const { updateDoc, doc } = await import("firebase/firestore")
+        const { db } = await import("@/lib/firebase")
+        if (db) {
+          for (const [orderId, coords] of Object.entries(newCoords)) {
+            try {
+              await updateDoc(doc(db, "orders", orderId), { lat: coords.lat, lng: coords.lng })
+            } catch { /* non-critical */ }
+          }
+        }
       }
     }
 
-    refreshGeocodedOrders()
+    geocodeMissing()
     return () => { cancelled = true }
   }, [visibleOrders])
 
@@ -216,7 +259,8 @@ export default function RoutesPage() {
 
       const map = new google.maps.Map(mapContainerRef.current, {
         center: LAGOS_CENTER,
-        zoom: 12,
+        zoom: 11,
+        minZoom: 8,
         disableDefaultUI: false,
         zoomControl: true,
         streetViewControl: false,
@@ -392,8 +436,41 @@ export default function RoutesPage() {
     }
 
     // Only fit bounds when data actually changes, not on selection clicks
+    // Filter to Lagos-area bounds only so outlier addresses (e.g. Abuja) don't zoom out the map
     if (!hasFitBoundsRef.current && hasPoints) {
-      map.fitBounds(bounds, 36)
+      const lagosBounds = new google.maps.LatLngBounds(
+        { lat: 6.35, lng: 3.0 },   // SW corner of Lagos region
+        { lat: 6.75, lng: 3.75 },   // NE corner of Lagos region
+      )
+      // Build bounds using only markers within greater Lagos area
+      const lagosFilteredBounds = new google.maps.LatLngBounds()
+      let lagosPoints = 0
+      bounds.toJSON()
+      // Re-check each order coord against Lagos region
+      visibleOrders.forEach((order) => {
+        const coords = orderCoords[order.id]
+        if (!coords) return
+        if (lagosBounds.contains(coords)) {
+          lagosFilteredBounds.extend(coords)
+          lagosPoints++
+        }
+      })
+      activeDrivers.forEach((driver) => {
+        if (!driver.lastLocation) return
+        const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
+        if (lagosBounds.contains(pos)) {
+          lagosFilteredBounds.extend(pos)
+          lagosPoints++
+        }
+      })
+      lagosFilteredBounds.extend(HUB)
+
+      if (lagosPoints > 0) {
+        map.fitBounds(lagosFilteredBounds, 36)
+      } else {
+        map.setCenter(LAGOS_CENTER)
+        map.setZoom(11)
+      }
       hasFitBoundsRef.current = true
     }
   }, [activeDrivers, orderCoords, selectedDestination, selectedDriver, selectedOrderId, visibleOrders])

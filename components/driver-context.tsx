@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { fetchDriverById, updateDriver, updateDriverLocation, fetchOrdersByDriver } from "@/lib/firestore"
+import { fetchDriverById, updateDriver, updateDriverLocation, fetchOrdersByDriver, saveOptimizedRouteOrder } from "@/lib/firestore"
+import { optimizeRouteOrder } from "@/lib/google-maps"
 import type { Driver, Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 
@@ -26,6 +27,7 @@ interface DriverContextValue {
   goOnline: () => Promise<void>
   goOffline: () => Promise<void>
   refreshOrders: () => Promise<void>
+  optimizeRoute: (lastStopId?: string | null) => Promise<boolean>
   logout: () => void
 }
 
@@ -109,7 +111,23 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     setLoadingOrders(true)
     try {
       const data = await fetchOrdersByDriver(session.id)
+      const hasRouteOrder = data.some((o) => typeof o.routeOrder === "number")
       const sorted = data.sort((a, b) => {
+        // If route has been optimized, sort active orders by routeOrder
+        if (hasRouteOrder) {
+          const aActive = a.status !== "delivered" && a.status !== "cancelled" && a.status !== "failed"
+          const bActive = b.status !== "delivered" && b.status !== "cancelled" && b.status !== "failed"
+          // Active orders with routeOrder come first, in order
+          if (aActive && bActive) {
+            const aR = a.routeOrder ?? 9999
+            const bR = b.routeOrder ?? 9999
+            if (aR !== bR) return aR - bR
+          }
+          // Inactive orders go to the bottom
+          if (aActive && !bActive) return -1
+          if (!aActive && bActive) return 1
+        }
+        // Fallback: sort by status priority
         const priority: Record<string, number> = {
           started: 0,
           "picked-up": 1,
@@ -128,6 +146,41 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       setLoadingOrders(false)
     }
   }, [session])
+
+  const optimizeRoute = useCallback(async (lastStopId?: string | null): Promise<boolean> => {
+    if (!session || !driver?.lastLocation) return false
+    try {
+      const data = await fetchOrdersByDriver(session.id)
+      const active = data.filter(
+        (o) => o.status === "picked-up" || o.status === "in-transit"
+      )
+      // Need lat/lng on orders to optimize
+      const withCoords = active.filter(
+        (o) => typeof o.lat === "number" && typeof o.lng === "number"
+      ) as (Order & { lat: number; lng: number })[]
+
+      if (withCoords.length < 2) {
+        // Nothing to optimize with 0-1 stops
+        return false
+      }
+
+      const orderedIds = await optimizeRouteOrder(
+        driver.lastLocation,
+        withCoords.map((o) => ({ id: o.id, lat: o.lat, lng: o.lng })),
+        lastStopId,
+      )
+
+      // Persist to Firestore
+      await saveOptimizedRouteOrder(orderedIds)
+
+      // Refresh to reflect new order
+      await refreshOrders()
+      return true
+    } catch {
+      toast({ title: "Error", description: "Route optimization failed.", variant: "destructive" })
+      return false
+    }
+  }, [session, driver, refreshOrders])
 
   // Load orders when online
   useEffect(() => {
@@ -185,6 +238,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
         goOnline,
         goOffline,
         refreshOrders,
+        optimizeRoute,
         logout,
       }}
     >

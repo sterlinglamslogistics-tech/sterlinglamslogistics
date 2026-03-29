@@ -1,3 +1,67 @@
+// Utility: Remove 'WC-' prefix from all orderNumbers in Firestore
+export async function cleanOrderNumbersWC() {
+  const q = query(ordersCollection, where("orderNumber", ">=", "WC-"), where("orderNumber", "<", "WC.`"))
+  const snapshot = await getDocs(q)
+  let updated = 0
+  for (const docSnap of snapshot.docs) {
+    const orderNumber = docSnap.data().orderNumber
+    if (typeof orderNumber === "string" && orderNumber.startsWith("WC-")) {
+      const newOrderNumber = orderNumber.replace(/^WC-/, "")
+      await updateDoc(docSnap.ref, { orderNumber: newOrderNumber })
+      updated++
+    }
+  }
+  return updated
+}
+
+// Utility: Remove duplicate orders that share the same orderNumber (keeps the oldest)
+export async function removeDuplicateOrders() {
+  const snapshot = await getDocs(ordersCollection)
+  const orderMap = new Map<string, { id: string; createdAt: unknown }[]>()
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data()
+    const orderNumber = data.orderNumber as string
+    if (!orderNumber) continue
+    if (!orderMap.has(orderNumber)) orderMap.set(orderNumber, [])
+    orderMap.get(orderNumber)!.push({ id: docSnap.id, createdAt: data.createdAt })
+  }
+
+  let deleted = 0
+  for (const [, docs] of orderMap) {
+    if (docs.length <= 1) continue
+    // Sort by createdAt ascending – keep the first (oldest), delete the rest
+    docs.sort((a, b) => {
+      const da = a.createdAt ? new Date(a.createdAt as string).getTime() : 0
+      const db2 = b.createdAt ? new Date(b.createdAt as string).getTime() : 0
+      return da - db2
+    })
+    for (let i = 1; i < docs.length; i++) {
+      await deleteDoc(doc(db, "orders", docs[i].id))
+      deleted++
+    }
+  }
+  return deleted
+}
+
+// Utility: Backfill lat/lng for orders missing coordinates
+export async function backfillOrderCoords() {
+  const snapshot = await getDocs(ordersCollection)
+  let updated = 0
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data()
+    if (typeof data.lat === "number" && typeof data.lng === "number") continue
+    const address = data.address as string
+    if (!address?.trim()) continue
+    const coords = await geocodeAddress(address.trim())
+    if (coords) {
+      await updateDoc(docSnap.ref, { lat: coords.lat, lng: coords.lng })
+      updated++
+    }
+  }
+  return updated
+}
+
 import {
   collection,
   getDocs,
@@ -90,10 +154,11 @@ function haversineDistanceKm(a: LatLng, b: LatLng): number {
   return Number((earthRadiusKm * c).toFixed(2))
 }
 
-async function calculateDistanceKm(address: string): Promise<number | undefined> {
+async function calculateDistanceKm(address: string): Promise<{ distanceKm?: number; lat?: number; lng?: number }> {
   const destination = await geocodeAddress(address)
-  if (!destination) return undefined
-  return haversineDistanceKm(getHubCoordinates(), destination)
+  if (!destination) return {}
+  const distanceKm = haversineDistanceKm(getHubCoordinates(), destination)
+  return { distanceKm, lat: destination.lat, lng: destination.lng }
 }
 
 function normalizeOrderStatus(status: unknown): Order["status"] {
@@ -210,10 +275,10 @@ export async function fetchDriverById(driverId: string): Promise<Driver | null> 
 // Create new order
 export async function createOrder(order: Omit<Order, "id">) {
   try {
-    const distanceKm = await calculateDistanceKm(order.address)
+    const geo = await calculateDistanceKm(order.address)
     const docRef = await addDoc(ordersCollection, {
       ...order,
-      ...(distanceKm !== undefined ? { distanceKm } : {}),
+      ...geo,
       createdAt: new Date(),
     })
     return docRef.id
@@ -227,16 +292,13 @@ export async function createOrder(order: Omit<Order, "id">) {
 export async function updateOrder(orderId: string, updates: Partial<Order>) {
   try {
     const docRef = doc(db, "orders", orderId)
-    let distanceUpdate: { distanceKm?: number } = {}
+    let geoUpdate: { distanceKm?: number; lat?: number; lng?: number } = {}
     if (typeof updates.address === "string" && updates.address.trim()) {
-      const distanceKm = await calculateDistanceKm(updates.address)
-      if (distanceKm !== undefined) {
-        distanceUpdate = { distanceKm }
-      }
+      geoUpdate = await calculateDistanceKm(updates.address)
     }
     await updateDoc(docRef, {
       ...updates,
-      ...distanceUpdate,
+      ...geoUpdate,
       updatedAt: new Date(),
     })
   } catch (error) {
@@ -286,6 +348,20 @@ export async function fetchDriversByStatus(status: string): Promise<Driver[]> {
   }
 }
 
+// Create new driver
+export async function createDriver(driver: Omit<Driver, "id">) {
+  try {
+    const docRef = await addDoc(driversCollection, {
+      ...driver,
+      createdAt: new Date(),
+    })
+    return docRef.id
+  } catch (error) {
+    console.error("Error creating driver:", error)
+    throw error
+  }
+}
+
 // Update driver
 export async function updateDriver(driverId: string, updates: Partial<Driver>) {
   try {
@@ -322,6 +398,33 @@ export async function fetchOrdersByDriver(driverId: string): Promise<Order[]> {
   } catch (error) {
     console.error("Error fetching driver orders:", error)
     return []
+  }
+}
+
+// Save optimized route order index for each order
+export async function saveOptimizedRouteOrder(orderedIds: string[]): Promise<void> {
+  for (let i = 0; i < orderedIds.length; i++) {
+    try {
+      await updateDoc(doc(db, "orders", orderedIds[i]), { routeOrder: i })
+    } catch {
+      // non-critical: best effort
+    }
+  }
+}
+
+// Recalculate a driver's average rating from all their reviewed orders and update the driver doc
+export async function recalculateDriverRating(driverId: string): Promise<number> {
+  try {
+    const orders = await fetchOrdersByDriver(driverId)
+    const rated = orders.filter((o) => typeof o.driverRating === "number" && o.driverRating > 0)
+    if (rated.length === 0) return 0
+    const avg = rated.reduce((sum, o) => sum + (o.driverRating ?? 0), 0) / rated.length
+    const rounded = Math.round(avg * 10) / 10 // one decimal
+    await updateDriver(driverId, { rating: rounded })
+    return rounded
+  } catch (error) {
+    console.error("Error recalculating driver rating:", error)
+    return 0
   }
 }
 

@@ -76,7 +76,7 @@ function mapWooOrder(wc: WooOrder) {
   const now = new Date()
 
   return {
-    orderNumber: `${wc.id}`,
+    orderNumber: `${wc.number ?? wc.id}`.replace(/^WC-/i, ""),
     // Pick-up defaults
     pickupName: "Sterlin Glams",
     pickupPhone: "+234 9160009893",
@@ -128,6 +128,7 @@ interface WooLineItem {
 
 interface WooOrder {
   id: number
+  number?: string
   status?: string
   total?: string
   total_tax?: string
@@ -187,7 +188,7 @@ export async function POST(req: Request) {
     })
   }
 
-  const orderNumber = `${wc.id}`
+  const orderNumber = `${wc.number ?? wc.id}`.replace(/^WC-/i, "")
 
   // Deduplicate – skip if already imported
   if (await orderExists(orderNumber)) {

@@ -48,6 +48,9 @@ export interface Order {
   customerFeedback?: string
   customerRatedAt?: unknown
   distanceKm?: number
+  lat?: number
+  lng?: number
+  routeOrder?: number
   createdAt?: unknown
   startedAt?: unknown
   pickedUpAt?: unknown

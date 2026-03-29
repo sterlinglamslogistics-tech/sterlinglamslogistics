@@ -62,6 +62,7 @@ export default function DriverDashboard() {
     setDrawerOpen,
     goOnline,
     refreshOrders,
+    optimizeRoute,
   } = useDriver()
   const [showOnlineToast, setShowOnlineToast] = useState(false)
   const [routeModalOpen, setRouteModalOpen] = useState(false)
@@ -70,9 +71,10 @@ export default function DriverDashboard() {
   const touchStartY = useRef(0)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const PULL_THRESHOLD = 60
-  // Optimize route flow: "check" | "confirm" | "choose-last" | "done" | null
-  const [optimizeStep, setOptimizeStep] = useState<"check" | "confirm" | "choose-last" | "done" | null>(null)
+  // Optimize route flow: "check" | "confirm" | "choose-last" | "optimizing" | "done" | null
+  const [optimizeStep, setOptimizeStep] = useState<"check" | "confirm" | "choose-last" | "optimizing" | "done" | null>(null)
   const [selectedLastStop, setSelectedLastStop] = useState<string | null>(null)
+  const [optimizeResult, setOptimizeResult] = useState<boolean>(false)
 
   // Redirect to login if no session
   useEffect(() => {
@@ -492,15 +494,23 @@ export default function DriverDashboard() {
                 <button
                   type="button"
                   className="w-full rounded-xl border py-3 text-sm font-semibold text-foreground hover:bg-muted"
-                  onClick={() => setOptimizeStep("done")}
+                  onClick={async () => {
+                    setOptimizeStep("optimizing")
+                    const ok = await optimizeRoute(selectedLastStop)
+                    setOptimizeResult(ok)
+                    setOptimizeStep("done")
+                  }}
                 >
                   Choose
                 </button>
                 <button
                   type="button"
                   className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
-                  onClick={() => {
+                  onClick={async () => {
                     setSelectedLastStop(null)
+                    setOptimizeStep("optimizing")
+                    const ok = await optimizeRoute(null)
+                    setOptimizeResult(ok)
                     setOptimizeStep("done")
                   }}
                 >
@@ -512,20 +522,34 @@ export default function DriverDashboard() {
         </>
       )}
 
-      {/* Optimize Step 4: "order resorted" confirmation */}
+      {/* Optimize Step 4: Optimizing in progress */}
+      {optimizeStep === "optimizing" && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" />
+          <div className="fixed inset-x-6 top-1/2 z-50 mx-auto max-w-sm -translate-y-1/2 rounded-2xl bg-background p-6 shadow-2xl">
+            <div className="flex flex-col items-center gap-4">
+              <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+              <p className="text-center text-base font-semibold">
+                Optimizing your route...
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Optimize Step 5: Done confirmation */}
       {optimizeStep === "done" && (
         <>
           <div className="fixed inset-0 z-50 bg-black/50" />
           <div className="fixed inset-x-6 top-1/2 z-50 mx-auto max-w-sm -translate-y-1/2 rounded-2xl border-2 border-yellow-400 bg-background p-6 shadow-2xl">
             <p className="mb-6 text-center text-base font-semibold">
-              order resorted
+              {optimizeResult ? "Route optimized! Orders resorted." : "Could not optimize route. Make sure orders have addresses."}
             </p>
             <button
               type="button"
               className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700"
               onClick={() => {
                 setOptimizeStep(null)
-                refreshOrders()
               }}
             >
               OK

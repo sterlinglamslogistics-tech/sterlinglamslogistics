@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, use } from "react"
 import { Phone, MessageSquare, ChevronDown, ChevronUp, MapPin, Package, Clock, Star } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { Spinner } from "@/components/ui/spinner"
-import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime, updateOrder } from "@/lib/firestore"
+import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime, updateOrder, recalculateDriverRating } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Driver, Order } from "@/lib/data"
 import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
@@ -488,6 +488,10 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         }
         if (Object.keys(updates).length > 0) {
           await updateOrder(order.id, updates)
+        }
+        // Recalculate driver's aggregate rating
+        if (driverRating > 0 && order.assignedDriver) {
+          recalculateDriverRating(order.assignedDriver).catch(() => {})
         }
         setSubmitted(true)
         setShowRatingPage(false)

@@ -12,7 +12,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu"
-import { MoreHorizontal, Download, Printer, Trash2 } from "lucide-react"
+import { MoreHorizontal, Download, Printer, Trash2, Star } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -145,6 +145,51 @@ export default function OrderDetailPage() {
           {getDriverDisplayName(order.assignedDriver)}
         </p>
       </div>
+
+      {/* Customer Ratings */}
+      {(order.customerRating || order.driverRating) && (
+        <div className="mt-6 rounded-lg border p-4">
+          <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-muted-foreground">Customer Rating</h3>
+          <div className="space-y-3">
+            {order.customerRating != null && order.customerRating > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium w-28">Order rating:</span>
+                <div className="flex items-center gap-0.5">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <Star
+                      key={i}
+                      className={`h-4 w-4 ${i < order.customerRating! ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"}`}
+                    />
+                  ))}
+                </div>
+                <span className="text-sm font-semibold">{order.customerRating}/5</span>
+              </div>
+            )}
+            {order.driverRating != null && order.driverRating > 0 && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium w-28">Driver rating:</span>
+                <div className="flex items-center gap-0.5">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <Star
+                      key={i}
+                      className={`h-4 w-4 ${i < order.driverRating! ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"}`}
+                    />
+                  ))}
+                </div>
+                <span className="text-sm font-semibold">{order.driverRating}/5</span>
+              </div>
+            )}
+            {order.customerFeedback && (
+              <div>
+                <span className="text-sm font-medium">Feedback:</span>
+                <p className="mt-1 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground italic">
+                  &ldquo;{order.customerFeedback}&rdquo;
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

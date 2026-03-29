@@ -25,6 +25,10 @@ import {
   X,
   AlertCircle,
   Loader2,
+  Search,
+  Plus,
+  Smartphone,
+  EyeOff,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -68,7 +72,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { fetchDrivers, updateDriver, deleteDriver } from "@/lib/firestore"
+import { fetchDrivers, updateDriver, deleteDriver, createDriver } from "@/lib/firestore"
 import { toast } from "@/hooks/use-toast"
 import type { Driver } from "@/lib/data"
 
@@ -89,7 +93,16 @@ const driverFormSchema = z.object({
   password: z.string().optional(),
 })
 
+const newDriverFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  phone: z.string().min(1, "Phone number is required"),
+  email: z.string().email("Invalid email"),
+  password: z.string().min(4, "Password must be at least 4 characters"),
+  note: z.string().optional(),
+})
+
 type DriverFormData = z.infer<typeof driverFormSchema>
+type NewDriverFormData = z.infer<typeof newDriverFormSchema>
 
 function DriverStatusBadge({ status }: { status: string }) {
   const variants: Record<string, string> = {
@@ -118,7 +131,10 @@ export default function DriversPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false)
+  const [newDriverOpen, setNewDriverOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [showNewPassword, setShowNewPassword] = useState(false)
 
   const editForm = useForm<DriverFormData>({
     resolver: zodResolver(driverFormSchema),
@@ -137,6 +153,28 @@ export default function DriversPage() {
     defaultValues: { password: "" },
   })
 
+  const newDriverForm = useForm<NewDriverFormData>({
+    resolver: zodResolver(newDriverFormSchema),
+    defaultValues: {
+      name: "",
+      phone: "+234",
+      email: "",
+      password: "",
+      note: "",
+    },
+  })
+
+  const filteredDrivers = allDrivers.filter((d) => {
+    const q = searchTerm.trim().toLowerCase()
+    if (!q) return true
+    return (
+      d.name.toLowerCase().includes(q) ||
+      d.phone.toLowerCase().includes(q) ||
+      (d.email?.toLowerCase().includes(q) ?? false) ||
+      d.vehicle.toLowerCase().includes(q)
+    )
+  })
+
   // Load drivers on mount
   useEffect(() => {
     loadDrivers()
@@ -149,6 +187,39 @@ export default function DriversPage() {
     } catch (error) {
       console.error("Failed to load drivers:", error)
       setAllDrivers([])
+    }
+  }
+
+  async function handleNewDriverSubmit(data: NewDriverFormData) {
+    setIsLoading(true)
+    try {
+      const newDriver: Omit<Driver, "id"> = {
+        name: data.name,
+        phone: data.phone,
+        email: data.email,
+        vehicle: "",
+        status: "available",
+        rating: 5.0,
+        password: data.password,
+        note: data.note || "",
+      }
+      const id = await createDriver(newDriver)
+      setAllDrivers((prev) => [...prev, { ...newDriver, id }])
+      setNewDriverOpen(false)
+      newDriverForm.reset({ name: "", phone: "+234", email: "", password: "", note: "" })
+      setShowNewPassword(false)
+      toast({
+        title: "Driver added",
+        description: `${data.name} has been added successfully.`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add driver. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -289,6 +360,27 @@ export default function DriversPage() {
         </p>
       </div>
 
+      {/* Search + Actions Bar */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button variant="outline" className="gap-2" onClick={() => window.open("/driver", "_blank")}>
+          <Smartphone className="h-4 w-4" />
+          Get the app
+        </Button>
+        <Button className="gap-2 bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => { newDriverForm.reset({ name: "", phone: "+234", email: "", password: "", note: "" }); setShowNewPassword(false); setNewDriverOpen(true) }}>
+          <Plus className="h-4 w-4" />
+          New Driver
+        </Button>
+      </div>
+
       <div className="rounded-xl border border-border bg-card shadow-sm">
         <Table>
           <TableHeader>
@@ -302,7 +394,7 @@ export default function DriversPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {allDrivers.map((driver) => (
+            {filteredDrivers.map((driver) => (
               <TableRow key={driver.id}>
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -674,6 +766,108 @@ export default function DriversPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* New Driver Dialog */}
+      <Dialog open={newDriverOpen} onOpenChange={setNewDriverOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Add a new driver</DialogTitle>
+          </DialogHeader>
+          <Form {...newDriverForm}>
+            <form onSubmit={newDriverForm.handleSubmit(handleNewDriverSubmit)} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={newDriverForm.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Name <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input placeholder="" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={newDriverForm.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone No <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <Input placeholder="+234" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={newDriverForm.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email <span className="text-destructive">*</span></FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={newDriverForm.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Temporary password <span className="text-destructive">*</span></FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Input type={showNewPassword ? "text" : "password"} {...field} />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                        >
+                          {showNewPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={newDriverForm.control}
+                name="note"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Note:</FormLabel>
+                    <FormControl>
+                      <Textarea className="min-h-[100px]" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setNewDriverOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isLoading} className="bg-emerald-500 hover:bg-emerald-600 text-white">
+                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

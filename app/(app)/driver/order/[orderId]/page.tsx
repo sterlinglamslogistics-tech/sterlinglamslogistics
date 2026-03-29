@@ -9,6 +9,7 @@ import {
   MapPin,
   Clock,
   Loader2,
+  Star,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { fetchOrder } from "@/lib/firestore"
@@ -224,6 +225,66 @@ export default function OrderDetailPage({
               <span>{formatCurrency(order.amount)}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Customer Rating */}
+      {order.status === "delivered" && (order.customerRating || order.driverRating) && (
+        <div className="mb-4 rounded-xl border bg-card p-4">
+          <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Customer Rating
+          </h3>
+          {order.driverRating != null && order.driverRating > 0 && (
+            <div className="mb-3">
+              <p className="mb-1 text-sm font-medium text-foreground">Driver rating</p>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: 5 }, (_, i) => (
+                  <Star
+                    key={i}
+                    className={`h-5 w-5 ${
+                      i < order.driverRating!
+                        ? "fill-yellow-400 text-yellow-400"
+                        : "text-muted-foreground/30"
+                    }`}
+                  />
+                ))}
+                <span className="ml-2 text-sm font-semibold text-foreground">{order.driverRating}/5</span>
+              </div>
+            </div>
+          )}
+          {order.customerRating != null && order.customerRating > 0 && (
+            <div className="mb-3">
+              <p className="mb-1 text-sm font-medium text-foreground">Order rating</p>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: 5 }, (_, i) => (
+                  <Star
+                    key={i}
+                    className={`h-5 w-5 ${
+                      i < order.customerRating!
+                        ? "fill-yellow-400 text-yellow-400"
+                        : "text-muted-foreground/30"
+                    }`}
+                  />
+                ))}
+                <span className="ml-2 text-sm font-semibold text-foreground">{order.customerRating}/5</span>
+              </div>
+            </div>
+          )}
+          {order.customerFeedback && (
+            <div>
+              <p className="mb-1 text-sm font-medium text-foreground">Feedback</p>
+              <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground italic">
+                &ldquo;{order.customerFeedback}&rdquo;
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {order.status === "delivered" && !order.customerRating && !order.driverRating && (
+        <div className="mb-4 rounded-xl border border-dashed bg-card p-4 text-center">
+          <Star className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">No customer rating yet</p>
         </div>
       )}
     </div>

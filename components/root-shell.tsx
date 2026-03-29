@@ -11,7 +11,7 @@ export function RootShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user, loading } = useAuth()
 
-  const isDriverRoute = pathname.startsWith("/driver")
+  const isDriverRoute = pathname.startsWith("/driver/") || pathname === "/driver"
   const isPublicTrackingRoute = pathname.startsWith("/track/")
   const isLoginRoute = pathname === "/login"
   const isLandingRoute = pathname === "/"

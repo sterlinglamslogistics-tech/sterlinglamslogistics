@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { fetchOrderByTracking, updateOrder } from "@/lib/firestore"
+import { fetchOrderByTracking, updateOrder, recalculateDriverRating } from "@/lib/firestore"
 
 function getRedirectUrl(request: Request, tracking: string, rating: number, submitted: boolean) {
   const url = new URL(request.url)
@@ -37,6 +37,11 @@ export async function GET(
       customerRating: rating,
       customerRatedAt: new Date(),
     })
+
+    // Recalculate driver's aggregate rating in background
+    if (order.assignedDriver) {
+      recalculateDriverRating(order.assignedDriver).catch(() => {})
+    }
 
     return NextResponse.redirect(getRedirectUrl(request, tracking, rating, true))
   } catch (error) {
