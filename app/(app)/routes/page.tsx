@@ -201,8 +201,8 @@ export default function RoutesPage() {
   function makeLabeledMarkerIcon(
     bgColor: string,
     label: string,
-    size: number = 50,
-    fontSize: number = 11,
+    size: number = 42,
+    fontSize: number = 10,
   ): google.maps.Icon {
     const half = size / 2
     const r = half - 4
@@ -323,7 +323,7 @@ export default function RoutesPage() {
       map,
       position: HUB,
       title: `Store Hub (${visibleOrders.length} orders)`,
-      icon: makeLabeledMarkerIcon("#f59e0b", String(visibleOrders.length), 56, 18),
+      icon: makeLabeledMarkerIcon("#f59e0b", String(visibleOrders.length), 48, 16),
       zIndex: 1000,
     })
     bounds.extend(HUB)
@@ -344,8 +344,8 @@ export default function RoutesPage() {
       const isToday = !Number.isNaN(orderDate.getTime()) && orderDate.toDateString() === todayStr
       const label = isToday ? formatShortTime(orderDate) : formatShortDate(orderDate)
 
-      const size = isSelected ? 58 : 50
-      const fSize = isSelected ? 13 : 11
+      const size = isSelected ? 48 : 42
+      const fSize = isSelected ? 12 : 10
 
       const marker = new google.maps.Marker({
         map,
@@ -381,14 +381,14 @@ export default function RoutesPage() {
       if (!driver.lastLocation) return
       const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
       const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
-      const size = isSelectedDrv ? 58 : 50
+      const size = isSelectedDrv ? 48 : 42
       const timeLabel = formatShortTime(new Date())
 
       const marker = new google.maps.Marker({
         map,
         position: pos,
         title: driver.name,
-        icon: makeLabeledMarkerIcon("#ef4444", timeLabel, size, isSelectedDrv ? 13 : 11),
+        icon: makeLabeledMarkerIcon("#ef4444", timeLabel, size, isSelectedDrv ? 12 : 10),
         zIndex: isSelectedDrv ? 998 : 20,
       })
 

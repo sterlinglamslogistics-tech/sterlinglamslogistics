@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
@@ -12,11 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MapPin, Send } from "lucide-react"
-import { fetchDrivers, fetchOrders, fetchDriversByStatus, updateOrder } from "@/lib/firestore"
+import { GripVertical } from "lucide-react"
+import { fetchDrivers, fetchOrders, fetchDriversByStatus, updateOrder, saveOptimizedRouteOrder } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { notifyOrderEvent } from "@/lib/notify-client"
+
+/* ── helpers ─────────────────────────────────────────────── */
 
 function StatusBadge({ status }: { status: string }) {
   const variants: Record<string, string> = {
@@ -46,6 +47,58 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase()
+}
+
+function formatTs(val: unknown): string {
+  if (!val) return ""
+  const d = val instanceof Date ? val : typeof val === "object" && "toDate" in (val as Record<string, unknown>) ? (val as { toDate(): Date }).toDate() : new Date(val as string)
+  return d.toLocaleString("en-NG", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+}
+
+/* ── timeline card ───────────────────────────────────────── */
+
+function OrderTimeline({ order }: { order: Order }) {
+  const pickupLabel = order.pickupName || "Pickup"
+  const pickupAddr = order.pickupAddress || "—"
+  const deliveryAddr = order.address || "—"
+
+  return (
+    <div className="relative flex gap-3 px-3 py-3">
+      {/* dots + dashed line */}
+      <div className="flex flex-col items-center pt-1">
+        <span className="z-10 size-2.5 rounded-full bg-muted-foreground/50" />
+        <span className="my-0.5 w-px flex-1 border-l border-dashed border-muted-foreground/30" />
+        <span className="z-10 size-2.5 rounded-full bg-emerald-500" />
+      </div>
+
+      {/* text */}
+      <div className="flex flex-1 flex-col gap-3 min-w-0">
+        {/* pickup */}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">{pickupLabel}</p>
+          <p className="truncate text-xs text-muted-foreground">{pickupAddr}</p>
+          {order.startedAt && <p className="mt-0.5 text-[11px] text-muted-foreground/70">{formatTs(order.startedAt)}</p>}
+        </div>
+        {/* delivery */}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-foreground">{order.customerName}</p>
+          <p className="truncate text-xs text-muted-foreground">{deliveryAddr}</p>
+          {order.deliveredAt && <p className="mt-0.5 text-[11px] text-muted-foreground/70">{formatTs(order.deliveredAt)}</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── page ─────────────────────────────────────────────────── */
+
 export default function DispatchPage() {
   const [orderList, setOrderList] = useState<Order[]>([])
   const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([])
@@ -55,6 +108,8 @@ export default function DispatchPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
   const loadAvailableDrivers = useCallback(async () => {
     const drivers = await fetchDriversByStatus("available")
@@ -81,7 +136,7 @@ export default function DispatchPage() {
         setError(null)
       } catch (err) {
         console.error("Error loading data:", err)
-setError("Failed to load data. Check your Firebase connection.")
+        setError("Failed to load data. Check your Firebase connection.")
       } finally {
         setIsLoading(false)
       }
@@ -113,22 +168,17 @@ setError("Failed to load data. Check your Firebase connection.")
     }
   }, [allDrivers, activeDriverId])
 
-  function getDriverDisplayName(driverId: string | null) {
-    if (!driverId) return "Unassigned"
-    return allDrivers.find((d) => d.id === driverId)?.name ?? "Unknown"
-  }
-
   const pendingOrders = orderList.filter((o) => o.status === "unassigned")
-  const assignedOrders = orderList.filter(
-    (o) =>
-      o.assignedDriver === activeDriverId &&
-      o.status !== "unassigned" &&
-      o.status !== "delivered" &&
-      o.status !== "cancelled" &&
-      o.status !== "failed"
-  )
-
-  const activeDriver = allDrivers.find((d) => d.id === activeDriverId) ?? null
+  const assignedOrders = orderList
+    .filter(
+      (o) =>
+        o.assignedDriver === activeDriverId &&
+        o.status !== "unassigned" &&
+        o.status !== "delivered" &&
+        o.status !== "cancelled" &&
+        o.status !== "failed"
+    )
+    .sort((a, b) => (a.routeOrder ?? Infinity) - (b.routeOrder ?? Infinity))
 
   function handleSelectDriver(orderId: string, driverId: string) {
     setSelectedDrivers((prev) => ({ ...prev, [orderId]: driverId }))
@@ -180,6 +230,24 @@ setError("Failed to load data. Check your Firebase connection.")
     }
   }
 
+  async function handleDrop(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return
+    const reordered = [...assignedOrders]
+    const [moved] = reordered.splice(fromIndex, 1)
+    reordered.splice(toIndex, 0, moved)
+    const orderedIds = reordered.map((o) => o.id)
+    // optimistic local update
+    setOrderList((prev) => {
+      const next = [...prev]
+      for (let i = 0; i < orderedIds.length; i++) {
+        const idx = next.findIndex((o) => o.id === orderedIds[i])
+        if (idx !== -1) next[idx] = { ...next[idx], routeOrder: i }
+      }
+      return next
+    })
+    await saveOptimizedRouteOrder(orderedIds)
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -188,38 +256,24 @@ setError("Failed to load data. Check your Firebase connection.")
     )
   }
 
-  function getInitials(name: string) {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase()
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Dispatch
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Dispatch center for drivers and order assignment
-        </p>
-        {error && (
-          <p className="mt-2 text-sm text-destructive">{error}</p>
-        )}
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Dispatch</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Dispatch center for drivers and order assignment</p>
+        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
       </div>
 
-      <div className="grid gap-0 rounded-lg border bg-card xl:grid-cols-[280px_1fr_1fr]">
-        {/* Sector 1: Drivers */}
+      <div className="grid gap-0 rounded-lg border bg-card xl:grid-cols-[260px_1fr_1fr]">
+        {/* ── Drivers sidebar ────────────────────────────── */}
         <div className="border-r">
-          <div className="border-b px-4 py-3 text-xl font-semibold text-foreground">Drivers</div>
-          <div className="max-h-[70vh] space-y-1 overflow-y-auto p-2">
+          <div className="border-b px-4 py-3 text-lg font-semibold text-foreground">Drivers</div>
+          <div className="max-h-[75vh] overflow-y-auto">
             {allDrivers.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-muted-foreground">No drivers found in database.</p>
+              <p className="px-4 py-6 text-sm text-muted-foreground">No drivers found.</p>
             ) : (
               allDrivers.map((driver) => {
+                const isActive = activeDriverId === driver.id
                 const activeCount = orderList.filter(
                   (o) =>
                     o.assignedDriver === driver.id &&
@@ -228,24 +282,30 @@ setError("Failed to load data. Check your Firebase connection.")
                     o.status !== "cancelled" &&
                     o.status !== "failed"
                 ).length
+
                 return (
                   <button
                     key={driver.id}
                     onClick={() => setActiveDriverId(driver.id)}
-                    className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition-colors ${
-                      activeDriverId === driver.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-secondary/60"
+                    className={`flex w-full items-center gap-3 border-l-[3px] px-3 py-3 text-left transition-colors ${
+                      isActive
+                        ? "border-l-emerald-500 bg-emerald-500/5"
+                        : "border-l-transparent hover:bg-secondary/50"
                     }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <Avatar className="size-8">
-                        <AvatarFallback>{getInitials(driver.name)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{driver.name}</p>
-                        <p className="text-xs text-muted-foreground">{driver.status.replace("-", " ")}</p>
-                      </div>
+                    <Avatar className="size-9 shrink-0">
+                      <AvatarFallback className={isActive ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : ""}>
+                        {getInitials(driver.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{driver.name}</p>
                     </div>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground">{activeCount}</span>
+                    {activeCount > 0 && (
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
+                        {activeCount}
+                      </span>
+                    )}
                   </button>
                 )
               })
@@ -253,100 +313,93 @@ setError("Failed to load data. Check your Firebase connection.")
           </div>
         </div>
 
-        {/* Sector 2: Assigned orders */}
+        {/* ── Assigned orders ────────────────────────────── */}
         <div className="border-r">
-          <div className="border-b px-4 py-3 text-xl font-semibold text-foreground">Assigned orders by driver</div>
-          <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
-            {activeDriver && (
-              <div className="rounded-md border bg-secondary/30 p-3">
-                <p className="text-sm font-semibold text-foreground">{activeDriver.name}</p>
-                <p className="text-xs text-muted-foreground">{activeDriver.phone}</p>
-              </div>
-            )}
-
+          <div className="border-b px-4 py-3 text-lg font-semibold text-foreground">
+            Assigned Orders
+          </div>
+          <div className="max-h-[75vh] space-y-3 overflow-y-auto p-3">
             {assignedOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No assigned orders for selected driver.</p>
+              <p className="px-1 py-4 text-sm text-muted-foreground">No active orders for this driver.</p>
             ) : (
-              assignedOrders.map((order) => (
-                <div key={order.id} className="rounded-md border bg-background">
-                  <div className="flex items-center justify-between border-b px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={order.status} />
-                      <p className="text-sm font-semibold text-foreground">{order.orderNumber}</p>
-                    </div>
-                    <p className="text-sm font-semibold text-foreground">{formatCurrency(order.amount)}</p>
+              assignedOrders.map((order, idx) => (
+                <div
+                  key={order.id}
+                  draggable
+                  onDragStart={() => setDragIdx(idx)}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverIdx(idx) }}
+                  onDragEnd={() => { setDragIdx(null); setDragOverIdx(null) }}
+                  onDrop={() => { if (dragIdx !== null) handleDrop(dragIdx, idx); setDragIdx(null); setDragOverIdx(null) }}
+                  className={`overflow-hidden rounded-lg border bg-background shadow-sm transition-opacity ${
+                    dragIdx === idx ? "opacity-50" : ""
+                  } ${dragOverIdx === idx && dragIdx !== idx ? "ring-2 ring-emerald-500/50" : ""}`}
+                >
+                  {/* card header */}
+                  <div className="flex items-center gap-2 border-b px-3 py-2.5">
+                    <StatusBadge status={order.status} />
+                    <span className="text-sm font-semibold text-foreground">{order.orderNumber}</span>
+                    <span className="ml-auto text-sm font-semibold text-foreground">{formatCurrency(order.amount)}</span>
+
+                    <Select
+                      value={selectedDrivers[order.id] ?? ""}
+                      onValueChange={(value) => handleSelectDriver(order.id, value)}
+                    >
+                      <SelectTrigger className="h-7 w-[110px] text-xs">
+                        <SelectValue placeholder="Reassign" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDrivers.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <button
+                      className="rounded-md px-2 py-1.5 text-muted-foreground hover:bg-secondary cursor-grab active:cursor-grabbing"
+                      onMouseDown={(e) => e.currentTarget.closest("[draggable]")?.setAttribute("draggable", "true")}
+                    >
+                      <GripVertical className="size-4" />
+                    </button>
                   </div>
-                  <div className="space-y-2 px-3 py-3">
-                    <p className="text-sm font-medium text-foreground">{order.customerName}</p>
-                    <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <MapPin className="mt-0.5 h-3.5 w-3.5" /> {order.address}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Select
-                        value={selectedDrivers[order.id] ?? order.assignedDriver ?? ""}
-                        onValueChange={(value) => handleSelectDriver(order.id, value)}
-                      >
-                        <SelectTrigger className="h-8 flex-1 text-xs">
-                          <SelectValue placeholder="Reassign driver" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableDrivers.map((driver) => (
-                            <SelectItem key={driver.id} value={driver.id}>
-                              {driver.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8"
-                        disabled={!selectedDrivers[order.id] || isSaving}
-                        onClick={() => handleDispatch(order.id)}
-                      >
-                        Reassign
-                      </Button>
-                    </div>
-                  </div>
+
+                  {/* pickup → delivery timeline */}
+                  <OrderTimeline order={order} />
                 </div>
               ))
             )}
           </div>
         </div>
 
-        {/* Sector 3: New/Pending orders */}
+        {/* ── Unassigned / New orders ────────────────────── */}
         <div>
-          <div className="border-b px-4 py-3 text-xl font-semibold text-foreground">New Orders</div>
-          <div className="max-h-[70vh] space-y-3 overflow-y-auto p-3">
+          <div className="border-b px-4 py-3 text-lg font-semibold text-foreground">
+            Unassigned Orders
+          </div>
+          <div className="max-h-[75vh] space-y-3 overflow-y-auto p-3">
             {pendingOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No pending orders available.</p>
+              <p className="px-1 py-4 text-sm text-muted-foreground">No pending orders.</p>
             ) : (
               pendingOrders.map((order) => (
-                <div key={order.id} className="rounded-md border bg-background">
-                  <div className="flex items-center justify-between border-b px-3 py-2">
-                    <p className="text-sm font-semibold text-foreground">{order.orderNumber}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground">{formatCurrency(order.amount)}</p>
-                      <Select onValueChange={(value) => handleDispatch(order.id, value)}>
-                        <SelectTrigger className="h-8 w-[115px] rounded-md border bg-secondary/50 text-xs font-medium shadow-sm">
-                          <SelectValue placeholder="+ Assign" />
-                        </SelectTrigger>
-                        <SelectContent className="shadow-xl">
-                          {availableDrivers.map((driver) => (
-                            <SelectItem key={driver.id} value={driver.id}>
-                              {driver.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                <div key={order.id} className="overflow-hidden rounded-lg border bg-background shadow-sm">
+                  {/* card header */}
+                  <div className="flex items-center gap-2 border-b px-3 py-2.5">
+                    <span className="text-sm font-semibold text-foreground">{order.orderNumber}</span>
+                    <span className="ml-auto text-sm font-semibold text-foreground">{formatCurrency(order.amount)}</span>
+
+                    <Select onValueChange={(value) => handleDispatch(order.id, value)}>
+                      <SelectTrigger className="h-7 w-[110px] rounded-md border bg-emerald-500/10 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                        <SelectValue placeholder="+ Assign" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDrivers.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="space-y-2 px-3 py-3">
-                    <p className="text-sm font-medium text-foreground">{order.customerName}</p>
-                    <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <MapPin className="mt-0.5 h-3.5 w-3.5" /> {order.address}
-                    </p>
-                  </div>
+
+                  {/* pickup → delivery timeline */}
+                  <OrderTimeline order={order} />
                 </div>
               ))
             )}

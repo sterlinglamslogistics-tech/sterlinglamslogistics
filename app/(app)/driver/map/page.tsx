@@ -80,15 +80,15 @@ export default function DriverMapPage() {
       })
 
       // Store / Hub marker
-      const hubSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="%23e91e8c" stroke="white" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="sans-serif">S</text></svg>`
+      const hubSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><circle cx="15" cy="15" r="13" fill="%23e91e8c" stroke="white" stroke-width="2"/><text x="15" y="19" text-anchor="middle" fill="white" font-size="12" font-weight="bold" font-family="sans-serif">S</text></svg>`
       hubMarkerRef.current = new google.maps.Marker({
         map,
         position: { lat: hubLat, lng: hubLng },
         title: "Sterlin Glams Store",
         icon: {
           url: `data:image/svg+xml;charset=UTF-8,${hubSvg}`,
-          scaledSize: new google.maps.Size(32, 32),
-          anchor: new google.maps.Point(16, 16),
+          scaledSize: new google.maps.Size(30, 30),
+          anchor: new google.maps.Point(15, 15),
         },
       })
 
@@ -137,7 +137,7 @@ export default function DriverMapPage() {
         const coords = await geocodeAddress(order.address)
         if (!coords || cancelled) continue
 
-        const markerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><circle cx="22" cy="22" r="20" fill="%23222222" stroke="white" stroke-width="3"/><text x="22" y="28" text-anchor="middle" fill="white" font-size="18" font-weight="bold" font-family="sans-serif">${num}</text></svg>`
+        const markerSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38"><circle cx="19" cy="19" r="17" fill="%23222222" stroke="white" stroke-width="2"/><text x="19" y="24" text-anchor="middle" fill="white" font-size="15" font-weight="bold" font-family="sans-serif">${num}</text></svg>`
 
         const marker = new google.maps.Marker({
           map,
@@ -145,8 +145,8 @@ export default function DriverMapPage() {
           title: `${order.orderNumber} - ${order.customerName}`,
           icon: {
             url: `data:image/svg+xml;charset=UTF-8,${markerSvg}`,
-            scaledSize: new google.maps.Size(44, 44),
-            anchor: new google.maps.Point(22, 22),
+            scaledSize: new google.maps.Size(38, 38),
+            anchor: new google.maps.Point(19, 19),
           },
         })
 
