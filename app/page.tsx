@@ -53,76 +53,103 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-[hsl(330,30%,97%)]">
         <div className="absolute inset-0 bg-gradient-to-br from-[hsl(330,82%,52%)]/5 via-transparent to-[hsl(330,82%,52%)]/10" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 lg:px-8 lg:py-28">
-          <div className="mx-auto max-w-3xl text-center">
-            <p className="mb-4 text-sm font-medium uppercase tracking-widest text-[hsl(330,82%,52%)]">
-              Official Delivery Partner of{" "}
-              <a
-                href="https://sterlinglams.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline underline-offset-2 hover:text-[hsl(330,82%,45%)]"
-              >
-                Sterlinglams.com
-              </a>
-            </p>
-            <h1 className="text-4xl font-extrabold tracking-tight text-[hsl(0,0%,8%)] sm:text-5xl lg:text-6xl">
-              Your Order,{" "}
-              <span className="text-[hsl(330,82%,52%)]">Delivered with Care</span>
-            </h1>
-            <p className="mx-auto mt-6 max-w-2xl text-lg text-[hsl(0,0%,40%)]">
-              We handle every Sterlinglams order — from jewellery to accessories —
-              with real-time tracking, same-day dispatch, and secure packaging so
-              your items arrive safely and on time.
-            </p>
-            <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Link href="/login">
-                <Button size="lg" className="gap-2 bg-[hsl(330,82%,52%)] px-8 text-white hover:bg-[hsl(330,82%,45%)]">
-                  <Package className="size-5" />
-                  Manage Deliveries
-                </Button>
-              </Link>
-              <a
-                href="https://sterlinglams.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button variant="outline" size="lg" className="gap-2 border-[hsl(330,82%,52%)] px-8 text-[hsl(330,82%,52%)] hover:bg-[hsl(330,82%,52%)]/10">
-                  Visit Sterlinglams Store
-                  <ExternalLink className="size-4" />
-                </Button>
-              </a>
+        <div className="relative mx-auto max-w-7xl px-4 py-12 lg:px-8 lg:py-16">
+          <div className="grid items-start gap-8 lg:grid-cols-2">
+            {/* Text Column */}
+            <div className="text-center lg:text-left lg:py-8">
+              <p className="mb-4 text-sm font-medium uppercase tracking-widest text-[hsl(330,82%,52%)]">
+                Official Delivery Partner of{" "}
+                <a
+                  href="https://sterlinglams.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2 hover:text-[hsl(330,82%,45%)]"
+                >
+                  Sterlinglams.com
+                </a>
+              </p>
+              <h1 className="text-4xl font-extrabold tracking-tight text-[hsl(0,0%,8%)] sm:text-5xl lg:text-6xl">
+                Your Order,{" "}
+                <span className="text-[hsl(330,82%,52%)]">Delivered with Care</span>
+              </h1>
+              <p className="mt-6 max-w-2xl text-lg text-[hsl(0,0%,40%)] lg:mx-0 mx-auto">
+                We handle every Sterlinglams order — from jewellery to accessories —
+                with real-time tracking, same-day dispatch, and secure packaging so
+                your items arrive safely and on time.
+              </p>
+              <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row lg:justify-start">
+                <Link href="/login">
+                  <Button size="lg" className="gap-2 bg-[hsl(330,82%,52%)] px-8 text-white hover:bg-[hsl(330,82%,45%)]">
+                    <Package className="size-5" />
+                    Manage Deliveries
+                  </Button>
+                </Link>
+                <a
+                  href="https://sterlinglams.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="outline" size="lg" className="gap-2 border-[hsl(330,82%,52%)] px-8 text-[hsl(330,82%,52%)] hover:bg-[hsl(330,82%,52%)]/10">
+                    Visit Sterlinglams Store
+                    <ExternalLink className="size-4" />
+                  </Button>
+                </a>
+              </div>
+            </div>
+
+            {/* Image Column – flush to top so head is visible */}
+            <div className="relative mx-auto w-full max-w-lg lg:max-w-none lg:-mt-16 lg:-mb-16">
+              <Image
+                src="/delivery-hero.png"
+                alt="Sterlinglams Logistics delivery agent holding a branded package"
+                width={600}
+                height={700}
+                className="h-auto w-full object-contain object-top"
+                priority
+              />
             </div>
           </div>
         </div>
       </section>
 
-      {/* Track Section */}
-      <section className="border-t border-[hsl(330,8%,90%)] bg-white py-16">
-        <div className="mx-auto max-w-2xl px-4 text-center lg:px-8">
-          <h2 className="text-2xl font-bold tracking-tight text-[hsl(0,0%,8%)]">Track Your Order</h2>
-          <p className="mt-2 text-[hsl(0,0%,45%)]">
-            Enter your tracking number to see live delivery status
-          </p>
-          <form
-            onSubmit={handleTrack}
-            className="mt-6 flex flex-col gap-3 sm:flex-row"
-          >
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[hsl(0,0%,55%)]" />
-              <input
-                type="text"
-                placeholder="Enter tracking ID"
-                value={trackingId}
-                onChange={(e) => setTrackingId(e.target.value)}
-                className="h-11 w-full rounded-lg border border-[hsl(330,8%,90%)] bg-white pl-10 pr-4 text-sm outline-none transition-shadow focus:ring-2 focus:ring-[hsl(330,82%,52%)]"
-              />
-            </div>
-            <Button type="submit" size="lg" className="gap-2 bg-[hsl(330,82%,52%)] text-white hover:bg-[hsl(330,82%,45%)]">
-              Track
-              <ArrowRight className="size-4" />
-            </Button>
-          </form>
+      {/* Track Shipment Section */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0">
+          <Image
+            src="/track-bg.png"
+            alt="Sterlinglams delivery"
+            fill
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-black/50" />
+        </div>
+        <div className="relative mx-auto max-w-7xl px-4 py-20 lg:px-8 lg:py-28">
+          <div className="max-w-xl">
+            <h2 className="text-3xl font-bold italic tracking-tight text-white sm:text-4xl">
+              Track Shipment
+            </h2>
+            <form
+              onSubmit={handleTrack}
+              className="mt-6 flex flex-col gap-0 sm:flex-row"
+            >
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="Enter waybill number / Tracking ID"
+                  value={trackingId}
+                  onChange={(e) => setTrackingId(e.target.value)}
+                  className="h-12 w-full rounded-l-md border-0 bg-white px-4 text-sm text-[hsl(0,0%,20%)] outline-none placeholder:text-[hsl(0,0%,55%)] sm:rounded-r-none rounded-r-md"
+                />
+              </div>
+              <Button
+                type="submit"
+                size="lg"
+                className="h-12 rounded-r-md bg-[hsl(330,82%,52%)] px-8 text-sm font-semibold text-white hover:bg-[hsl(330,82%,45%)] sm:rounded-l-none rounded-l-md"
+              >
+                Track Now
+              </Button>
+            </form>
+          </div>
         </div>
       </section>
 
@@ -222,28 +249,38 @@ export default function LandingPage() {
       {/* CTA */}
       <section className="py-20">
         <div className="mx-auto max-w-7xl px-4 lg:px-8">
-          <div className="rounded-2xl bg-[hsl(0,0%,8%)] px-8 py-16 text-center text-white">
-            <h2 className="text-3xl font-bold">Shop Sterlinglams Today</h2>
-            <p className="mx-auto mt-4 max-w-xl text-white/70">
-              Browse the full collection of jewellery, watches, and accessories.
-              We&apos;ll take care of the delivery.
-            </p>
-            <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <a
-                href="https://sterlinglams.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button size="lg" className="gap-2 bg-[hsl(330,82%,52%)] px-8 text-white hover:bg-[hsl(330,82%,45%)]">
-                  Visit Sterlinglams.com
-                  <ExternalLink className="size-4" />
-                </Button>
-              </a>
-              <Link href="/login">
-                <Button size="lg" variant="outline" className="gap-2 border-white/30 px-8 text-white hover:bg-white/10">
-                  Admin Login
-                </Button>
-              </Link>
+          <div className="relative overflow-hidden rounded-2xl px-8 py-16 text-center text-white">
+            <Image
+              src="/cta-bg.png"
+              alt=""
+              fill
+              className="object-cover"
+              sizes="100vw"
+            />
+            <div className="absolute inset-0 bg-[hsl(0,0%,8%)]/40" />
+            <div className="relative">
+              <h2 className="text-3xl font-bold">Shop Sterlinglams Today</h2>
+              <p className="mx-auto mt-4 max-w-xl text-white/70">
+                Browse the full collection of jewellery, watches, and accessories.
+                We&apos;ll take care of the delivery.
+              </p>
+              <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
+                <a
+                  href="https://sterlinglams.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button size="lg" className="gap-2 bg-[hsl(330,82%,52%)] px-8 text-white hover:bg-[hsl(330,82%,45%)]">
+                    Visit Sterlinglams.com
+                    <ExternalLink className="size-4" />
+                  </Button>
+                </a>
+                <Link href="/login">
+                  <Button size="lg" variant="outline" className="gap-2 border-white/30 px-8 text-white hover:bg-white/10">
+                    Admin Login
+                  </Button>
+                </Link>
+              </div>
             </div>
           </div>
         </div>
@@ -282,18 +319,18 @@ export default function LandingPage() {
             <div className="flex flex-col gap-3">
               <h4 className="text-sm font-semibold uppercase tracking-wider text-white/80">Contact Us</h4>
               <a
-                href="tel:+2348064250597"
+                href="tel:+2349160009893"
                 className="flex items-center gap-2 text-sm text-white/60 transition-colors hover:text-[hsl(330,82%,52%)]"
               >
                 <Phone className="size-4" />
-                0806 425 0597
+                0916 000 9893
               </a>
               <a
-                href="mailto:contact@sterlinglams.com"
+                href="mailto:contact@sterlinglamslogistics.com"
                 className="flex items-center gap-2 text-sm text-white/60 transition-colors hover:text-[hsl(330,82%,52%)]"
               >
                 <Mail className="size-4" />
-                contact@sterlinglams.com
+                contact@sterlinglamslogistics.com
               </a>
             </div>
 
@@ -344,7 +381,7 @@ export default function LandingPage() {
           {/* Bottom bar */}
           <div className="mt-10 border-t border-white/10 pt-6 text-center">
             <p className="text-sm text-white/50">
-              &copy; {new Date().getFullYear()} Sterlinglams. All rights reserved.
+              &copy; {new Date().getFullYear()} Sterlinglamslogistics. All rights reserved.
             </p>
           </div>
         </div>
