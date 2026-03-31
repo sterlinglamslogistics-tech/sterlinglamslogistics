@@ -118,7 +118,7 @@ export default function RoutesPage() {
       }
       const geocoder = jsGeocoderRef.current
       const cache = jsGeocachRef.current
-      const BATCH_SIZE = 5
+      const BATCH_SIZE = 10
       const newCoords: Record<string, LatLng> = {}
 
       for (let i = 0; i < needsGeocode.length; i += BATCH_SIZE) {
@@ -247,9 +247,8 @@ export default function RoutesPage() {
     return "#ef4444"                                      // red (unassigned)
   }
 
-  // ── Init Google Map ──
+  // ── Init Google Map ── (init immediately, don't wait for data)
   useEffect(() => {
-    if (isLoading) return
     let mounted = true
 
     async function initMap() {
@@ -287,7 +286,7 @@ export default function RoutesPage() {
       if (directionsRendererRef.current) directionsRendererRef.current.setMap(null)
       mapRef.current = null
     }
-  }, [isLoading])
+  }, [])
 
   // Track whether we've already fit bounds for the current data set
   const hasFitBoundsRef = useRef(false)

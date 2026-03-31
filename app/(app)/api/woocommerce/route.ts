@@ -24,12 +24,16 @@ function verifySignature(body: string, signature: string | null): boolean {
 
 /**
  * Check if an order with this WooCommerce order number already exists.
+ * Checks both stripped ("12345") and prefixed ("WC-12345") variants to
+ * prevent duplicates from orders imported before the prefix was stripped.
  */
 async function orderExists(orderNumber: string): Promise<boolean> {
   if (!db) return false
+  const stripped = orderNumber.replace(/^WC-/i, "")
+  const variants = [stripped, `WC-${stripped}`]
   const q = query(
     collection(db, "orders"),
-    where("orderNumber", "==", orderNumber)
+    where("orderNumber", "in", variants)
   )
   const snap = await getDocs(q)
   return !snap.empty

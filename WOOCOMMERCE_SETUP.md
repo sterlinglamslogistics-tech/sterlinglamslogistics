@@ -71,7 +71,7 @@ Go to **sterlinglam.com → WP Admin → WooCommerce → Settings → Advanced �
 
 WooCommerce orders are prefixed with `WC-` followed by the WooCommerce order ID:
 
-- WooCommerce order **#1234** → Delivery order **WC-1234**
+- WooCommerce order **#1234** → Delivery order **1234**
 
 ---
 
