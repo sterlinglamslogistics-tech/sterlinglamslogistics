@@ -29,6 +29,8 @@ interface DriverContextValue {
   refreshOrders: () => Promise<void>
   optimizeRoute: (lastStopId?: string | null) => Promise<boolean>
   logout: () => void
+  /** Latest GPS position from the device (updated locally before Firestore round-trip) */
+  liveGps: { lat: number; lng: number } | null
 }
 
 const DriverContext = createContext<DriverContextValue | null>(null)
@@ -49,6 +51,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const [loadingOrders, setLoadingOrders] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [justWentOnline, setJustWentOnline] = useState(false)
+  const [liveGps, setLiveGps] = useState<{ lat: number; lng: number } | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const lastGpsWriteRef = useRef<number>(0)
 
@@ -85,22 +88,55 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   // GPS tracking when online
   useEffect(() => {
     if (!session || !isOnline) return
-    if (!navigator.geolocation) return
+    if (!navigator.geolocation) {
+      toast({ title: "Location unavailable", description: "Your device does not support GPS.", variant: "destructive" })
+      return
+    }
     if (watchIdRef.current !== null) return
+
+    // Get an immediate position fix so the map shows the driver right away
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        setLiveGps(coords)
+        lastGpsWriteRef.current = Date.now()
+        try {
+          await updateDriverLocation(session.id, coords.lat, coords.lng)
+        } catch {
+          // silently ignore
+        }
+      },
+      (err) => {
+        console.warn("Initial GPS fix failed:", err.message)
+        if (err.code === err.PERMISSION_DENIED) {
+          toast({ title: "Location access denied", description: "Please enable location permissions so customers can track your delivery.", variant: "destructive" })
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+    )
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        // Always update local state immediately for instant map updates
+        setLiveGps(coords)
+
         // Throttle writes to Firestore — at most once every 5 seconds
         const now = Date.now()
         if (now - lastGpsWriteRef.current < 5000) return
         lastGpsWriteRef.current = now
         try {
-          await updateDriverLocation(session.id, pos.coords.latitude, pos.coords.longitude)
+          await updateDriverLocation(session.id, coords.lat, coords.lng)
         } catch {
           // silently ignore
         }
       },
-      () => {},
+      (err) => {
+        console.warn("GPS watch error:", err.message)
+        if (err.code === err.PERMISSION_DENIED) {
+          toast({ title: "Location access denied", description: "Please enable location permissions so customers can track your delivery.", variant: "destructive" })
+        }
+      },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
     )
 
@@ -246,6 +282,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
         refreshOrders,
         optimizeRoute,
         logout,
+        liveGps,
       }}
     >
       {children}
