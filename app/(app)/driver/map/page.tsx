@@ -166,21 +166,45 @@ export default function DriverMapPage() {
     }
   }, [mapReady, ordersKey, isOnline])
 
-  // Update DRIVER location marker independently (runs on GPS updates without touching order markers)
+  // Update DRIVER location marker independently — smoothly animate to new position
   useEffect(() => {
     if (!mapReady || !mapRef.current) return
 
-    if (driverMarkerRef.current) {
-      driverMarkerRef.current.setMap(null)
-      driverMarkerRef.current = null
+    if (!driver?.lastLocation) {
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.setMap(null)
+        driverMarkerRef.current = null
+      }
+      return
     }
 
-    if (driver?.lastLocation) {
-      const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="12" fill="%233b82f6" stroke="white" stroke-width="3"/></svg>`
+    const newPos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
+
+    if (driverMarkerRef.current) {
+      // Smoothly animate to the new position
+      const start = driverMarkerRef.current.getPosition()!
+      const end = new google.maps.LatLng(newPos.lat, newPos.lng)
+      const steps = 30
+      const duration = 1000 // 1 second
+      const stepMs = duration / steps
+      let step = 0
+      const animate = () => {
+        step++
+        const t = step / steps
+        const lat = start.lat() + (end.lat() - start.lat()) * t
+        const lng = start.lng() + (end.lng() - start.lng()) * t
+        driverMarkerRef.current?.setPosition({ lat, lng })
+        if (step < steps) setTimeout(animate, stepMs)
+      }
+      animate()
+    } else {
+      // First time — create the marker
+      const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="12" fill="%233b82f6" stroke="white" stroke-width="3"/><circle cx="18" cy="18" r="4" fill="white"/></svg>`
       driverMarkerRef.current = new google.maps.Marker({
         map: mapRef.current,
-        position: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
+        position: newPos,
         title: "Your location",
+        zIndex: 1000,
         icon: {
           url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
           scaledSize: new google.maps.Size(36, 36),
@@ -188,7 +212,7 @@ export default function DriverMapPage() {
         },
       })
     }
-  }, [mapReady, driver?.lastLocation])
+  }, [mapReady, driver?.lastLocation?.lat, driver?.lastLocation?.lng])
 
   if (loadingSession || !session) return null
 

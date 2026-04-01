@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { fetchDriverById, updateDriver, updateDriverLocation, fetchOrdersByDriver, saveOptimizedRouteOrder } from "@/lib/firestore"
+import { fetchDriverById, updateDriver, updateDriverLocation, fetchOrdersByDriver, saveOptimizedRouteOrder, subscribeDriverRealtime } from "@/lib/firestore"
 import { optimizeRouteOrder } from "@/lib/google-maps"
 import type { Driver, Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
@@ -50,6 +50,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [justWentOnline, setJustWentOnline] = useState(false)
   const watchIdRef = useRef<number | null>(null)
+  const lastGpsWriteRef = useRef<number>(0)
 
   // Load session from localStorage
   useEffect(() => {
@@ -69,15 +70,16 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     setLoadingSession(false)
   }, [])
 
-  // Fetch driver profile
+  // Subscribe to driver profile in realtime so lastLocation updates live
   useEffect(() => {
     if (!session) return
-    fetchDriverById(session.id).then((d) => {
+    const unsubscribe = subscribeDriverRealtime(session.id, (d) => {
       if (d) {
         setDriver(d)
         setIsOnline(d.status === "available" || d.status === "on-delivery")
       }
     })
+    return () => unsubscribe()
   }, [session])
 
   // GPS tracking when online
@@ -88,6 +90,10 @@ export function DriverProvider({ children }: { children: ReactNode }) {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
+        // Throttle writes to Firestore — at most once every 5 seconds
+        const now = Date.now()
+        if (now - lastGpsWriteRef.current < 5000) return
+        lastGpsWriteRef.current = now
         try {
           await updateDriverLocation(session.id, pos.coords.latitude, pos.coords.longitude)
         } catch {

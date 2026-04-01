@@ -5,6 +5,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Search } from "lucide-react"
 import { subscribeDriversRealtime, subscribeOrdersRealtime } from "@/lib/firestore"
 import { loadGoogleMaps } from "@/lib/google-maps"
+import { useAuth } from "@/components/auth-provider"
 import type { Driver, Order } from "@/lib/data"
 
 type LatLng = { lat: number; lng: number }
@@ -17,6 +18,7 @@ const HUB: LatLng = {
 }
 
 export default function RoutesPage() {
+  const { user } = useAuth()
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [orderCoords, setOrderCoords] = useState<Record<string, LatLng>>({})
@@ -30,12 +32,14 @@ export default function RoutesPage() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
   const orderMarkersRef = useRef<google.maps.Marker[]>([])
-  const driverMarkersRef = useRef<google.maps.Marker[]>([])
+  const driverMarkersMapRef = useRef<Map<string, google.maps.Marker>>(new Map())
   const hubMarkerRef = useRef<google.maps.Marker | null>(null)
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
   const orderInfoWindowRef = useRef<google.maps.InfoWindow | null>(null)
 
   useEffect(() => {
+    if (!user) return
+
     const unsubscribeOrders = subscribeOrdersRealtime((orderData) => {
       setOrders(orderData)
       firstOrdersLoadedRef.current = true
@@ -52,7 +56,7 @@ export default function RoutesPage() {
       unsubscribeOrders()
       unsubscribeDrivers()
     }
-  }, [])
+  }, [user])
 
   const visibleOrders = useMemo(
     () => orders.filter((o) => o.status !== "delivered" && o.status !== "cancelled"),
@@ -197,7 +201,7 @@ export default function RoutesPage() {
   }, [drivers, selectedOrder])
   const selectedDestination = selectedOrder ? orderCoords[selectedOrder.id] : null
 
-  // ── Helper: build Shipday‑style filled‑circle SVG marker (no pointer) ──
+  // ── Helper: build filled‑circle SVG marker with single-line label ──
   function makeLabeledMarkerIcon(
     bgColor: string,
     label: string,
@@ -224,6 +228,38 @@ export default function RoutesPage() {
     }
   }
 
+  // ── Helper: build two-line date marker (month + day) ──
+  function makeDateMarkerIcon(
+    bgColor: string,
+    month: string,
+    day: string,
+    size: number = 48,
+    isSelected: boolean = false,
+  ): google.maps.Icon {
+    const half = size / 2
+    const r = half - 3
+    const strokeW = isSelected ? 3.5 : 2.5
+    const monthSize = Math.round(size * 0.22)
+    const daySize = Math.round(size * 0.32)
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
+      <defs>
+        <filter id="ds" x="-30%" y="-20%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" flood-opacity="0.35"/>
+        </filter>
+      </defs>
+      <circle cx="${half}" cy="${half}" r="${r}" fill="${bgColor}" stroke="white" stroke-width="${strokeW}" filter="url(%23ds)"/>
+      <text x="${half}" y="${half - daySize * 0.32}" text-anchor="middle" dominant-baseline="central"
+        font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="600" font-size="${monthSize}" fill="white" opacity="0.95">${month}</text>
+      <text x="${half}" y="${half + monthSize * 0.55}" text-anchor="middle" dominant-baseline="central"
+        font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="800" font-size="${daySize}" fill="white">${day}</text>
+    </svg>`
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      scaledSize: new google.maps.Size(size, size),
+      anchor: new google.maps.Point(half, half),
+    }
+  }
+
   function formatShortDate(date: unknown): string {
     if (!date) return ""
     const d = date instanceof Date ? date : new Date(date as string)
@@ -239,6 +275,18 @@ export default function RoutesPage() {
     return t.replace("AM", "a").replace("PM", "p").replace(" ", " ")
   }
 
+  function getDateParts(date: unknown): { month: string; day: string; time: string; isToday: boolean } {
+    const todayStr = new Date().toDateString()
+    if (!date) return { month: "", day: "", time: "", isToday: false }
+    const d = date instanceof Date ? date : new Date(date as string)
+    if (Number.isNaN(d.getTime())) return { month: "", day: "", time: "", isToday: false }
+    const month = d.toLocaleDateString("en-US", { month: "short" })
+    const day = String(d.getDate())
+    const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+      .replace("AM", "a").replace("PM", "p").replace(" ", " ")
+    return { month, day, time, isToday: d.toDateString() === todayStr }
+  }
+
   // ── Status → color map (Shipday‑style teal / red) ──
   function orderColor(order: Order): string {
     if (order.status === "in-transit") return "#f97316"  // orange
@@ -247,7 +295,7 @@ export default function RoutesPage() {
     return "#ef4444"                                      // red (unassigned)
   }
 
-  // ── Init Google Map ── (init immediately, don't wait for data)
+  // ── Init Google Map ── (re-run when isLoading changes so we catch the container after it mounts)
   useEffect(() => {
     let mounted = true
 
@@ -280,28 +328,26 @@ export default function RoutesPage() {
       mounted = false
       orderMarkersRef.current.forEach((m) => m.setMap(null))
       orderMarkersRef.current = []
-      driverMarkersRef.current.forEach((m) => m.setMap(null))
-      driverMarkersRef.current = []
+      for (const [, m] of driverMarkersMapRef.current) m.setMap(null)
+      driverMarkersMapRef.current.clear()
       if (hubMarkerRef.current) hubMarkerRef.current.setMap(null)
       if (directionsRendererRef.current) directionsRendererRef.current.setMap(null)
       mapRef.current = null
     }
-  }, [])
+  }, [isLoading])
 
   // Track whether we've already fit bounds for the current data set
   const hasFitBoundsRef = useRef(false)
   const prevDataKeyRef = useRef("")
 
-  // ── Update markers + route (Shipday-style) ──
+  // ── Update order markers + hub + route (Shipday-style) ──
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
-    // Clear previous markers
+    // Clear previous order markers + hub + directions
     orderMarkersRef.current.forEach((m) => m.setMap(null))
     orderMarkersRef.current = []
-    driverMarkersRef.current.forEach((m) => m.setMap(null))
-    driverMarkersRef.current = []
     if (hubMarkerRef.current) { hubMarkerRef.current.setMap(null); hubMarkerRef.current = null }
     if (directionsRendererRef.current) {
       directionsRendererRef.current.setMap(null)
@@ -309,7 +355,7 @@ export default function RoutesPage() {
     }
 
     // Detect whether the underlying data changed (not just selection)
-    const dataKey = `${visibleOrders.map(o => o.id).join(",")}_${Object.keys(orderCoords).sort().join(",")}_${activeDrivers.map(d => d.id).join(",")}`
+    const dataKey = `${visibleOrders.map(o => o.id).join(",")}_${Object.keys(orderCoords).sort().join(",")}`
     const dataChanged = dataKey !== prevDataKeyRef.current
     prevDataKeyRef.current = dataKey
     if (dataChanged) hasFitBoundsRef.current = false
@@ -328,9 +374,7 @@ export default function RoutesPage() {
     bounds.extend(HUB)
     hasPoints = true
 
-    // ── Order markers: time label for today, date label for older ──
-    const todayStr = new Date().toDateString()
-
+    // ── Order markers: two-line date pins (Mon\nDD) ──
     visibleOrders.forEach((order) => {
       const coords = orderCoords[order.id]
       if (!coords) return
@@ -338,19 +382,21 @@ export default function RoutesPage() {
       const isSelected = selectedOrderId === order.id
       const color = orderColor(order)
 
-      // Show time for today's orders, date for older ones
-      const orderDate = order.createdAt instanceof Date ? order.createdAt : new Date(order.createdAt as string)
-      const isToday = !Number.isNaN(orderDate.getTime()) && orderDate.toDateString() === todayStr
-      const label = isToday ? formatShortTime(orderDate) : formatShortDate(orderDate)
+      const { month, day, time, isToday } = getDateParts(order.createdAt)
+      const size = isSelected ? 54 : 46
 
-      const size = isSelected ? 48 : 42
-      const fSize = isSelected ? 12 : 10
+      // Use two-line date icon for dates, single-line for today's time
+      const icon = isToday && time
+        ? makeLabeledMarkerIcon(color, time, size, isSelected ? 12 : 10)
+        : month && day
+          ? makeDateMarkerIcon(color, month, day, size, isSelected)
+          : makeLabeledMarkerIcon(color, "New", size, isSelected ? 12 : 10)
 
       const marker = new google.maps.Marker({
         map,
         position: coords,
         title: `${order.orderNumber} – ${order.customerName}`,
-        icon: makeLabeledMarkerIcon(color, label, size, fSize),
+        icon,
         zIndex: isSelected ? 999 : 10,
       })
 
@@ -372,41 +418,6 @@ export default function RoutesPage() {
 
       orderMarkersRef.current.push(marker)
       bounds.extend(coords)
-      hasPoints = true
-    })
-
-    // ── Driver markers with live time labels ──
-    activeDrivers.forEach((driver) => {
-      if (!driver.lastLocation) return
-      const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
-      const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
-      const size = isSelectedDrv ? 48 : 42
-      const timeLabel = formatShortTime(new Date())
-
-      const marker = new google.maps.Marker({
-        map,
-        position: pos,
-        title: driver.name,
-        icon: makeLabeledMarkerIcon("#ef4444", timeLabel, size, isSelectedDrv ? 12 : 10),
-        zIndex: isSelectedDrv ? 998 : 20,
-      })
-
-      marker.addListener("click", () => {
-        const iw = orderInfoWindowRef.current
-        if (iw) {
-          iw.setContent(`
-            <div style="font-family:system-ui;min-width:140px">
-              <div style="font-weight:700;font-size:13px">${driver.name}</div>
-              <div style="font-size:12px;color:#555">${driver.phone ?? ""}</div>
-              <div style="font-size:11px;color:#0d9488;font-weight:600;margin-top:4px">${driver.status}</div>
-            </div>
-          `)
-          iw.open(map, marker)
-        }
-      })
-
-      driverMarkersRef.current.push(marker)
-      bounds.extend(pos)
       hasPoints = true
     })
 
@@ -435,17 +446,13 @@ export default function RoutesPage() {
     }
 
     // Only fit bounds when data actually changes, not on selection clicks
-    // Filter to Lagos-area bounds only so outlier addresses (e.g. Abuja) don't zoom out the map
     if (!hasFitBoundsRef.current && hasPoints) {
       const lagosBounds = new google.maps.LatLngBounds(
-        { lat: 6.35, lng: 3.0 },   // SW corner of Lagos region
-        { lat: 6.75, lng: 3.75 },   // NE corner of Lagos region
+        { lat: 6.35, lng: 3.0 },
+        { lat: 6.75, lng: 3.75 },
       )
-      // Build bounds using only markers within greater Lagos area
       const lagosFilteredBounds = new google.maps.LatLngBounds()
       let lagosPoints = 0
-      bounds.toJSON()
-      // Re-check each order coord against Lagos region
       visibleOrders.forEach((order) => {
         const coords = orderCoords[order.id]
         if (!coords) return
@@ -454,6 +461,7 @@ export default function RoutesPage() {
           lagosPoints++
         }
       })
+      // Include driver positions in bounds
       activeDrivers.forEach((driver) => {
         if (!driver.lastLocation) return
         const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
@@ -473,6 +481,81 @@ export default function RoutesPage() {
       hasFitBoundsRef.current = true
     }
   }, [activeDrivers, orderCoords, selectedDestination, selectedDriver, selectedOrderId, visibleOrders])
+
+  // ── Live driver markers — smoothly animate position changes ──
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const currentIds = new Set(activeDrivers.filter((d) => d.lastLocation).map((d) => d.id))
+
+    // Remove markers for drivers who went offline
+    for (const [id, marker] of driverMarkersMapRef.current) {
+      if (!currentIds.has(id)) {
+        marker.setMap(null)
+        driverMarkersMapRef.current.delete(id)
+      }
+    }
+
+    // Add or animate existing driver markers
+    activeDrivers.forEach((driver) => {
+      if (!driver.lastLocation) return
+      const newPos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
+      const existing = driverMarkersMapRef.current.get(driver.id)
+
+      if (existing) {
+        // Smoothly animate to new position
+        const start = existing.getPosition()!
+        const end = new google.maps.LatLng(newPos.lat, newPos.lng)
+        const steps = 30
+        const duration = 1000
+        const stepMs = duration / steps
+        let step = 0
+        const animate = () => {
+          step++
+          const t = step / steps
+          const lat = start.lat() + (end.lat() - start.lat()) * t
+          const lng = start.lng() + (end.lng() - start.lng()) * t
+          existing.setPosition({ lat, lng })
+          if (step < steps) setTimeout(animate, stepMs)
+        }
+        animate()
+        // Update icon (selection state may have changed)
+        const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
+        const size = isSelectedDrv ? 48 : 42
+        existing.setIcon(makeLabeledMarkerIcon("#3b82f6", driver.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase(), size, isSelectedDrv ? 12 : 10))
+        existing.setZIndex(isSelectedDrv ? 998 : 20)
+      } else {
+        // Create new marker for this driver
+        const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
+        const size = isSelectedDrv ? 48 : 42
+
+        const marker = new google.maps.Marker({
+          map,
+          position: newPos,
+          title: driver.name,
+          icon: makeLabeledMarkerIcon("#3b82f6", driver.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase(), size, isSelectedDrv ? 12 : 10),
+          zIndex: isSelectedDrv ? 998 : 20,
+        })
+
+        marker.addListener("click", () => {
+          const iw = orderInfoWindowRef.current
+          if (iw) {
+            iw.setContent(`
+              <div style="font-family:system-ui;min-width:140px">
+                <div style="font-weight:700;font-size:13px">${driver.name}</div>
+                <div style="font-size:12px;color:#555">${driver.phone ?? ""}</div>
+                <div style="font-size:11px;color:#3b82f6;font-weight:600;margin-top:4px">${driver.status}</div>
+              </div>
+            `)
+            iw.open(map, marker)
+          }
+        })
+
+        driverMarkersMapRef.current.set(driver.id, marker)
+      }
+    })
+  }, [activeDrivers, selectedDriver])
 
   const focusOrderOnMap = (order: Order) => {
     setSelectedOrderId(order.id)
@@ -595,6 +678,9 @@ export default function RoutesPage() {
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-3 w-3 rounded-full bg-orange-500" /> In Transit
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-3 rounded-full bg-blue-500" /> Driver
           </span>
         </div>
 

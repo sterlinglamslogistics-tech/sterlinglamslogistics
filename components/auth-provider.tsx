@@ -25,7 +25,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
       return
     }
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Force token refresh so custom claims (e.g. admin) are available
+        await firebaseUser.getIdToken(true)
+      }
       setUser(firebaseUser)
       setLoading(false)
     })

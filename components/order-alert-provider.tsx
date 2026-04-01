@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from "react"
 import { subscribeOrdersRealtime } from "@/lib/firestore"
+import { useAuth } from "@/components/auth-provider"
 import type { Order } from "@/lib/data"
 
 interface OrderAlertContextValue {
@@ -56,6 +57,7 @@ function playAlertSound() {
 }
 
 export function OrderAlertProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
   const [muted, setMuted] = useState(() => {
     if (typeof window === "undefined") return false
     return localStorage.getItem("order-alert-muted") === "true"
@@ -72,6 +74,8 @@ export function OrderAlertProvider({ children }: { children: React.ReactNode }) 
   const toggleMute = useCallback(() => setMuted((m) => !m), [])
 
   useEffect(() => {
+    if (!user) return
+
     const unsubscribe = subscribeOrdersRealtime((orders: Order[]) => {
       const currentIds = new Set(orders.map((o) => o.id))
 
@@ -95,7 +99,7 @@ export function OrderAlertProvider({ children }: { children: React.ReactNode }) 
     })
 
     return () => unsubscribe()
-  }, [])
+  }, [user])
 
   return (
     <OrderAlertContext.Provider value={{ muted, toggleMute, latestOrder }}>
