@@ -12,7 +12,7 @@ import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
 
 export default function DriverMapPage() {
   const router = useRouter()
-  const { session, driver, orders, isOnline, loadingSession, setDrawerOpen, refreshOrders } = useDriver()
+  const { session, driver, orders, isOnline, loadingSession, setDrawerOpen, refreshOrders, liveGps } = useDriver()
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
@@ -166,11 +166,14 @@ export default function DriverMapPage() {
     }
   }, [mapReady, ordersKey, isOnline])
 
+  // Prefer local GPS position (instant) over Firestore lastLocation (delayed)
+  const driverPos = liveGps ?? driver?.lastLocation ?? null
+
   // Update DRIVER location marker independently — smoothly animate to new position
   useEffect(() => {
     if (!mapReady || !mapRef.current) return
 
-    if (!driver?.lastLocation) {
+    if (!driverPos) {
       if (driverMarkerRef.current) {
         driverMarkerRef.current.setMap(null)
         driverMarkerRef.current = null
@@ -178,7 +181,7 @@ export default function DriverMapPage() {
       return
     }
 
-    const newPos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
+    const newPos = { lat: driverPos.lat, lng: driverPos.lng }
 
     if (driverMarkerRef.current) {
       // Smoothly animate to the new position
@@ -211,8 +214,11 @@ export default function DriverMapPage() {
           anchor: new google.maps.Point(18, 18),
         },
       })
+      // Auto-center map on the driver's actual position when first GPS fix arrives
+      mapRef.current?.panTo(newPos)
+      mapRef.current?.setZoom(15)
     }
-  }, [mapReady, driver?.lastLocation?.lat, driver?.lastLocation?.lng])
+  }, [mapReady, driverPos?.lat, driverPos?.lng])
 
   if (loadingSession || !session) return null
 
@@ -243,12 +249,12 @@ export default function DriverMapPage() {
       <div ref={mapContainerRef} className="h-full w-full" />
 
       {/* My location button */}
-      {driver?.lastLocation && (
+      {driverPos && (
         <button
           type="button"
           onClick={() => {
-            if (mapRef.current && driver.lastLocation) {
-              mapRef.current.panTo({ lat: driver.lastLocation.lat, lng: driver.lastLocation.lng })
+            if (mapRef.current && driverPos) {
+              mapRef.current.panTo({ lat: driverPos.lat, lng: driverPos.lng })
               mapRef.current.setZoom(15)
             }
           }}
