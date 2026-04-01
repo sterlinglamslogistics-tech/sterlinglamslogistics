@@ -109,7 +109,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       (err) => {
         console.warn("Initial GPS fix failed:", err.message)
         if (err.code === err.PERMISSION_DENIED) {
-          toast({ title: "Location access denied", description: "Please enable location permissions so customers can track your delivery.", variant: "destructive" })
+          toast({ title: "Location access denied", description: "Go to your device Settings → App Permissions → Location and enable it for this app so customers can track your delivery.", variant: "destructive" })
         }
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
@@ -134,7 +134,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       (err) => {
         console.warn("GPS watch error:", err.message)
         if (err.code === err.PERMISSION_DENIED) {
-          toast({ title: "Location access denied", description: "Please enable location permissions so customers can track your delivery.", variant: "destructive" })
+          toast({ title: "Location access denied", description: "Go to your device Settings → App Permissions → Location and enable it for this app so customers can track your delivery.", variant: "destructive" })
         }
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
