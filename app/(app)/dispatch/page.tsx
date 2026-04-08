@@ -84,13 +84,13 @@ function OrderTimeline({ order }: { order: Order }) {
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground">{pickupLabel}</p>
           <p className="truncate text-xs text-muted-foreground">{pickupAddr}</p>
-          {order.startedAt && <p className="mt-0.5 text-[11px] text-muted-foreground/70">{formatTs(order.startedAt)}</p>}
+          {order.startedAt ? <p className="mt-0.5 text-[11px] text-muted-foreground/70">{formatTs(order.startedAt)}</p> : null}
         </div>
         {/* delivery */}
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground">{order.customerName}</p>
           <p className="truncate text-xs text-muted-foreground">{deliveryAddr}</p>
-          {order.deliveredAt && <p className="mt-0.5 text-[11px] text-muted-foreground/70">{formatTs(order.deliveredAt)}</p>}
+          {order.deliveredAt ? <p className="mt-0.5 text-[11px] text-muted-foreground/70">{formatTs(order.deliveredAt)}</p> : null}
         </div>
       </div>
     </div>

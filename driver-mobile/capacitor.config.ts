@@ -14,6 +14,14 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
     appendUserAgent: "SterlinDriverApp"
+  },
+  plugins: {
+    Geolocation: {
+      // Uses fine location for accurate driver tracking
+    },
+    Camera: {
+      // Used for proof-of-delivery photos
+    }
   }
 }
 
