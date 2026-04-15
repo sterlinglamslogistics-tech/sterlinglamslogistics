@@ -315,6 +315,35 @@ function buildEmailTemplate(event: OrderEvent, payload: NotificationPayload) {
     `
   }
 
+  if (event === "delivery_failed") {
+    return `
+      ${layoutStart}
+              <div style="font-size:24px;line-height:32px;font-weight:700;color:#c21874;">Delivery Attempt Unsuccessful</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              ${summaryCard}
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">Hello ${customerName},</p>
+              <p style="margin:0 0 16px;font-size:16px;line-height:26px;">
+                We attempted to deliver your order <strong>${orderNumber}</strong>, but were unable to complete the delivery.
+              </p>
+              <p style="margin:0 0 24px;font-size:16px;line-height:26px;">
+                Please check your order details and contact us to reschedule your delivery or for further assistance.
+              </p>
+              ${trackingUrl ? `<div style="margin:0 0 28px;"><a href="${trackingUrl}" style="display:inline-block;background:#e91e8c;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 22px;border-radius:999px;">View Order Status</a></div>` : ""}
+              <p style="margin:0 0 12px;font-size:16px;line-height:26px;">Thank you for choosing Sterlin Glams.</p>
+              <p style="margin:0;font-size:16px;line-height:26px;">Warm regards,<br /><strong>Sterlin Glams Logistics</strong></p>
+              <div style="margin:28px 0 0;padding-top:20px;border-top:1px solid #f3e4eb;text-align:center;">
+                ${renderSocialLinks(siteOrigin)}
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `
+  }
+
   // Fallback for any future event types
   const fallbackMessage = escapeHtml(buildMessage(event, payload)).replaceAll("\n", "<br />")
 
