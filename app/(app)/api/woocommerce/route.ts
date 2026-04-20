@@ -3,7 +3,11 @@ import { createOrder } from "@/lib/firestore"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { createHmac, timingSafeEqual } from "crypto"
+import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
+import { createLogger } from "@/lib/logger"
+import { audit } from "@/lib/audit"
 
+const log = createLogger("api:woocommerce")
 const WEBHOOK_SECRET = process.env.WOOCOMMERCE_WEBHOOK_SECRET ?? ""
 
 /**
@@ -147,6 +151,10 @@ interface WooOrder {
 
 /* ─── POST handler ─── */
 export async function POST(req: Request) {
+  // Rate limiting
+  const rateLimitResponse = await checkRateLimit(getRateLimitIdentifier(req))
+  if (rateLimitResponse) return rateLimitResponse
+
   // WooCommerce sends a ping with topic "store.ping" on creation – ack it.
   const topic = req.headers.get("x-wc-webhook-topic") ?? ""
   if (topic === "store.ping" || topic === "action.wc_webhook_ping") {
@@ -207,9 +215,12 @@ export async function POST(req: Request) {
     const order = mapWooOrder(wc)
     const id = await createOrder(order)
 
+    log.info({ orderId: id, orderNumber }, "WooCommerce order imported")
+    await audit({ action: "order.created", resourceId: id, resourceType: "order", details: { source: "woocommerce", orderNumber } })
+
     return NextResponse.json({ ok: true, orderId: id, orderNumber })
   } catch (error) {
-    console.error("WooCommerce webhook error:", error)
+    log.error({ error, orderNumber }, "WooCommerce webhook error")
     return NextResponse.json(
       { ok: false, error: "Failed to create order" },
       { status: 500 }

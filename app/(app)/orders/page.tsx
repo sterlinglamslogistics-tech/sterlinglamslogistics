@@ -9,7 +9,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -45,9 +44,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Plus, Edit, MoreHorizontal, Download, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, X } from "lucide-react"
+import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2 } from "lucide-react"
 import Link from "next/link"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -57,20 +55,23 @@ import type { Order, Driver } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 import { notifyOrderEvent } from "@/lib/notify-client"
 import { loadGoogleMaps } from "@/lib/google-maps"
+import { StatusBadge } from "@/components/orders/status-badge"
+import { OrderDetailDialog } from "@/components/orders/order-detail-dialog"
+import { ReassignDialog } from "@/components/orders/reassign-dialog"
+import { BulkAssignDialog } from "@/components/orders/bulk-assign-dialog"
+import { formatOrderTime, formatDistance, handlePrintOrder, handlePrintLabel } from "@/lib/order-utils"
+import { ORDER_STATUS, DRIVER_STATUS, ACTIVE_STATUSES, TERMINAL_STATUSES } from "@/lib/constants"
 
 type OrderTab = "current" | "completed" | "incomplete" | "history"
 
-// special value used in the form to represent no driver assignment
 const UNASSIGNED_DRIVER = "unassigned" as const
 
 const orderFormSchema = z.object({
   orderNumber: z.string().min(1, "Order number is required"),
-  // Pick-up From
   pickupName: z.string().min(1, "Pickup name is required"),
   pickupPhone: z.string().min(1, "Pickup phone is required"),
   pickupAddress: z.string().min(1, "Pickup address is required"),
   pickupTime: z.string().min(1, "Pickup time is required"),
-  // Deliver to
   customerName: z.string().min(1, "Customer name is required"),
   phone: z.string().min(1, "Phone number is required"),
   customerEmail: z
@@ -82,7 +83,6 @@ const orderFormSchema = z.object({
   address: z.string().min(1, "Address is required"),
   deliveryDate: z.string().min(1, "Delivery date is required"),
   deliveryTime: z.string().min(1, "Delivery time is required"),
-  // Order details
   items: z.array(z.object({
     name: z.string(),
     price: z.number(),
@@ -100,34 +100,6 @@ const orderFormSchema = z.object({
 
 type OrderFormData = z.infer<typeof orderFormSchema>
 
-function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, string> = {
-    unassigned: "bg-warning/15 text-warning border-warning/20",
-    started: "bg-primary/15 text-primary border-primary/20",
-    "picked-up": "bg-blue-500/15 text-blue-600 border-blue-500/20",
-    "in-transit": "bg-chart-2/15 text-chart-2 border-chart-2/20",
-    delivered: "bg-success/15 text-success border-success/20",
-    failed: "bg-destructive/15 text-destructive border-destructive/20",
-    cancelled: "bg-destructive/15 text-destructive border-destructive/20",
-  }
-
-  const labelMap: Record<string, string> = {
-    unassigned: "Unassigned",
-    started: "Started",
-    "picked-up": "Picked Up",
-    "in-transit": "In Transit",
-    delivered: "Delivered",
-    failed: "Failed",
-    cancelled: "Cancelled",
-  }
-
-  return (
-    <Badge variant="outline" className={variants[status] ?? ""}>
-      {labelMap[status] ?? status}
-    </Badge>
-  )
-}
-
 export default function OrdersPage() {
   const [orderList, setOrderList] = useState<Order[]>([])
   const [availableDrivers, setAvailableDrivers] = useState<Driver[]>([])
@@ -144,7 +116,6 @@ export default function OrdersPage() {
   const [bulkDriverId, setBulkDriverId] = useState<string>(UNASSIGNED_DRIVER)
   const [reassignOrderId, setReassignOrderId] = useState<string | null>(null)
 
-  // Address autocomplete (Google Places Autocomplete Service)
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: string; lon: string; placeId?: string }>>([])
   const [addressSearching, setAddressSearching] = useState(false)
   const [addressPreviewCoord, setAddressPreviewCoord] = useState<{ lat: number; lng: number } | null>(null)
@@ -184,7 +155,7 @@ export default function OrdersPage() {
         setIsLoading(true)
         const [ordersData, availableDriversData, allDriversData] = await Promise.all([
           fetchOrders(),
-          fetchDriversByStatus("available"),
+          fetchDriversByStatus(DRIVER_STATUS.AVAILABLE),
           fetchDrivers(),
         ])
         setOrderList(ordersData)
@@ -202,7 +173,6 @@ export default function OrdersPage() {
     loadData()
   }, [])
 
-  // Auto-calculate missing distances client-side using Google Maps Geocoder
   useEffect(() => {
     if (isLoading || orderList.length === 0) return
 
@@ -257,7 +227,6 @@ export default function OrdersPage() {
               setOrderList((prev) =>
                 prev.map((o) => (o.id === order.id ? { ...o, distanceKm } : o))
               )
-              // Persist to Firestore (fire-and-forget)
               updateOrder(order.id, { distanceKm } as Partial<Order>).catch(() => {})
             }
           } catch {
@@ -280,14 +249,14 @@ export default function OrdersPage() {
       const targetOrder = orderList.find((o) => o.id === orderId)
       await updateOrder(orderId, {
         assignedDriver: driverId,
-        status: "started",
+        status: ORDER_STATUS.STARTED,
         startedAt,
       })
 
       setOrderList((prev) =>
         prev.map((order) =>
           order.id === orderId
-            ? { ...order, assignedDriver: driverId, status: "started", startedAt }
+            ? { ...order, assignedDriver: driverId, status: ORDER_STATUS.STARTED, startedAt }
             : order
         )
       )
@@ -318,42 +287,6 @@ export default function OrdersPage() {
     const fromFirestore = allDrivers.find((d) => d.id === driverId)
     if (fromFirestore) return fromFirestore.name
     return "Unknown"
-  }
-
-  function parseFirestoreDate(value: unknown): Date | null {
-    if (!value) return null
-    if (value instanceof Date) return value
-    if (typeof value === "object" && value !== null) {
-      const maybeObj = value as { toDate?: () => Date; seconds?: number }
-      if (typeof maybeObj.toDate === "function") return maybeObj.toDate()
-      if (typeof maybeObj.seconds === "number") return new Date(maybeObj.seconds * 1000)
-    }
-    return null
-  }
-
-  function formatOrderTime(value: unknown) {
-    const date = parseFirestoreDate(value)
-    if (!date) return "--"
-    return new Intl.DateTimeFormat("en-NG", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date)
-  }
-
-  function formatDistance(distanceKm: unknown) {
-    if (typeof distanceKm !== "number" || Number.isNaN(distanceKm)) return "--"
-    return `${distanceKm.toFixed(2)} km`
-  }
-
-  function formatTimeAmPm(time: string | undefined | null): string {
-    if (!time) return "N/A"
-    const parts = time.split(":")
-    const h = parseInt(parts[0], 10)
-    const m = parseInt(parts[1], 10)
-    if (isNaN(h) || isNaN(m)) return time
-    const period = h >= 12 ? "p.m." : "a.m."
-    const hour12 = h % 12 || 12
-    return `${hour12}:${m.toString().padStart(2, "0")} ${period}`
   }
 
   function openNewOrderDialog() {
@@ -412,10 +345,6 @@ export default function OrdersPage() {
     setIsDialogOpen(true)
   }
 
-  function openOrderDialog(order: Order) {
-    setSelectedOrder(order)
-  }
-
   async function handleDeleteOrder(orderId: string) {
     try {
       await deleteOrder(orderId)
@@ -449,13 +378,12 @@ export default function OrdersPage() {
       const { subtotal, tax, total, validItems } = computeTotals(data)
 
       if (editingOrder) {
-        // Update existing order
         const normalizedCustomerEmail = data.customerEmail?.trim() ? data.customerEmail.trim() : null
         const nextAssignedDriver =
           data.assignedDriver === UNASSIGNED_DRIVER
             ? null
             : data.assignedDriver || null
-        const nextStatus: Order["status"] = nextAssignedDriver ? editingOrder.status : "unassigned"
+        const nextStatus: Order["status"] = nextAssignedDriver ? editingOrder.status : ORDER_STATUS.UNASSIGNED
 
         await updateOrder(editingOrder.id, {
           orderNumber: data.orderNumber,
@@ -517,13 +445,12 @@ export default function OrdersPage() {
         )
         toast({ title: "Order updated" })
       } else {
-        // Create new order
         const normalizedCustomerEmail = data.customerEmail?.trim() ? data.customerEmail.trim() : null
         const assignedDriverValue =
           data.assignedDriver === UNASSIGNED_DRIVER
             ? null
             : data.assignedDriver || null
-        const initialStatus: Order["status"] = assignedDriverValue ? "started" : "unassigned"
+        const initialStatus: Order["status"] = assignedDriverValue ? ORDER_STATUS.STARTED : ORDER_STATUS.UNASSIGNED
 
         const orderId = await createOrder({
           orderNumber: data.orderNumber,
@@ -550,7 +477,6 @@ export default function OrdersPage() {
           status: initialStatus,
           assignedDriver: assignedDriverValue,
         })
-        console.log("Created order with ID", orderId)
         toast({ title: "Order created" })
 
         const newOrder: Order = {
@@ -579,7 +505,7 @@ export default function OrdersPage() {
           status: initialStatus,
           assignedDriver: assignedDriverValue,
           createdAt: new Date(),
-          startedAt: initialStatus === "started" ? new Date() : undefined,
+          startedAt: initialStatus === ORDER_STATUS.STARTED ? new Date() : undefined,
         }
 
         setOrderList((prev) => [newOrder, ...prev])
@@ -604,12 +530,12 @@ export default function OrdersPage() {
   }
 
   const currentOrders = orderList.filter(
-    (o) => o.status === "unassigned" || o.status === "started" || o.status === "picked-up" || o.status === "in-transit"
+    (o) => ACTIVE_STATUSES.includes(o.status)
   )
-  const completedOrders = orderList.filter((o) => o.status === "delivered")
-  const incompleteOrders = orderList.filter((o) => o.status === "cancelled" || o.status === "failed")
+  const completedOrders = orderList.filter((o) => o.status === ORDER_STATUS.DELIVERED)
+  const incompleteOrders = orderList.filter((o) => o.status === ORDER_STATUS.CANCELLED || o.status === ORDER_STATUS.FAILED)
   const historyOrders = orderList.filter(
-    (o) => o.status === "delivered" || o.status === "cancelled" || o.status === "failed"
+    (o) => TERMINAL_STATUSES.includes(o.status)
   )
 
   const visibleOrders =
@@ -657,7 +583,7 @@ export default function OrdersPage() {
         selectedOrderIds.map((id) =>
           updateOrder(id, {
             assignedDriver: bulkDriverId,
-            status: "started",
+            status: ORDER_STATUS.STARTED,
             startedAt: new Date(),
           })
         )
@@ -666,7 +592,7 @@ export default function OrdersPage() {
       setOrderList((prev) =>
         prev.map((order) =>
           selectedOrderIds.includes(order.id)
-            ? { ...order, assignedDriver: bulkDriverId, status: "started", startedAt: new Date() }
+            ? { ...order, assignedDriver: bulkDriverId, status: ORDER_STATUS.STARTED, startedAt: new Date() }
             : order
         )
       )
@@ -703,47 +629,6 @@ export default function OrdersPage() {
     toast({ title: "ETA sent", description: `ETA sent for ${selectedOrderIds.length} orders.` })
   }
 
-  function handleBulkPrintLabel() {
-    if (selectedOrderIds.length === 0) {
-      toast({ title: "Select orders first" })
-      return
-    }
-    window.print()
-  }
-
-  function handlePrintOrder(order: Order) {
-    const w = window.open("", "_blank")
-    if (!w) return
-    const items = (order.items ?? []).map((i) => `<tr><td>${i.name}</td><td>${i.qty}</td><td>${formatCurrency(i.price)}</td></tr>`).join("")
-    w.document.write(`<html><head><title>Order ${order.orderNumber}</title><style>body{font-family:system-ui,sans-serif;padding:24px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>
-      <h1>Order #${order.orderNumber}</h1>
-      <p><b>Customer:</b> ${order.customerName}</p>
-      <p><b>Phone:</b> ${order.phone}</p>
-      <p><b>Address:</b> ${order.address}</p>
-      <p><b>Amount:</b> ${formatCurrency(order.amount)}</p>
-      <p><b>Status:</b> ${order.status}</p>
-      <p><b>Driver:</b> ${order.assignedDriver ? getDriverDisplayName(order.assignedDriver) : "Unassigned"}</p>
-      ${order.deliveryInstruction ? `<p><b>Instructions:</b> ${order.deliveryInstruction}</p>` : ""}
-      <table><thead><tr><th>Item</th><th>Qty</th><th>Price</th></tr></thead><tbody>${items}</tbody></table>
-    </body></html>`)
-    w.document.close()
-    w.print()
-  }
-
-  function handlePrintLabel(order: Order) {
-    const w = window.open("", "_blank")
-    if (!w) return
-    w.document.write(`<html><head><title>Label ${order.orderNumber}</title><style>body{font-family:monospace;padding:16px;font-size:14px}h2{margin:0 0 8px}p{margin:4px 0}.barcode{font-family:'Libre Barcode 128',monospace;font-size:48px;margin-top:12px}</style><link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+128&display=swap" rel="stylesheet"></head><body>
-      <h2>#${order.orderNumber}</h2>
-      <p><b>${order.customerName}</b></p>
-      <p>${order.phone}</p>
-      <p>${order.address}</p>
-      <div class="barcode">${order.orderNumber}</div>
-    </body></html>`)
-    w.document.close()
-    setTimeout(() => w.print(), 500)
-  }
-
   async function handleCancelOrder(order: Order) {
     if (!window.confirm(`Cancel order ${order.orderNumber}?`)) return
     try {
@@ -774,10 +659,6 @@ export default function OrdersPage() {
     } finally {
       setIsSaving(false)
     }
-  }
-
-  function getInitials(name: string) {
-    return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
   }
 
   function getDriverActiveOrderCount(driverId: string) {
@@ -814,46 +695,22 @@ export default function OrdersPage() {
           Orders
         </h1>
         <div className="mt-4 flex items-center gap-5 overflow-x-auto border-b border-border pb-0.5">
-          <button
-            onClick={() => setActiveTab("current")}
-            className={`border-b-2 pb-3 text-lg transition-colors ${
-              activeTab === "current"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Current <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-sm text-primary-foreground">{currentOrders.length}</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("completed")}
-            className={`border-b-2 pb-3 text-lg transition-colors ${
-              activeTab === "completed"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Completed
-          </button>
-          <button
-            onClick={() => setActiveTab("incomplete")}
-            className={`border-b-2 pb-3 text-lg transition-colors ${
-              activeTab === "incomplete"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Incomplete
-          </button>
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`border-b-2 pb-3 text-lg transition-colors ${
-              activeTab === "history"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            History
-          </button>
+          {(["current", "completed", "incomplete", "history"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`border-b-2 pb-3 text-lg transition-colors ${
+                activeTab === tab
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === "current" && (
+                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-sm text-primary-foreground">{currentOrders.length}</span>
+              )}
+            </button>
+          ))}
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           Manage and track all delivery orders
@@ -878,7 +735,7 @@ export default function OrdersPage() {
               <Button variant="outline" size="icon" onClick={handleBulkSendEta} disabled={selectedOrderIds.length === 0 || isSaving} title="Send ETA">
                 <Send className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="icon" onClick={handleBulkPrintLabel} disabled={selectedOrderIds.length === 0} title="Print Label">
+              <Button variant="outline" size="icon" onClick={() => window.print()} disabled={selectedOrderIds.length === 0} title="Print Label">
                 <Printer className="h-4 w-4" />
               </Button>
               <Button variant="outline" size="icon" onClick={handleBulkDelete} disabled={selectedOrderIds.length === 0 || isSaving} title="Delete Orders">
@@ -933,7 +790,7 @@ export default function OrdersPage() {
                 </TableCell>
                 <TableCell className="font-medium text-foreground">
                   <button
-                    onClick={() => openOrderDialog(order)}
+                    onClick={() => setSelectedOrder(order)}
                     className="underline hover:text-primary"
                   >
                     {order.orderNumber}
@@ -1004,13 +861,13 @@ export default function OrdersPage() {
                             <UserPlus2 className="mr-2 h-4 w-4" /> Reassign
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => openOrderDialog(order)}>
+                        <DropdownMenuItem onClick={() => setSelectedOrder(order)}>
                           <FileText className="mr-2 h-4 w-4" /> Details
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openEditOrderDialog(order)}>
                           <Edit className="mr-2 h-4 w-4" /> Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handlePrintOrder(order)}>
+                        <DropdownMenuItem onClick={() => handlePrintOrder(order, getDriverDisplayName)}>
                           <Printer className="mr-2 h-4 w-4" /> Print order
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handlePrintLabel(order)}>
@@ -1035,62 +892,17 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {/* Reassign / Assign Order Dialog */}
-      <Dialog open={reassignOrderId !== null} onOpenChange={(open) => { if (!open) setReassignOrderId(null) }}>
-        <DialogContent className="max-w-xs p-0">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <h2 className="text-base font-semibold">Assign Order</h2>
-          </div>
-          <div className="px-4 pt-2 pb-1">
-            <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-              <span>Drivers</span>
-              <span># of Assigned Orders</span>
-            </div>
-          </div>
-          <div className="max-h-[240px] overflow-y-auto px-4">
-            {allDrivers.map((driver) => {
-              const count = getDriverActiveOrderCount(driver.id)
-              const reassignOrder = reassignOrderId ? orderList.find((o) => o.id === reassignOrderId) : null
-              const isCurrentDriver = reassignOrder?.assignedDriver === driver.id
-              return (
-                <button
-                  key={driver.id}
-                  type="button"
-                  disabled={isCurrentDriver || isSaving}
-                  onClick={() => { handleAssignDriver(driver.id === reassignOrder?.assignedDriver ? "" : reassignOrderId!, driver.id); setReassignOrderId(null) }}
-                  className={`flex w-full items-center justify-between rounded-md px-2 py-2.5 text-left transition hover:bg-secondary/60 ${
-                    isCurrentDriver ? "opacity-50" : ""
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Avatar className="size-9">
-                      <AvatarFallback className="text-xs">{getInitials(driver.name)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{driver.name}</p>
-                      <p className="text-xs capitalize text-muted-foreground">{driver.status.replace("-", " ")}</p>
-                    </div>
-                  </div>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-semibold">{count}</span>
-                </button>
-              )
-            })}
-          </div>
-          {reassignOrderId && orderList.find((o) => o.id === reassignOrderId)?.assignedDriver && (
-            <div className="border-t px-4 py-3">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                disabled={isSaving}
-                onClick={() => handleUnassignOrder(reassignOrderId!)}
-              >
-                Unassign
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Extracted dialog components */}
+      <ReassignDialog
+        reassignOrderId={reassignOrderId}
+        orderList={orderList}
+        allDrivers={allDrivers}
+        isSaving={isSaving}
+        onClose={() => setReassignOrderId(null)}
+        onAssignDriver={handleAssignDriver}
+        onUnassignOrder={handleUnassignOrder}
+        getDriverActiveOrderCount={getDriverActiveOrderCount}
+      />
 
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) { setAddressSuggestions([]); setAddressPreviewCoord(null) } }}>
         <DialogContent className="w-[95vw] max-w-[1200px] max-h-[90vh] overflow-y-auto">
@@ -1107,7 +919,6 @@ export default function OrdersPage() {
               <div className="grid gap-10 md:grid-cols-2">
                 {/* ─── Left Column ─── */}
                 <div className="space-y-6">
-                  {/* Order Number */}
                   <FormField control={form.control} name="orderNumber" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Order Number: <span className="text-destructive">*</span></FormLabel>
@@ -1116,7 +927,6 @@ export default function OrdersPage() {
                     </FormItem>
                   )} />
 
-                  {/* Pick-up From */}
                   <fieldset className="space-y-4">
                     <legend className="text-lg font-semibold">Pick-up From:</legend>
                     <FormField control={form.control} name="pickupName" render={({ field }) => (
@@ -1149,7 +959,6 @@ export default function OrdersPage() {
                     )} />
                   </fieldset>
 
-                  {/* Deliver to */}
                   <fieldset className="space-y-4">
                     <legend className="text-lg font-semibold">Deliver to:</legend>
                     <FormField control={form.control} name="customerName" render={({ field }) => (
@@ -1285,7 +1094,6 @@ export default function OrdersPage() {
                 <div className="space-y-5">
                   <p className="text-lg font-semibold">Order Details <span className="text-muted-foreground font-normal text-sm">(Optional)</span></p>
 
-                  {/* Items */}
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">Items:</p>
                     {(form.watch("items") ?? []).map((_, idx) => (
@@ -1354,64 +1162,36 @@ export default function OrdersPage() {
                     >+ Add item</button>
                   </div>
 
-                  {/* Computed subtotal */}
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium">Subtotal (₦):</span>
                     <span className="font-medium">{(form.watch("items") ?? []).reduce((s, i) => s + (i.price * i.qty), 0)}</span>
                   </div>
 
-                  {/* Tax Rate */}
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="font-medium">Tax Rate %:</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      className="h-9 w-48 text-right"
-                      placeholder="Enter tax rate"
-                      {...form.register("taxRate", { valueAsNumber: true })}
-                    />
+                    <Input type="number" step="0.01" className="h-9 w-48 text-right" placeholder="Enter tax rate" {...form.register("taxRate", { valueAsNumber: true })} />
                   </div>
 
-                  {/* Tax computed */}
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium">Tax (₦):</span>
                     <span>{Math.round((form.watch("items") ?? []).reduce((s, i) => s + (i.price * i.qty), 0) * (form.watch("taxRate") ?? 0)) / 100}</span>
                   </div>
 
-                  {/* Delivery Fees */}
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="font-medium">Delivery Fees (₦):</span>
-                    <Input
-                      type="number"
-                      className="h-9 w-48 text-right"
-                      placeholder="Enter delivery fees"
-                      {...form.register("deliveryFees", { valueAsNumber: true })}
-                    />
+                    <Input type="number" className="h-9 w-48 text-right" placeholder="Enter delivery fees" {...form.register("deliveryFees", { valueAsNumber: true })} />
                   </div>
 
-                  {/* Delivery Tips */}
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="font-medium">Delivery Tips (₦):</span>
-                    <Input
-                      type="number"
-                      className="h-9 w-48 text-right"
-                      placeholder="Enter delivery tips amount"
-                      {...form.register("deliveryTips", { valueAsNumber: true })}
-                    />
+                    <Input type="number" className="h-9 w-48 text-right" placeholder="Enter delivery tips amount" {...form.register("deliveryTips", { valueAsNumber: true })} />
                   </div>
 
-                  {/* Discount */}
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="font-medium">Discount (₦):</span>
-                    <Input
-                      type="number"
-                      className="h-9 w-48 text-right"
-                      placeholder="Enter discount amount"
-                      {...form.register("discount", { valueAsNumber: true })}
-                    />
+                    <Input type="number" className="h-9 w-48 text-right" placeholder="Enter discount amount" {...form.register("discount", { valueAsNumber: true })} />
                   </div>
 
-                  {/* Total computed */}
                   <div className="flex items-center justify-between text-base font-bold border-t pt-3">
                     <span>Total(₦):</span>
                     <span>{(() => {
@@ -1422,25 +1202,14 @@ export default function OrdersPage() {
                     })()}</span>
                   </div>
 
-                  {/* Delivery Instruction */}
                   <div className="space-y-1">
                     <span className="text-sm font-medium">Delivery Instruction:</span>
-                    <Textarea
-                      placeholder="Enter delivery instructions"
-                      className="resize-none"
-                      rows={3}
-                      {...form.register("deliveryInstruction")}
-                    />
+                    <Textarea placeholder="Enter delivery instructions" className="resize-none" rows={3} {...form.register("deliveryInstruction")} />
                   </div>
 
-                  {/* Payment Method */}
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="font-medium">Payment Method:</span>
-                    <Input
-                      className="h-9 w-48"
-                      placeholder=""
-                      {...form.register("paymentMethod")}
-                    />
+                    <Input className="h-9 w-48" placeholder="" {...form.register("paymentMethod")} />
                   </div>
 
                   <p className="text-right text-sm text-destructive">* Required</p>
@@ -1448,11 +1217,7 @@ export default function OrdersPage() {
               </div>
 
               <DialogFooter className="mt-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsDialogOpen(false)}
-                >
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
                 <Button type="submit" disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white">
@@ -1464,221 +1229,23 @@ export default function OrdersPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isBulkAssignOpen} onOpenChange={setIsBulkAssignOpen}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>Assign Selected Orders</DialogTitle>
-            <DialogDescription>
-              Assign {selectedOrderIds.length} selected orders to one driver.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Driver</p>
-            <Select value={bulkDriverId} onValueChange={setBulkDriverId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select driver" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={UNASSIGNED_DRIVER}>Select driver</SelectItem>
-                {availableDrivers.map((driver) => (
-                  <SelectItem key={driver.id} value={driver.id}>
-                    {driver.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsBulkAssignOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleBulkAssign} disabled={bulkDriverId === UNASSIGNED_DRIVER || isSaving}>
-              Assign Orders
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <BulkAssignDialog
+        open={isBulkAssignOpen}
+        onOpenChange={setIsBulkAssignOpen}
+        selectedCount={selectedOrderIds.length}
+        availableDrivers={availableDrivers}
+        bulkDriverId={bulkDriverId}
+        onDriverChange={setBulkDriverId}
+        onAssign={handleBulkAssign}
+        isSaving={isSaving}
+      />
 
-      {/* order detail overlay */}
-      <Dialog
-        open={!!selectedOrder}
-        onOpenChange={(open) => {
-          if (!open) setSelectedOrder(null)
-        }}
-      >
-        <DialogContent className="max-w-[700px] max-h-[90vh] overflow-y-auto">
-          {selectedOrder && (
-            <>
-              <DialogHeader>
-                <div className="flex justify-between items-start w-full">
-                  <div>
-                    <DialogTitle className="text-xl font-bold">
-                      Order #: {selectedOrder.orderNumber}
-                    </DialogTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Status: {selectedOrder.status === "unassigned" ? "Unassigned" : selectedOrder.status === "picked-up" ? "Picked Up" : selectedOrder.status === "in-transit" ? "In Transit" : selectedOrder.status.charAt(0).toUpperCase() + selectedOrder.status.slice(1)}
-                    </p>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent sideOffset={4} align="end">
-                      <DropdownMenuItem onSelect={() => window.print()}>
-                        <Download className="mr-2 h-4 w-4" />
-                        Download PDF
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => window.print()}>
-                        <Printer className="mr-2 h-4 w-4" />
-                        Print order
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onSelect={() => handleDeleteOrder(selectedOrder.id)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                <DialogDescription className="sr-only">Order details</DialogDescription>
-              </DialogHeader>
-
-              {/* Deliver to / Pick-up From */}
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <div className="rounded-md border p-3 space-y-1">
-                  <p className="font-semibold text-sm">Deliver to</p>
-                  <p className="text-sm font-medium">{selectedOrder.customerName}</p>
-                  <p className="text-sm text-muted-foreground">{selectedOrder.address}</p>
-                  <p className="text-sm text-muted-foreground">{selectedOrder.phone}</p>
-                  {selectedOrder.customerEmail && (
-                    <p className="text-sm text-muted-foreground">{selectedOrder.customerEmail}</p>
-                  )}
-                </div>
-                <div className="rounded-md border p-3 space-y-1">
-                  <p className="font-semibold text-sm">Pick-up From</p>
-                  <p className="text-sm font-medium">{selectedOrder.pickupName || "Sterlin Glams"}</p>
-                  <p className="text-sm text-muted-foreground">{selectedOrder.pickupAddress || "Sterlin Glams – Ikota Ajah Lagos"}</p>
-                  <p className="text-sm text-muted-foreground">{selectedOrder.pickupPhone || "+2349160009893"}</p>
-                </div>
-              </div>
-
-              {/* Order items */}
-              <div className="rounded-md border p-3 space-y-3">
-                <p className="font-semibold text-sm">Order</p>
-                {(selectedOrder.items ?? []).length > 0 ? (selectedOrder.items ?? []).map((item, idx) => (
-                  <div key={idx}>
-                    <div className="flex justify-between items-start">
-                      <p className="text-sm">
-                        <span className="text-muted-foreground mr-2">{item.qty ?? 1}</span>
-                        x {item.name}
-                      </p>
-                      <p className="text-sm font-medium whitespace-nowrap ml-4">{formatCurrency((item.price ?? 0) * (item.qty ?? 1))}</p>
-                    </div>
-                    {item.meta && (
-                      <p className="text-xs text-muted-foreground ml-8 whitespace-pre-line">{item.meta}</p>
-                    )}
-                  </div>
-                )) : (
-                  <p className="text-sm text-muted-foreground">No items</p>
-                )}
-                <div className="border-t pt-2 space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Tax</span>
-                    <span>{selectedOrder.tax ? formatCurrency(selectedOrder.tax) : "N/A"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Delivery Fees</span>
-                    <span>{selectedOrder.deliveryFees ? formatCurrency(selectedOrder.deliveryFees) : "N/A"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Delivery Tips</span>
-                    <span>{selectedOrder.deliveryTips ? formatCurrency(selectedOrder.deliveryTips) : "N/A"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount</span>
-                    <span>{selectedOrder.discount ? formatCurrency(selectedOrder.discount) : "N/A"}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold">
-                    <span>Total</span>
-                    <span>{formatCurrency(selectedOrder.amount)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Delivery Details */}
-              <div className="rounded-md border p-3 space-y-2">
-                <p className="font-semibold text-sm">Delivery Details</p>
-                <div className="grid grid-cols-2 gap-x-4 text-sm">
-                  <p>
-                    <span className="text-muted-foreground">Order Placement Time: </span>
-                    {formatOrderTime(selectedOrder.createdAt)}
-                  </p>
-                  <p>
-                    <span className="text-muted-foreground">Driver: </span>
-                    {getDriverDisplayName(selectedOrder.assignedDriver)}
-                  </p>
-                </div>
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Requested Pickup Time: </span>
-                  {formatTimeAmPm(selectedOrder.pickupTime)}
-                </p>
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Requested Delivery Time: </span>
-                  {selectedOrder.deliveryDate
-                    ? `${new Intl.DateTimeFormat("en-US", { year: "numeric", month: "short", day: "numeric" }).format(new Date(selectedOrder.deliveryDate + "T12:00:00"))}${selectedOrder.deliveryTime ? " " + formatTimeAmPm(selectedOrder.deliveryTime) : ""}`
-                    : "N/A"}
-                </p>
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Order Accept Time: </span>
-                  {formatOrderTime(selectedOrder.startedAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.startedAt)}
-                </p>
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Order Pickup Time: </span>
-                  {formatOrderTime(selectedOrder.pickedUpAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.pickedUpAt)}
-                </p>
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Order Delivery Time: </span>
-                  {formatOrderTime(selectedOrder.inTransitAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.inTransitAt)}
-                </p>
-                <p className="text-sm">
-                  <span className="text-muted-foreground">Order Completion Time: </span>
-                  {formatOrderTime(selectedOrder.deliveredAt) === "--" ? "N/A" : formatOrderTime(selectedOrder.deliveredAt)}
-                </p>
-                <div className="border-t pt-2 text-sm">
-                  <span className="text-muted-foreground">Delivery Instruction: </span>
-                  {selectedOrder.deliveryInstruction || "N/A"}
-                </div>
-              </div>
-
-              {/* Payment Details / Proof */}
-              <div className="rounded-md border p-3">
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div className="space-y-1">
-                    <p className="font-semibold">Payment Details</p>
-                    <p><span className="text-muted-foreground">Payment Method: </span>{selectedOrder.paymentMethod || "N/A"}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-semibold">Proof of Delivery</p>
-                    <p className="text-muted-foreground">{selectedOrder.proofOfDelivery || "N/A"}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-semibold">Proof of Pickup</p>
-                    <p className="text-muted-foreground">{selectedOrder.proofOfPickup || "N/A"}</p>
-                  </div>
-                </div>
-                <div className="border-t mt-2 pt-2 text-sm">
-                  <span className="text-muted-foreground">Delivery Note: </span>
-                  {selectedOrder.deliveryNote || "N/A"}
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <OrderDetailDialog
+        order={selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        onDelete={handleDeleteOrder}
+        getDriverDisplayName={getDriverDisplayName}
+      />
     </div>
   )
 }

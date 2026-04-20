@@ -75,11 +75,12 @@ import * as z from "zod"
 import { fetchDrivers, updateDriver, deleteDriver, createDriver } from "@/lib/firestore"
 import { toast } from "@/hooks/use-toast"
 import type { Driver } from "@/lib/data"
+import { DRIVER_STATUS } from "@/lib/constants"
 
 const DRIVER_STATUSES = [
-  { value: "available", label: "Available" },
-  { value: "on-delivery", label: "On Delivery" },
-  { value: "offline", label: "Offline" },
+  { value: DRIVER_STATUS.AVAILABLE, label: "Available" },
+  { value: DRIVER_STATUS.ON_DELIVERY, label: "On Delivery" },
+  { value: DRIVER_STATUS.OFFLINE, label: "Offline" },
 ] as const
 
 const driverFormSchema = z.object({
@@ -88,7 +89,7 @@ const driverFormSchema = z.object({
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   area: z.string().optional(),
   vehicle: z.string().min(1, "Vehicle is required"),
-  status: z.enum(["available", "on-delivery", "offline"]),
+  status: z.enum([DRIVER_STATUS.AVAILABLE, DRIVER_STATUS.ON_DELIVERY, DRIVER_STATUS.OFFLINE]),
   note: z.string().optional(),
   password: z.string().optional(),
 })
@@ -106,15 +107,15 @@ type NewDriverFormData = z.infer<typeof newDriverFormSchema>
 
 function DriverStatusBadge({ status }: { status: string }) {
   const variants: Record<string, string> = {
-    available: "bg-success/15 text-success border-success/20",
-    "on-delivery": "bg-warning/15 text-warning border-warning/20",
-    offline: "bg-muted-foreground/15 text-muted-foreground border-muted-foreground/20",
+    [DRIVER_STATUS.AVAILABLE]: "bg-success/15 text-success border-success/20",
+    [DRIVER_STATUS.ON_DELIVERY]: "bg-warning/15 text-warning border-warning/20",
+    [DRIVER_STATUS.OFFLINE]: "bg-muted-foreground/15 text-muted-foreground border-muted-foreground/20",
   }
 
   const labels: Record<string, string> = {
-    available: "Available",
-    "on-delivery": "On Delivery",
-    offline: "Offline",
+    [DRIVER_STATUS.AVAILABLE]: "Available",
+    [DRIVER_STATUS.ON_DELIVERY]: "On Delivery",
+    [DRIVER_STATUS.OFFLINE]: "Offline",
   }
 
   return (
@@ -144,7 +145,7 @@ export default function DriversPage() {
       email: "",
       area: "",
       vehicle: "",
-      status: "available",
+      status: DRIVER_STATUS.AVAILABLE,
       note: "",
     },
   })
@@ -198,7 +199,7 @@ export default function DriversPage() {
         phone: data.phone,
         email: data.email,
         vehicle: "",
-        status: "available",
+        status: DRIVER_STATUS.AVAILABLE,
         rating: 5.0,
         password: data.password,
         note: data.note || "",
@@ -256,9 +257,9 @@ export default function DriversPage() {
   async function handleEndShift(driver: Driver) {
     setIsLoading(true)
     try {
-      await updateDriver(driver.id, { status: "offline" })
+      await updateDriver(driver.id, { status: DRIVER_STATUS.OFFLINE })
       const updated = allDrivers.map((d) =>
-        d.id === driver.id ? { ...d, status: "offline" as const } : d
+        d.id === driver.id ? { ...d, status: DRIVER_STATUS.OFFLINE } : d
       )
       setAllDrivers(updated)
       toast({

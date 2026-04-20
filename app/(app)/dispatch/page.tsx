@@ -16,36 +16,10 @@ import { fetchDrivers, fetchOrders, fetchDriversByStatus, updateOrder, saveOptim
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { notifyOrderEvent } from "@/lib/notify-client"
+import { StatusBadge } from "@/components/orders/status-badge"
+import { ORDER_STATUS, DRIVER_STATUS, TERMINAL_STATUSES } from "@/lib/constants"
 
 /* ── helpers ─────────────────────────────────────────────── */
-
-function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, string> = {
-    unassigned: "bg-warning/15 text-warning border-warning/20",
-    started: "bg-primary/15 text-primary border-primary/20",
-    "picked-up": "bg-blue-500/15 text-blue-600 border-blue-500/20",
-    "in-transit": "bg-chart-2/15 text-chart-2 border-chart-2/20",
-    delivered: "bg-success/15 text-success border-success/20",
-    failed: "bg-destructive/15 text-destructive border-destructive/20",
-    cancelled: "bg-destructive/15 text-destructive border-destructive/20",
-  }
-
-  const labelMap: Record<string, string> = {
-    unassigned: "Unassigned",
-    started: "Started",
-    "picked-up": "Picked Up",
-    "in-transit": "In Transit",
-    delivered: "Delivered",
-    failed: "Failed",
-    cancelled: "Cancelled",
-  }
-
-  return (
-    <Badge variant="outline" className={variants[status] ?? ""}>
-      {labelMap[status] ?? status}
-    </Badge>
-  )
-}
 
 function getInitials(name: string) {
   return name
@@ -112,7 +86,7 @@ export default function DispatchPage() {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
   const loadAvailableDrivers = useCallback(async () => {
-    const drivers = await fetchDriversByStatus("available")
+    const drivers = await fetchDriversByStatus(DRIVER_STATUS.AVAILABLE)
     setAvailableDrivers(drivers)
   }, [])
 
@@ -127,7 +101,7 @@ export default function DispatchPage() {
         setIsLoading(true)
         const [orders, drivers, all] = await Promise.all([
           fetchOrders(),
-          fetchDriversByStatus("available"),
+          fetchDriversByStatus(DRIVER_STATUS.AVAILABLE),
           fetchDrivers(),
         ])
         setOrderList(orders)
@@ -168,15 +142,13 @@ export default function DispatchPage() {
     }
   }, [allDrivers, activeDriverId])
 
-  const pendingOrders = orderList.filter((o) => o.status === "unassigned")
+  const pendingOrders = orderList.filter((o) => o.status === ORDER_STATUS.UNASSIGNED)
   const assignedOrders = orderList
     .filter(
       (o) =>
         o.assignedDriver === activeDriverId &&
-        o.status !== "unassigned" &&
-        o.status !== "delivered" &&
-        o.status !== "cancelled" &&
-        o.status !== "failed"
+        o.status !== ORDER_STATUS.UNASSIGNED &&
+        !TERMINAL_STATUSES.includes(o.status)
     )
     .sort((a, b) => (a.routeOrder ?? Infinity) - (b.routeOrder ?? Infinity))
 
@@ -194,14 +166,14 @@ export default function DispatchPage() {
       const targetOrder = orderList.find((o) => o.id === orderId)
       await updateOrder(orderId, {
         assignedDriver: driverId,
-        status: "started",
+        status: ORDER_STATUS.STARTED,
         startedAt,
       })
 
       setOrderList((prev) =>
         prev.map((order) =>
           order.id === orderId
-            ? { ...order, assignedDriver: driverId, status: "started", startedAt }
+            ? { ...order, assignedDriver: driverId, status: ORDER_STATUS.STARTED, startedAt }
             : order
         )
       )
@@ -277,10 +249,8 @@ export default function DispatchPage() {
                 const activeCount = orderList.filter(
                   (o) =>
                     o.assignedDriver === driver.id &&
-                    o.status !== "unassigned" &&
-                    o.status !== "delivered" &&
-                    o.status !== "cancelled" &&
-                    o.status !== "failed"
+                    o.status !== ORDER_STATUS.UNASSIGNED &&
+                    !TERMINAL_STATUSES.includes(o.status)
                 ).length
 
                 return (

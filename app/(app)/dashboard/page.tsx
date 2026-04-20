@@ -15,34 +15,8 @@ import {
 import { fetchOrders, fetchDrivers } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
-
-function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, string> = {
-    unassigned: "bg-warning/15 text-warning border-warning/20",
-    started: "bg-primary/15 text-primary border-primary/20",
-    "picked-up": "bg-blue-500/15 text-blue-600 border-blue-500/20",
-    "in-transit": "bg-chart-2/15 text-chart-2 border-chart-2/20",
-    delivered: "bg-success/15 text-success border-success/20",
-    failed: "bg-destructive/15 text-destructive border-destructive/20",
-    cancelled: "bg-destructive/15 text-destructive border-destructive/20",
-  }
-
-  const labelMap: Record<string, string> = {
-    unassigned: "Unassigned",
-    started: "Started",
-    "picked-up": "Picked Up",
-    "in-transit": "In Transit",
-    delivered: "Delivered",
-    failed: "Failed",
-    cancelled: "Cancelled",
-  }
-
-  return (
-    <Badge variant="outline" className={variants[status] ?? ""}>
-      {labelMap[status] ?? status}
-    </Badge>
-  )
-}
+import { StatusBadge } from "@/components/orders/status-badge"
+import { ORDER_STATUS, DRIVER_STATUS } from "@/lib/constants"
 
 function buildSummaryCards(orders: Order[], drivers: Driver[]) {
   return [
@@ -56,7 +30,7 @@ function buildSummaryCards(orders: Order[], drivers: Driver[]) {
     },
     {
       title: "Unassigned Orders",
-      value: orders.filter((o) => o.status === "unassigned").length.toString(),
+      value: orders.filter((o) => o.status === ORDER_STATUS.UNASSIGNED).length.toString(),
       change: "-3%",
       icon: Clock,
       color: "text-warning",
@@ -64,7 +38,7 @@ function buildSummaryCards(orders: Order[], drivers: Driver[]) {
     },
     {
       title: "Assigned Drivers",
-      value: drivers.filter((d) => d.status === "on-delivery").length.toString(),
+      value: drivers.filter((d) => d.status === DRIVER_STATUS.ON_DELIVERY).length.toString(),
       change: "+5%",
       icon: Users,
       color: "text-chart-2",
@@ -72,7 +46,7 @@ function buildSummaryCards(orders: Order[], drivers: Driver[]) {
     },
     {
       title: "Completed Deliveries",
-      value: orders.filter((o) => o.status === "delivered").length.toString(),
+      value: orders.filter((o) => o.status === ORDER_STATUS.DELIVERED).length.toString(),
       change: "+18%",
       icon: CheckCircle2,
       color: "text-success",
@@ -220,9 +194,9 @@ export default function DashboardPage() {
               ) : (
                 drivers.map((driver) => {
                 const statusColor: Record<string, string> = {
-                  available: "bg-success",
-                  "on-delivery": "bg-warning",
-                  offline: "bg-muted-foreground",
+                  [DRIVER_STATUS.AVAILABLE]: "bg-success",
+                  [DRIVER_STATUS.ON_DELIVERY]: "bg-warning",
+                  [DRIVER_STATUS.OFFLINE]: "bg-muted-foreground",
                 }
                 return (
                   <div

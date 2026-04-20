@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server"
 import { fetchOrderByTracking, updateOrder, recalculateDriverRating } from "@/lib/firestore"
+import { ratingParamsSchema } from "@/lib/validations"
+import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
+import { createLogger } from "@/lib/logger"
+
+const log = createLogger("api:ratings")
 
 function getRedirectUrl(request: Request, tracking: string, rating: number, submitted: boolean) {
   const url = new URL(request.url)
@@ -13,13 +18,19 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ tracking: string }> }
 ) {
+  // Rate limiting
+  const rateLimitResponse = await checkRateLimit(getRateLimitIdentifier(request))
+  if (rateLimitResponse) return rateLimitResponse
+
   const { tracking } = await params
   const ratingValue = new URL(request.url).searchParams.get("rating")
-  const rating = Number(ratingValue)
 
-  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+  // Validate with Zod
+  const parsed = ratingParamsSchema.safeParse({ rating: ratingValue })
+  if (!parsed.success) {
     return NextResponse.redirect(getRedirectUrl(request, tracking, 0, false))
   }
+  const rating = parsed.data.rating
 
   try {
     const order = await fetchOrderByTracking(tracking)
@@ -45,7 +56,7 @@ export async function GET(
 
     return NextResponse.redirect(getRedirectUrl(request, tracking, rating, true))
   } catch (error) {
-    console.error("Failed to save rating:", error)
+    log.error({ error, tracking }, "Failed to save rating")
     return NextResponse.redirect(getRedirectUrl(request, tracking, rating, false))
   }
 }

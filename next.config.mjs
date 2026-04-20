@@ -1,14 +1,12 @@
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { withSentryConfig } from "@sentry/nextjs"
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   turbopack: {
     root: rootDir,
     resolveAlias: {
@@ -22,4 +20,9 @@ const nextConfig = {
   allowedDevOrigins: ["192.168.1.222"],
 }
 
-export default nextConfig
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  disableSourceMapUpload: !process.env.SENTRY_AUTH_TOKEN,
+})

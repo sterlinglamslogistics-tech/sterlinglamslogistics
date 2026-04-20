@@ -74,9 +74,14 @@ import {
   where,
   orderBy,
   onSnapshot,
+  limit as firestoreLimit,
+  startAfter,
+  type QueryDocumentSnapshot,
 } from "firebase/firestore"
 import { db } from "./firebase"
 import type { Order, Driver, NotificationLog } from "./data"
+import { hashPassword, verifyPassword, isHashed } from "./password"
+import { ORDER_STATUS, DRIVER_STATUS } from "./constants"
 
 type LatLng = { lat: number; lng: number }
 
@@ -162,15 +167,15 @@ async function calculateDistanceKm(address: string): Promise<{ distanceKm?: numb
 }
 
 function normalizeOrderStatus(status: unknown): Order["status"] {
-  if (status === "pending") return "unassigned"
-  if (status === "assigned") return "started"
-  if (status === "started") return "started"
-  if (status === "picked-up") return "picked-up"
-  if (status === "in-transit") return "in-transit"
-  if (status === "delivered") return "delivered"
-  if (status === "failed") return "failed"
-  if (status === "cancelled") return "cancelled"
-  return "unassigned"
+  if (status === "pending") return ORDER_STATUS.UNASSIGNED
+  if (status === "assigned") return ORDER_STATUS.STARTED
+  if (status === ORDER_STATUS.STARTED) return ORDER_STATUS.STARTED
+  if (status === ORDER_STATUS.PICKED_UP) return ORDER_STATUS.PICKED_UP
+  if (status === ORDER_STATUS.IN_TRANSIT) return ORDER_STATUS.IN_TRANSIT
+  if (status === ORDER_STATUS.DELIVERED) return ORDER_STATUS.DELIVERED
+  if (status === ORDER_STATUS.FAILED) return ORDER_STATUS.FAILED
+  if (status === ORDER_STATUS.CANCELLED) return ORDER_STATUS.CANCELLED
+  return ORDER_STATUS.UNASSIGNED
 }
 
 function toDate(val: unknown): Date | undefined {
@@ -351,8 +356,13 @@ export async function fetchDriversByStatus(status: string): Promise<Driver[]> {
 // Create new driver
 export async function createDriver(driver: Omit<Driver, "id">) {
   try {
+    const driverData = { ...driver }
+    // Hash password before storing
+    if (driverData.password) {
+      driverData.password = await hashPassword(driverData.password)
+    }
     const docRef = await addDoc(driversCollection, {
-      ...driver,
+      ...driverData,
       createdAt: new Date(),
     })
     return docRef.id
@@ -366,8 +376,13 @@ export async function createDriver(driver: Omit<Driver, "id">) {
 export async function updateDriver(driverId: string, updates: Partial<Driver>) {
   try {
     const docRef = doc(db, "drivers", driverId)
+    const updatesData = { ...updates }
+    // Hash password if being updated and not already hashed
+    if (updatesData.password && !isHashed(updatesData.password)) {
+      updatesData.password = await hashPassword(updatesData.password)
+    }
     await updateDoc(docRef, {
-      ...updates,
+      ...updatesData,
       updatedAt: new Date(),
     })
   } catch (error) {
@@ -412,14 +427,23 @@ export async function saveOptimizedRouteOrder(orderedIds: string[]): Promise<voi
   }
 }
 
-// Recalculate a driver's average rating from all their reviewed orders and update the driver doc
+// Recalculate a driver's average rating using a targeted query instead of fetching all orders
 export async function recalculateDriverRating(driverId: string): Promise<number> {
   try {
-    const orders = await fetchOrdersByDriver(driverId)
-    const rated = orders.filter((o) => typeof o.driverRating === "number" && o.driverRating > 0)
-    if (rated.length === 0) return 0
-    const avg = rated.reduce((sum, o) => sum + (o.driverRating ?? 0), 0) / rated.length
-    const rounded = Math.round(avg * 10) / 10 // one decimal
+    // Only fetch orders that have a driverRating > 0, avoiding N+1
+    const q = query(
+      ordersCollection,
+      where("assignedDriver", "==", driverId),
+      where("driverRating", ">", 0)
+    )
+    const snapshot = await getDocs(q)
+    if (snapshot.empty) return 0
+    let sum = 0
+    for (const d of snapshot.docs) {
+      sum += (d.data().driverRating as number) ?? 0
+    }
+    const avg = sum / snapshot.size
+    const rounded = Math.round(avg * 10) / 10
     await updateDriver(driverId, { rating: rounded })
     return rounded
   } catch (error) {
@@ -442,7 +466,7 @@ function normalizeDriverPhoneForMatch(value: string): string | null {
   return null
 }
 
-// Authenticate driver by phone + password
+// Authenticate driver by phone + password (supports bcrypt and legacy plaintext)
 export async function authenticateDriver(phone: string, password: string): Promise<Driver | null> {
   try {
     const normalizedInput = normalizeDriverPhoneForMatch(phone)
@@ -452,9 +476,23 @@ export async function authenticateDriver(phone: string, password: string): Promi
     for (const driverDoc of snapshot.docs) {
       const data = driverDoc.data() as Driver
       const normalizedStored = normalizeDriverPhoneForMatch(String(data.phone ?? ""))
-      if (normalizedStored === normalizedInput && data.password === password) {
-        return { ...data, id: driverDoc.id } as Driver
+      if (normalizedStored !== normalizedInput) continue
+
+      const storedPassword = data.password ?? ""
+      const matches = await verifyPassword(password, storedPassword)
+      if (!matches) continue
+
+      // Auto-migrate: if the password was stored in plaintext, re-hash it
+      if (!isHashed(storedPassword)) {
+        try {
+          const hashed = await hashPassword(password)
+          await updateDoc(doc(db, "drivers", driverDoc.id), { password: hashed })
+        } catch {
+          // Non-critical — migration will retry next login
+        }
       }
+
+      return { ...data, id: driverDoc.id } as Driver
     }
 
     return null
@@ -478,18 +516,37 @@ export async function updateDriverLocation(driverId: string, lat: number, lng: n
   }
 }
 
-// Fetch notification logs
-export async function fetchNotificationLogs(limit = 20): Promise<NotificationLog[]> {
+// Fetch notification logs with proper Firestore limit
+export async function fetchNotificationLogs(count = 20): Promise<NotificationLog[]> {
   try {
-    const q = query(notificationLogsCollection, orderBy("createdAt", "desc"))
+    const q = query(notificationLogsCollection, orderBy("createdAt", "desc"), firestoreLimit(count))
     const snapshot = await getDocs(q)
-    return snapshot.docs.slice(0, limit).map((doc) => ({
+    return snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     } as NotificationLog))
   } catch (error) {
     console.error("Error fetching notification logs:", error)
     return []
+  }
+}
+
+// Paginated fetch orders
+export async function fetchOrdersPaginated(
+  pageSize = 50,
+  lastDoc?: QueryDocumentSnapshot
+): Promise<{ orders: Order[]; lastDoc: QueryDocumentSnapshot | null }> {
+  try {
+    let q = lastDoc
+      ? query(ordersCollection, orderBy("createdAt", "desc"), startAfter(lastDoc), firestoreLimit(pageSize))
+      : query(ordersCollection, orderBy("createdAt", "desc"), firestoreLimit(pageSize))
+    const snapshot = await getDocs(q)
+    const orders = snapshot.docs.map((doc) => normalizeOrderDoc(doc.id, doc.data() as Record<string, unknown>))
+    const last = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null
+    return { orders, lastDoc: last }
+  } catch (error) {
+    console.error("Error fetching paginated orders:", error)
+    return { orders: [], lastDoc: null }
   }
 }
 

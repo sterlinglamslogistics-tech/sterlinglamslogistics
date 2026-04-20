@@ -8,6 +8,7 @@ import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime, updateOrder,
 import { formatCurrency } from "@/lib/data"
 import type { Driver, Order } from "@/lib/data"
 import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
+import { ORDER_STATUS, ORDER_STATUS_LABELS } from "@/lib/constants"
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null
@@ -58,22 +59,22 @@ const STATUS_STEPS: Array<{ label: string }> = [
 ]
 
 function getStepIndex(status: Order["status"]) {
-  if (status === "delivered") return 4
-  if (status === "in-transit") return 3
-  if (status === "picked-up") return 2
-  if (status === "started") return 1
+  if (status === ORDER_STATUS.DELIVERED) return 4
+  if (status === ORDER_STATUS.IN_TRANSIT) return 3
+  if (status === ORDER_STATUS.PICKED_UP) return 2
+  if (status === ORDER_STATUS.STARTED) return 1
   return 0
 }
 
 function getStatusHeading(status: Order["status"]) {
   const map: Record<Order["status"], string> = {
-    unassigned: "Waiting for driver",
-    started: "Driver assigned",
-    "picked-up": "Order picked up",
-    "in-transit": "On the way",
-    delivered: "Delivered",
-    failed: "Delivery failed",
-    cancelled: "Cancelled",
+    [ORDER_STATUS.UNASSIGNED]: "Waiting for driver",
+    [ORDER_STATUS.STARTED]: "Driver assigned",
+    [ORDER_STATUS.PICKED_UP]: "Order picked up",
+    [ORDER_STATUS.IN_TRANSIT]: "On the way",
+    [ORDER_STATUS.DELIVERED]: "Delivered",
+    [ORDER_STATUS.FAILED]: "Delivery failed",
+    [ORDER_STATUS.CANCELLED]: "Cancelled",
   }
   return map[status]
 }
@@ -473,6 +474,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   // ── Rating / Feedback page ──
   if (showRatingPage && order.status === "delivered" && !submitted) {
     async function handleSubmitRating() {
+      if (!order) return
       setSubmitting(true)
       try {
         const updates: Record<string, unknown> = {}

@@ -11,9 +11,9 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 }
 
-let app: FirebaseApp | undefined
-let db: Firestore | undefined
-let auth: Auth | undefined
+let app: FirebaseApp
+let db: Firestore
+let auth: Auth
 
 try {
   app = initializeApp(firebaseConfig)
@@ -21,6 +21,7 @@ try {
   auth = getAuth(app)
 } catch (e) {
   console.warn("Firebase initialization failed:", e)
+  throw new Error("Firebase initialization failed. Check your environment variables.")
 }
 
 export { db, auth }

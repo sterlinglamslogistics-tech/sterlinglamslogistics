@@ -1,5 +1,6 @@
-export type OrderStatus = "unassigned" | "started" | "picked-up" | "in-transit" | "delivered" | "failed" | "cancelled"
-export type DriverStatus = "available" | "on-delivery" | "offline"
+// Re-export types from constants for backwards compatibility
+import type { OrderStatus, DriverStatus } from "./constants"
+export type { OrderStatus, DriverStatus } from "./constants"
 
 export interface OrderItem {
   name: string

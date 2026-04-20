@@ -2,11 +2,12 @@ import { NextResponse } from "next/server"
 import { sendOrderEventNotifications, DEFAULT_NOTIFICATION_SETTINGS, type NotificationPayload, type OrderEvent, type NotificationSettings } from "@/lib/server/notifications"
 import { addDoc, collection, doc, getDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { orderEventSchema } from "@/lib/validations"
+import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
+import { createLogger } from "@/lib/logger"
+import { audit } from "@/lib/audit"
 
-interface RequestBody {
-  event?: OrderEvent
-  payload?: NotificationPayload
-}
+const log = createLogger("api:order-event")
 
 async function writeNotificationLog(input: {
   event: OrderEvent
@@ -36,21 +37,22 @@ async function writeNotificationLog(input: {
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as RequestBody
+    // Rate limiting
+    const rateLimitResponse = await checkRateLimit(getRateLimitIdentifier(req))
+    if (rateLimitResponse) return rateLimitResponse
 
-    if (!body.event || !body.payload) {
+    const rawBody = await req.json()
+
+    // Validate request body with Zod
+    const parsed = orderEventSchema.safeParse(rawBody)
+    if (!parsed.success) {
       return NextResponse.json(
-        { ok: false, error: "Missing event or payload" },
+        { ok: false, error: "Invalid request body", details: parsed.error.flatten().fieldErrors },
         { status: 400 }
       )
     }
 
-    if (!body.payload.customerPhone || !body.payload.orderNumber || !body.payload.orderId) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid payload" },
-        { status: 400 }
-      )
-    }
+    const { event, payload } = parsed.data
 
     // Load customer notification settings from Firestore
     let settings: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
@@ -61,14 +63,14 @@ export async function POST(req: Request) {
           settings = { ...DEFAULT_NOTIFICATION_SETTINGS, ...settingsSnap.data() } as NotificationSettings
         }
       } catch (err) {
-        console.warn("Could not load notification settings, using defaults:", err)
+        log.warn({ err }, "Could not load notification settings, using defaults")
       }
     }
 
-    const result = await sendOrderEventNotifications(body.event, body.payload, settings)
+    const result = await sendOrderEventNotifications(event, payload as NotificationPayload, settings)
     await writeNotificationLog({
-      event: body.event,
-      payload: body.payload,
+      event: event as OrderEvent,
+      payload: payload as NotificationPayload,
       sms: result.sms,
       whatsapp: result.whatsapp,
       email: result.email,
@@ -76,11 +78,11 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, result })
   } catch (error) {
-    console.error("Notification API error:", error)
+    log.error({ error }, "Notification API error")
 
     // Best-effort logging for unexpected failures
     try {
-      const body = (await req.clone().json()) as RequestBody
+      const body = await req.clone().json()
       if (body.event && body.payload) {
         await writeNotificationLog({
           event: body.event,
