@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
 
 const DRIVER_APP_COOKIE = "driver_app_locked"
+const PAGE_CACHE_CONTROL = "no-store, no-cache, max-age=0, must-revalidate"
 
 function isAssetOrApi(pathname: string): boolean {
   return (
@@ -27,11 +28,14 @@ export function proxy(request: NextRequest) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = "/driver"
     redirectUrl.search = ""
-    return NextResponse.redirect(redirectUrl)
+    const response = NextResponse.redirect(redirectUrl)
+    response.headers.set("Cache-Control", PAGE_CACHE_CONTROL)
+    return response
   }
 
   if (shouldEnableDriverLock) {
     const response = NextResponse.next()
+    response.headers.set("Cache-Control", PAGE_CACHE_CONTROL)
     response.cookies.set({
       name: DRIVER_APP_COOKIE,
       value: "1",
@@ -42,7 +46,9 @@ export function proxy(request: NextRequest) {
     return response
   }
 
-  return NextResponse.next()
+  const response = NextResponse.next()
+  response.headers.set("Cache-Control", PAGE_CACHE_CONTROL)
+  return response
 }
 
 export const config = {
