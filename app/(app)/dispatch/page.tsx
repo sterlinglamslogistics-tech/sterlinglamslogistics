@@ -184,12 +184,16 @@ export default function DispatchPage() {
       })
 
       if (targetOrder) {
+        const dispatchedDriver = allDrivers.find((d) => d.id === driverId)
         notifyOrderEvent("order_accepted", {
           orderId: targetOrder.id,
           orderNumber: targetOrder.orderNumber,
           customerName: targetOrder.customerName,
           customerPhone: targetOrder.phone,
           customerEmail: targetOrder.customerEmail,
+          address: targetOrder.address,
+          driverName: dispatchedDriver?.name,
+          items: targetOrder.items,
         })
       }
 

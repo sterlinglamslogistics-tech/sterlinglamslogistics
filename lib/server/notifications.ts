@@ -74,14 +74,28 @@ function toBasicAuth(user: string, pass: string) {
 }
 
 function buildMessage(event: OrderEvent, payload: NotificationPayload) {
-  const tracking = payload.trackingUrl ? `\nTrack: ${payload.trackingUrl}` : ""
-
   if (event === "order_accepted") {
-    return `Hi ${payload.customerName}, your order ${payload.orderNumber} has been accepted and assigned to a rider.${tracking}`
+    const driverLine = payload.driverName
+      ? ` Your rider *${payload.driverName}* has been assigned and will be on the way soon.`
+      : " A rider has been assigned and will be on the way soon."
+    const tracking = payload.trackingUrl ? `\n\nTrack your order here:\n${payload.trackingUrl}` : ""
+    return `Hi ${payload.customerName}, your order *${payload.orderNumber}* has been accepted! 🎉${driverLine}${tracking}`
   }
 
   if (event === "out_for_delivery") {
-    return `Hi ${payload.customerName}, your order ${payload.orderNumber} is now out for delivery.${tracking}`
+    const driverLine = payload.driverName
+      ? `Your driver *${payload.driverName}* is on the way with your order *${payload.orderNumber}*. 🚗`
+      : `Your order *${payload.orderNumber}* is on the way! 🚗`
+    const addressLine = payload.address ? `\nDelivering to: ${payload.address}` : ""
+    const tracking = payload.trackingUrl
+      ? `\n\nTrack your delivery in real time:\n${payload.trackingUrl}`
+      : ""
+    return `Hi ${payload.customerName}! ${driverLine}${addressLine}${tracking}\n\nThank you for shopping with Sterlin Glams! ✨`
+  }
+
+  if (event === "delivered") {
+    const tracking = payload.trackingUrl ? `\n\nView your delivery details:\n${payload.trackingUrl}` : ""
+    return `Hi ${payload.customerName}, your order *${payload.orderNumber}* has been delivered! ✅ We hope you love your purchase.${tracking}\n\nThank you for choosing Sterlin Glams! 💖`
   }
 
   return `Hi ${payload.customerName}, your order ${payload.orderNumber} has been delivered. Thank you for choosing us.`
