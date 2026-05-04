@@ -16,21 +16,25 @@ if (getApps().length === 0) {
   let serviceAccount: Parameters<typeof cert>[0] | undefined
 
   if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>
+    // Strip any leading garbage characters that get prepended during copy-paste
+    // (e.g. a leading backslash turns valid JSON into \{...} which fails to parse).
+    // We find the first { and treat everything from there as the JSON string.
+    const cleaned = raw.slice(raw.indexOf("{"))
 
-      // Vercel (and many CI systems) store newlines in env vars as the literal
-      // two-character sequence \n instead of a real newline. Firebase's RSA private
-      // key requires real newlines or cert() will fail with a cryptic PEM error.
+    try {
+      const parsed = JSON.parse(cleaned) as Record<string, unknown>
+
+      // Vercel stores newlines in env vars as the literal two-character sequence \n
+      // instead of a real newline. Firebase's RSA private key requires real newlines.
       if (typeof parsed.private_key === "string") {
-        parsed.private_key = parsed.private_key.replace(/\\n/g, "\n")
+        parsed.private_key = (parsed.private_key as string).replace(/\\n/g, "\n")
       }
 
       serviceAccount = parsed as Parameters<typeof cert>[0]
     } catch (err) {
       log.error(
-        { err },
-        "FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON — admin SDK will use Application Default Credentials"
+        { err, raw_start: raw.slice(0, 30) },
+        "FIREBASE_SERVICE_ACCOUNT_KEY could not be parsed — admin SDK will use Application Default Credentials"
       )
     }
   } else {
