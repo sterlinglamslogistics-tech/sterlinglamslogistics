@@ -1,51 +1,35 @@
 import { NextResponse } from "next/server"
 
 export async function GET() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-
   const checks: Record<string, unknown> = {
-    has_key: !!raw,
-    key_length: raw?.length ?? 0,
-    project_id: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "missing",
     node_env: process.env.NODE_ENV,
+    has_key: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+    key_length: process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.length ?? 0,
+    driver_session_secret_set: !!process.env.DRIVER_SESSION_SECRET,
   }
 
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>
-      checks.json_valid = true
-      checks.type = parsed.type
-      checks.project = parsed.project_id
-      checks.client_email = parsed.client_email
-      checks.has_private_key = typeof parsed.private_key === "string" && parsed.private_key.length > 0
-
-      const pk = parsed.private_key as string
-      checks.pk_starts_with = pk.slice(0, 30)
-      checks.pk_has_real_newlines = pk.includes("\n")
-      checks.pk_has_escaped_newlines = pk.includes("\\n")
-    } catch (err) {
-      checks.json_valid = false
-      checks.json_error = String(err)
-    }
-  }
-
-  // Test admin SDK
+  // Test admin SDK and inspect stored drivers
   try {
     const { adminDb } = await import("@/lib/server/firebase-admin")
-    const testSnap = await adminDb.collection("drivers").limit(1).get()
+    const snap = await adminDb.collection("drivers").get()
     checks.admin_db_ok = true
-    checks.driver_count_sample = testSnap.size
+    checks.driver_count = snap.size
+    checks.drivers = snap.docs.map((d) => {
+      const data = d.data()
+      const pwd = data.password as string | undefined
+      return {
+        id: d.id,
+        name: data.name,
+        phone: data.phone,
+        password_stored: !!pwd,
+        password_length: pwd?.length ?? 0,
+        password_is_hashed: pwd?.startsWith("$2") ?? false,
+        password_preview: pwd ? pwd.slice(0, 10) + "..." : "EMPTY",
+      }
+    })
   } catch (err) {
     checks.admin_db_ok = false
     checks.admin_db_error = String(err)
-  }
-
-  // Test adminAuth
-  try {
-    const { adminAuth } = await import("@/lib/server/firebase-admin")
-    checks.admin_auth_loaded = !!adminAuth
-  } catch (err) {
-    checks.admin_auth_error = String(err)
   }
 
   return NextResponse.json(checks)
