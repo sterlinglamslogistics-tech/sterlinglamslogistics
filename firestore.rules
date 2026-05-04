@@ -1,0 +1,83 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sterling Glams Logistics — Firestore security rules
+//
+// ⚠️  REVIEW BEFORE DEPLOYING: these rules require server-side writes to use
+//     firebase-admin (which bypasses rules). Several routes in lib/firestore.ts
+//     currently use the client SDK without auth and will be denied by these
+//     rules until that migration is done. Until then, deploy these rules
+//     alongside switching:
+//       app/(app)/api/woocommerce/route.ts        → adminDb
+//       app/(app)/api/ratings/[tracking]/route.ts → adminDb
+//       app/(app)/api/driver/**                   → adminDb
+//       lib/firestore.ts mutation helpers         → adminDb
+//
+// Deploy with:   firebase deploy --only firestore:rules
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    // ── Orders ────────────────────────────────────────────────────────────────
+    // Customer tracking page reads orders unauthenticated by tracking token.
+    // Reads stay open; writes are admin-only (server uses admin SDK to bypass).
+    match /orders/{orderId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Drivers ───────────────────────────────────────────────────────────────
+    // Tracking page shows driver name; driver app reads driver record.
+    // ⚠️ Password hashes live on these documents — restrict reads of the
+    // password field by moving credentials to a separate `driverCredentials`
+    // collection in a future pass. For now, password reads are allowed under
+    // the same permission as the rest of the doc.
+    match /drivers/{driverId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Settings (business info, notification toggles, driver flags) ──────────
+    // Public read so the customer-facing pages can pick up business info,
+    // logo, etc. Writes admin-only.
+    match /settings/{document=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Notification logs ─────────────────────────────────────────────────────
+    // Operational data — admin-only in both directions.
+    match /notificationLogs/{logId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Audit logs ────────────────────────────────────────────────────────────
+    // Tamper-evident: admin can read; nobody (incl. admin) writes from clients.
+    // Server writes via admin SDK which bypasses these rules.
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ── Admins collection (mapping uid → role) ────────────────────────────────
+    match /admins/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if isAdmin();
+    }
+
+    // ── Default deny ──────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
