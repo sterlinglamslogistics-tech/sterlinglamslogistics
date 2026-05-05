@@ -1,6 +1,7 @@
 "use client"
 
 const TOKEN_KEY = "driverToken"
+let _redirectingToLogin = false
 
 export function setDriverToken(token: string) {
   try {
@@ -41,7 +42,8 @@ export async function driverFetch(input: RequestInfo | URL, init: RequestInit = 
     headers.set("X-Driver-Token", token)
   }
   const response = await fetch(input, { ...init, headers, credentials: "include" })
-  if (response.status === 401) {
+  if (response.status === 401 && !_redirectingToLogin) {
+    _redirectingToLogin = true
     clearDriverToken()
     try { localStorage.removeItem("driverSession") } catch { /* ignore */ }
     window.location.replace("/driver")

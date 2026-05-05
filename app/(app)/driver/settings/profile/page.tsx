@@ -15,7 +15,6 @@ export default function DriverProfileSettingsPage() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
-  const [personalId, setPersonalId] = useState("")
   const [vehicle, setVehicle] = useState("MOTORCYCLE")
   const [model, setModel] = useState("")
   const [plate, setPlate] = useState("")
@@ -131,16 +130,6 @@ export default function DriverProfileSettingsPage() {
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-xl border bg-card px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-green-500/30"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground uppercase tracking-wider">Personal ID</label>
-          <input
-            type="text"
-            value={personalId}
-            onChange={(e) => setPersonalId(e.target.value)}
-            placeholder="Enter personal ID"
             className="w-full rounded-xl border bg-card px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-green-500/30"
           />
         </div>

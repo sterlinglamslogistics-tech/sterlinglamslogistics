@@ -67,6 +67,14 @@ export default function DeliveryCompletionPage({
     })
   }, [orderId])
 
+  // Always stop the camera stream when the component unmounts
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+  }, [])
+
   // ── Signature drawing ────────────────────────────────────────────────────────
 
   function startDraw(e: React.MouseEvent | React.TouchEvent) {

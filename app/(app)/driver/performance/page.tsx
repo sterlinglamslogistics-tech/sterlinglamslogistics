@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Menu, ChevronDown, Star, CheckCircle2, Truck, Banknote, ThumbsUp } from "lucide-react"
 import { useDriver } from "@/components/driver-context"
 import { fetchOrdersByDriver } from "@/lib/firestore"
+import { parseFirestoreDate } from "@/lib/order-utils"
 import type { Order } from "@/lib/data"
 import { formatCurrency } from "@/lib/data"
 import { cn } from "@/lib/utils"
@@ -87,11 +88,7 @@ export default function DriverPerformancePage() {
     if (filter === "last_100") {
       return allOrders
         .filter((o) => o.status === "delivered")
-        .sort((a, b) => {
-          const aT = a.deliveredAt ? new Date(a.deliveredAt as string).getTime() : 0
-          const bT = b.deliveredAt ? new Date(b.deliveredAt as string).getTime() : 0
-          return bT - aT
-        })
+        .sort((a, b) => (parseFirestoreDate(b.deliveredAt)?.getTime() ?? 0) - (parseFirestoreDate(a.deliveredAt)?.getTime() ?? 0))
         .slice(0, 100)
     }
 
@@ -99,7 +96,7 @@ export default function DriverPerformancePage() {
     if (!range) return allOrders
 
     return allOrders.filter((o) => {
-      const ts = o.createdAt ? new Date(o.createdAt as string).getTime() : 0
+      const ts = parseFirestoreDate(o.createdAt)?.getTime() ?? 0
       return ts >= range.start.getTime() && ts < range.end.getTime()
     })
   })()

@@ -13,14 +13,15 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { fetchOrder } from "@/lib/firestore"
+import { parseFirestoreDate } from "@/lib/order-utils"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { useDriver } from "@/components/driver-context"
+import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
 
 function formatDate(date: unknown): string {
-  if (!date) return ""
-  const d = date instanceof Date ? date : new Date(date as string)
-  if (Number.isNaN(d.getTime())) return ""
+  const d = parseFirestoreDate(date)
+  if (!d) return ""
   return d.toLocaleString("en-NG", {
     day: "numeric",
     month: "short",
@@ -120,10 +121,7 @@ export default function OrderDetailPage({
         </div>
         <button
           type="button"
-          onClick={() => {
-            const encoded = encodeURIComponent(order.address)
-            window.location.href = `https://www.google.com/maps/dir/?api=1&destination=${encoded}`
-          }}
+          onClick={() => window.open(buildNavUrl(order.address, getNavApp()), "_blank", "noopener")}
           className="rounded-lg p-2 hover:bg-muted"
         >
           <Navigation className="h-5 w-5 text-blue-600" />

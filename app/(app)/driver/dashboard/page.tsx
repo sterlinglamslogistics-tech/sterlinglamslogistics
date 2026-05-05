@@ -10,7 +10,6 @@ import {
   Navigation,
   Loader2,
   Menu,
-  ScanLine,
   Truck,
   RefreshCw,
 } from "lucide-react"
@@ -70,6 +69,7 @@ export default function DriverDashboard() {
   const [routeModalOpen, setRouteModalOpen] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
+  const pendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [pullDistance, setPullDistance] = useState(0)
   const touchStartY = useRef(0)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -135,9 +135,17 @@ export default function DriverDashboard() {
     window.location.href = `tel:${phone}`
   }
 
+  function setPending(id: string | null) {
+    if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current)
+    setPendingOrderId(id)
+    if (id) {
+      pendingTimeoutRef.current = setTimeout(() => setPendingOrderId(null), 10000)
+    }
+  }
+
   async function handleMarkPickedUp(order: Order) {
     if (!session || pendingOrderId) return
-    setPendingOrderId(order.id)
+    setPending(order.id)
     try {
       const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
         method: "POST",
@@ -150,13 +158,13 @@ export default function DriverDashboard() {
     } catch {
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
     } finally {
-      setPendingOrderId(null)
+      setPending(null)
     }
   }
 
   async function handleMarkOnTheWay(order: Order) {
     if (!session || pendingOrderId) return
-    setPendingOrderId(order.id)
+    setPending(order.id)
     try {
       const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
         method: "POST",
@@ -171,7 +179,7 @@ export default function DriverDashboard() {
     } catch {
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
     } finally {
-      setPendingOrderId(null)
+      setPending(null)
     }
   }
 
@@ -257,9 +265,6 @@ export default function DriverDashboard() {
               <Navigation className="h-5 w-5" />
             </button>
           )}
-          <button type="button" className="rounded-lg p-2 hover:bg-muted">
-            <ScanLine className="h-5 w-5" />
-          </button>
         </div>
       </div>
 
