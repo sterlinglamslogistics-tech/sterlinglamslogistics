@@ -104,7 +104,11 @@ export default function DispatchPage() {
 
     const unsubDrivers = subscribeDriversRealtime((data) => {
       setAllDrivers(data)
-      setAvailableDrivers(data.filter((d) => d.status === DRIVER_STATUS.AVAILABLE))
+      // Show all online drivers (available + on-delivery) so admin can
+      // assign orders to any driver that is currently working
+      setAvailableDrivers(
+        data.filter((d) => d.status === DRIVER_STATUS.AVAILABLE || d.status === DRIVER_STATUS.ON_DELIVERY)
+      )
     })
 
     return () => {
@@ -298,12 +302,17 @@ export default function DispatchPage() {
                       value={selectedDrivers[order.id] ?? ""}
                       onValueChange={(value) => handleSelectDriver(order.id, value)}
                     >
-                      <SelectTrigger className="h-7 w-[110px] text-xs">
+                      <SelectTrigger className="h-7 w-[120px] text-xs">
                         <SelectValue placeholder="Reassign" />
                       </SelectTrigger>
                       <SelectContent>
                         {availableDrivers.map((d) => (
-                          <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                          <SelectItem key={d.id} value={d.id}>
+                            <span className="flex items-center gap-1.5">
+                              <span className={`h-1.5 w-1.5 rounded-full ${d.status === DRIVER_STATUS.AVAILABLE ? "bg-green-500" : "bg-orange-400"}`} />
+                              {d.name}
+                            </span>
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -341,13 +350,22 @@ export default function DispatchPage() {
                     <span className="ml-auto text-sm font-semibold text-foreground">{formatCurrency(order.amount)}</span>
 
                     <Select onValueChange={(value) => handleDispatch(order.id, value)}>
-                      <SelectTrigger className="h-7 w-[110px] rounded-md border bg-emerald-500/10 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      <SelectTrigger className="h-7 w-[120px] rounded-md border bg-emerald-500/10 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                         <SelectValue placeholder="+ Assign" />
                       </SelectTrigger>
                       <SelectContent>
-                        {availableDrivers.map((d) => (
-                          <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                        ))}
+                        {availableDrivers.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-muted-foreground">No online drivers</div>
+                        ) : (
+                          availableDrivers.map((d) => (
+                            <SelectItem key={d.id} value={d.id}>
+                              <span className="flex items-center gap-1.5">
+                                <span className={`h-1.5 w-1.5 rounded-full ${d.status === DRIVER_STATUS.AVAILABLE ? "bg-green-500" : "bg-orange-400"}`} />
+                                {d.name}
+                              </span>
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
