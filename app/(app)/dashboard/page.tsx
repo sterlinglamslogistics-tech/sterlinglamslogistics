@@ -12,7 +12,7 @@ import {
   TrendingUp,
   ArrowUpRight,
 } from "lucide-react"
-import { fetchOrders, fetchDrivers } from "@/lib/firestore"
+import { subscribeOrdersRealtime, subscribeDriversRealtime } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { StatusBadge } from "@/components/orders/status-badge"
@@ -62,25 +62,22 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        setIsLoading(true)
-        const [ordersData, driversData] = await Promise.all([
-          fetchOrders(),
-          fetchDrivers(),
-        ])
-        setOrders(ordersData)
-        setDrivers(driversData)
-        setError(null)
-      } catch (err) {
-        console.error("Error loading data:", err)
-        setError("Failed to load data. Check your Firebase connection.")
-      } finally {
-        setIsLoading(false)
-      }
-    }
+    setIsLoading(true)
 
-    loadData()
+    const unsubOrders = subscribeOrdersRealtime((data) => {
+      setOrders(data)
+      setIsLoading(false)
+      setError(null)
+    })
+
+    const unsubDrivers = subscribeDriversRealtime((data) => {
+      setDrivers(data)
+    })
+
+    return () => {
+      unsubOrders()
+      unsubDrivers()
+    }
   }, [])
 
   const summaryCards = buildSummaryCards(orders, drivers)

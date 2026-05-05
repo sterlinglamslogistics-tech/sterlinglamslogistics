@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { GripVertical } from "lucide-react"
-import { fetchDrivers, fetchOrders, fetchDriversByStatus } from "@/lib/firestore"
+import { subscribeOrdersRealtime, subscribeDriversRealtime } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { notifyOrderEvent } from "@/lib/notify-client"
@@ -94,51 +94,25 @@ export default function DispatchPage() {
     }
   }
 
-  const loadAvailableDrivers = useCallback(async () => {
-    const drivers = await fetchDriversByStatus(DRIVER_STATUS.AVAILABLE)
-    setAvailableDrivers(drivers)
-  }, [])
-
-  const loadAllDrivers = useCallback(async () => {
-    const drivers = await fetchDrivers()
-    setAllDrivers(drivers)
-  }, [])
-
   useEffect(() => {
-    async function loadData() {
-      try {
-        setIsLoading(true)
-        const [orders, drivers, all] = await Promise.all([
-          fetchOrders(),
-          fetchDriversByStatus(DRIVER_STATUS.AVAILABLE),
-          fetchDrivers(),
-        ])
-        setOrderList(orders)
-        setAvailableDrivers(drivers)
-        setAllDrivers(all)
-        setError(null)
-      } catch (err) {
-        console.error("Error loading data:", err)
-        setError("Failed to load data. Check your Firebase connection.")
-      } finally {
-        setIsLoading(false)
-      }
+    setIsLoading(true)
+
+    const unsubOrders = subscribeOrdersRealtime((data) => {
+      setOrderList(data)
+      setIsLoading(false)
+      setError(null)
+    })
+
+    const unsubDrivers = subscribeDriversRealtime((data) => {
+      setAllDrivers(data)
+      setAvailableDrivers(data.filter((d) => d.status === DRIVER_STATUS.AVAILABLE))
+    })
+
+    return () => {
+      unsubOrders()
+      unsubDrivers()
     }
-
-    loadData()
   }, [])
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      loadAvailableDrivers().catch((err) => {
-        console.error("Error refreshing available drivers:", err)
-      })
-      loadAllDrivers().catch((err) => {
-        console.error("Error refreshing drivers:", err)
-      })
-    }, 10000)
-    return () => window.clearInterval(id)
-  }, [loadAvailableDrivers, loadAllDrivers])
 
   useEffect(() => {
     if (allDrivers.length === 0) {
@@ -210,7 +184,7 @@ export default function DispatchPage() {
         })
       }
 
-      await loadAvailableDrivers()
+      // driver list updates automatically via realtime subscription
     } catch (err) {
       console.error("Error dispatching order:", err)
       setError("Failed to dispatch order")

@@ -49,7 +49,7 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { fetchOrders, fetchDriversByStatus, updateOrder, createOrder, deleteOrder, fetchDrivers } from "@/lib/firestore"
+import { subscribeOrdersRealtime, subscribeDriversRealtime, fetchDriversByStatus, updateOrder, createOrder, deleteOrder } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
@@ -150,27 +150,23 @@ export default function OrdersPage() {
   })
 
   useEffect(() => {
-    async function loadData() {
-      try {
-        setIsLoading(true)
-        const [ordersData, availableDriversData, allDriversData] = await Promise.all([
-          fetchOrders(),
-          fetchDriversByStatus(DRIVER_STATUS.AVAILABLE),
-          fetchDrivers(),
-        ])
-        setOrderList(ordersData)
-        setAvailableDrivers(availableDriversData)
-        setAllDrivers(allDriversData)
-        setError(null)
-      } catch (err) {
-        console.error("Error loading data:", err)
-        setError("Failed to load data. Check your Firebase connection.")
-      } finally {
-        setIsLoading(false)
-      }
-    }
+    setIsLoading(true)
 
-    loadData()
+    const unsubOrders = subscribeOrdersRealtime((data) => {
+      setOrderList(data)
+      setIsLoading(false)
+      setError(null)
+    })
+
+    const unsubDrivers = subscribeDriversRealtime((data) => {
+      setAllDrivers(data)
+      setAvailableDrivers(data.filter((d) => d.status === DRIVER_STATUS.AVAILABLE))
+    })
+
+    return () => {
+      unsubOrders()
+      unsubDrivers()
+    }
   }, [])
 
   useEffect(() => {
