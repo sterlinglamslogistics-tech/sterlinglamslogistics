@@ -14,3 +14,5 @@ driver-mobile/node_modules/
 driver-mobile/android/.gradle/
 driver-mobile/android/app/build/
 .vercel
+
+.vercel
