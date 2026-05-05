@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, use } from "react"
-import { Phone, MessageSquare, ChevronDown, ChevronUp, MapPin, Package, Clock, Star } from "lucide-react"
+import { Phone, MessageSquare, ChevronDown, ChevronUp, MapPin, Package, Star } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { Spinner } from "@/components/ui/spinner"
 import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime } from "@/lib/firestore"
@@ -131,8 +131,8 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const [loading, setLoading] = useState(true)
   const [now, setNow] = useState(() => Date.now())
   const [destinationCoord, setDestinationCoord] = useState<{ lat: number; lng: number } | null>(null)
-  const [updatesOpen, setUpdatesOpen] = useState(false)
-  const [orderOpen, setOrderOpen] = useState(false)
+  const [updatesOpen, setUpdatesOpen] = useState(true)
+  const [orderOpen, setOrderOpen] = useState(true)
   const [liveRoute, setLiveRoute] = useState<{ distanceKm: number; durationMs: number; fetchedAt: number } | null>(null)
   const [ratingState, setRatingState] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [showRatingPage, setShowRatingPage] = useState(false)
@@ -635,9 +635,14 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   }
 
   return (
-    <div className="grid h-screen xl:grid-cols-[420px_minmax(0,1fr)]" style={{ minHeight: "100dvh" }}>
-      {/* ── Left panel ── */}
-      <aside className="flex h-full flex-col overflow-y-auto border-r bg-background">
+    <div className="flex flex-col xl:flex-row overflow-hidden" style={{ height: "100dvh", minHeight: "100dvh" }}>
+      {/* ── Map — top on mobile, right on desktop ── */}
+      <section className="order-1 xl:order-2 xl:flex-1 relative flex-none h-[45vh] xl:h-full">
+        <div ref={mapContainerRef} className="absolute inset-0" />
+      </section>
+
+      {/* ── Details panel — bottom on mobile, left on desktop ── */}
+      <aside className="order-2 xl:order-1 xl:w-[420px] xl:flex-none flex-1 overflow-y-auto border-t xl:border-t-0 xl:border-r bg-background flex flex-col">
         {/* Branding */}
         <div className="border-b px-6 py-4">
           <p className="text-[11px] uppercase tracking-widest text-muted-foreground">Powered by Sterlinglams Logistics</p>
@@ -783,16 +788,27 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
             {updatesOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
           </button>
           {updatesOpen && (
-            <div className="space-y-2 px-6 pb-4 text-sm">
-              <div className="flex items-start gap-3">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                <div>
-                  <p className="font-medium text-foreground">{getStatusHeading(order.status)}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatTime(order.inTransitAt ?? order.pickedUpAt ?? order.startedAt ?? order.createdAt)}
-                  </p>
+            <div className="px-6 pb-4">
+              {[
+                order.deliveredAt ? { label: "Delivered", time: order.deliveredAt, text: "Your order has been delivered successfully.", current: order.status === "delivered" } : null,
+                order.inTransitAt ? { label: "On the way", time: order.inTransitAt, text: `${driver?.name || "Your driver"} is on the way to the delivery address now`, current: order.status === "in-transit" } : null,
+                order.pickedUpAt ? { label: "Picked up", time: order.pickedUpAt, text: `${driver?.name || "Your driver"} just picked up your order from Sterlin Glams`, current: order.status === "picked-up" } : null,
+                order.startedAt ? { label: "Started", time: order.startedAt, text: "We have received your order", current: order.status === "started" } : null,
+              ].filter(Boolean).map((event, i, arr) => (
+                <div key={event!.label} className="flex gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className={`mt-4 h-3 w-3 shrink-0 rounded-full ${event!.current ? "bg-green-500" : "bg-muted-foreground/40"}`} />
+                    {i < arr.length - 1 && <div className="w-px flex-1 bg-muted-foreground/20 my-1" />}
+                  </div>
+                  <div className="pb-4 pt-3">
+                    <div className="flex items-center gap-2">
+                      <p className={`text-sm font-semibold ${event!.current ? "text-green-600" : "text-foreground"}`}>{event!.label}</p>
+                      <p className="text-xs text-muted-foreground">{formatTime(event!.time)}</p>
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{event!.text}</p>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           )}
         </div>
@@ -838,11 +854,6 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
           )}
         </div>
       </aside>
-
-      {/* ── Map ── */}
-      <section className="relative h-screen">
-        <div ref={mapContainerRef} className="h-full w-full" />
-      </section>
     </div>
   )
 }
