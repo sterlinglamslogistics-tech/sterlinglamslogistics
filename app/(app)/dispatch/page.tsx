@@ -15,7 +15,6 @@ import { GripVertical } from "lucide-react"
 import { subscribeOrdersRealtime, subscribeDriversRealtime } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
-import { notifyOrderEvent } from "@/lib/notify-client"
 import { StatusBadge } from "@/components/orders/status-badge"
 import { ORDER_STATUS, DRIVER_STATUS, TERMINAL_STATUSES } from "@/lib/constants"
 import { auth } from "@/lib/firebase"
@@ -170,19 +169,8 @@ export default function DispatchPage() {
         return next
       })
 
-      if (targetOrder) {
-        const dispatchedDriver = allDrivers.find((d) => d.id === driverId)
-        notifyOrderEvent("order_accepted", {
-          orderId: targetOrder.id,
-          orderNumber: targetOrder.orderNumber,
-          customerName: targetOrder.customerName,
-          customerPhone: targetOrder.phone,
-          customerEmail: targetOrder.customerEmail,
-          address: targetOrder.address,
-          driverName: dispatchedDriver?.name,
-          items: targetOrder.items,
-        })
-      }
+      // order_accepted notification is fired server-side from the dispatch/assign
+      // API route — no need to fire it here too (would cause duplicate WhatsApp/email)
 
       // driver list updates automatically via realtime subscription
     } catch (err) {
