@@ -16,16 +16,24 @@ if (getApps().length === 0) {
   let serviceAccount: Parameters<typeof cert>[0] | undefined
 
   if (raw) {
-    // Strip any leading garbage characters that get prepended during copy-paste
-    // (e.g. a leading backslash turns valid JSON into \{...} which fails to parse).
-    // We find the first { and treat everything from there as the JSON string.
-    const cleaned = raw.slice(raw.indexOf("{"))
+    // 1. Strip any leading garbage before the first { (e.g. a leading backslash from
+    //    copy-paste corruption turns \{ into { which is valid JSON).
+    const start = raw.indexOf("{")
+    let cleaned = start >= 0 ? raw.slice(start) : raw
+
+    // 2. Remove carriage returns that Windows line-endings may have introduced.
+    cleaned = cleaned.replace(/\r/g, "")
+
+    // 3. Remove any stray backslashes that are not part of a valid JSON escape
+    //    sequence (valid: \" \\ \/ \b \f \n \r \t \uXXXX).
+    //    This fixes "Bad escaped character" errors caused by paste corruption.
+    cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, "")
 
     try {
       const parsed = JSON.parse(cleaned) as Record<string, unknown>
 
-      // Vercel stores newlines in env vars as the literal two-character sequence \n
-      // instead of a real newline. Firebase's RSA private key requires real newlines.
+      // 4. Vercel sometimes stores \n as the two-char literal sequence \\n instead
+      //    of a real newline. The RSA private_key requires actual newline chars.
       if (typeof parsed.private_key === "string") {
         parsed.private_key = (parsed.private_key as string).replace(/\\n/g, "\n")
       }
@@ -33,8 +41,8 @@ if (getApps().length === 0) {
       serviceAccount = parsed as Parameters<typeof cert>[0]
     } catch (err) {
       log.error(
-        { err, raw_start: raw.slice(0, 30) },
-        "FIREBASE_SERVICE_ACCOUNT_KEY could not be parsed — admin SDK will use Application Default Credentials"
+        { err, raw_start: raw.slice(0, 20) },
+        "FIREBASE_SERVICE_ACCOUNT_KEY could not be parsed after sanitisation — admin SDK will use ADC"
       )
     }
   } else {
