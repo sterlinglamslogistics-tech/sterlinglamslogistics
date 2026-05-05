@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, use } from "react"
+import { useState, useEffect, useMemo, use } from "react"
 import { useRouter } from "next/navigation"
 import {
   ArrowLeft,
@@ -18,6 +18,22 @@ import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { useDriver } from "@/components/driver-context"
 import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
+
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const toRad = (v: number) => (v * Math.PI) / 180
+  const R = 6371
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+function formatEta(ms: number): string {
+  if (ms <= 0) return "Arriving now"
+  const mins = Math.ceil(ms / 60000)
+  if (mins < 60) return `~${mins} min`
+  return `~${Math.floor(mins / 60)}h ${mins % 60}m`
+}
 
 function formatDate(date: unknown): string {
   const d = parseFirestoreDate(date)
@@ -38,7 +54,7 @@ export default function OrderDetailPage({
 }) {
   const { orderId } = use(params)
   const router = useRouter()
-  const { isOnline } = useDriver()
+  const { isOnline, liveGps, driver } = useDriver()
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -48,6 +64,21 @@ export default function OrderDetailPage({
       setLoading(false)
     })
   }, [orderId])
+
+  // ETA: distance from driver GPS to order coordinates ÷ 25 km/h (avg Lagos speed)
+  const etaMs = useMemo(() => {
+    const activeStatuses = ["started", "picked-up", "in-transit"]
+    if (!order || !activeStatuses.includes(order.status)) return null
+    const driverPos = liveGps ?? driver?.lastLocation ?? null
+    if (!driverPos) return null
+    const dest =
+      typeof order.lat === "number" && typeof order.lng === "number"
+        ? { lat: order.lat, lng: order.lng }
+        : null
+    if (!dest) return null
+    const distKm = haversineKm(driverPos, dest)
+    return (distKm / 25) * 3600 * 1000
+  }, [order, liveGps, driver?.lastLocation])
 
   if (loading) {
     return (
@@ -118,6 +149,13 @@ export default function OrderDetailPage({
             </Badge>
           </div>
           <p className="text-lg font-bold text-green-600">{formatCurrency(order.amount)}</p>
+          {etaMs !== null && (
+            <div className="mt-1 flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-medium text-muted-foreground">ETA: </span>
+              <span className="text-sm font-semibold text-green-600">{formatEta(etaMs)}</span>
+            </div>
+          )}
         </div>
         <button
           type="button"

@@ -12,6 +12,8 @@ import {
   Menu,
   Truck,
   RefreshCw,
+  AlertTriangle,
+  X,
 } from "lucide-react"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
@@ -67,6 +69,11 @@ export default function DriverDashboard() {
   } = useDriver()
   const [showOnlineToast, setShowOnlineToast] = useState(false)
   const [routeModalOpen, setRouteModalOpen] = useState(false)
+  const [declineOrder, setDeclineOrder] = useState<Order | null>(null)
+  const [declineReason, setDeclineReason] = useState("")
+  const [reportOrder, setReportOrder] = useState<Order | null>(null)
+  const [reportReason, setReportReason] = useState("")
+  const [actionPending, setActionPending] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
   const pendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -180,6 +187,46 @@ export default function DriverDashboard() {
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
     } finally {
       setPending(null)
+    }
+  }
+
+  async function handleDeclineOrder() {
+    if (!declineOrder || !session || !declineReason) return
+    setActionPending(true)
+    try {
+      const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(declineOrder.id)}/decline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driverId: session.id, reason: declineReason }),
+      })
+      if (!res.ok) throw new Error("Failed")
+      toast({ title: "Order declined", description: `${declineOrder.orderNumber} has been returned to dispatch.` })
+      setDeclineOrder(null)
+      setDeclineReason("")
+    } catch {
+      toast({ title: "Error", description: "Failed to decline order.", variant: "destructive" })
+    } finally {
+      setActionPending(false)
+    }
+  }
+
+  async function handleReportFailed() {
+    if (!reportOrder || !session || !reportReason) return
+    setActionPending(true)
+    try {
+      const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(reportOrder.id)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driverId: session.id, status: "failed", failedReason: reportReason }),
+      })
+      if (!res.ok) throw new Error("Failed")
+      toast({ title: "Reported", description: `${reportOrder.orderNumber} marked as failed.` })
+      setReportOrder(null)
+      setReportReason("")
+    } catch {
+      toast({ title: "Error", description: "Failed to report issue.", variant: "destructive" })
+    } finally {
+      setActionPending(false)
     }
   }
 
@@ -342,34 +389,60 @@ export default function DriverDashboard() {
 
               {/* Action button */}
               {order.status === "started" && (
-                <button
-                  type="button"
-                  disabled={pendingOrderId === order.id}
-                  onClick={() => handleMarkPickedUp(order)}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white hover:bg-orange-600 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
-                >
-                  {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Mark as Picked Up <span className="text-base">→</span></>}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={pendingOrderId === order.id}
+                    onClick={() => handleMarkPickedUp(order)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white hover:bg-orange-600 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                  >
+                    {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Picked Up →</>}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setDeclineOrder(order); setDeclineReason("") }}
+                    className="flex items-center justify-center gap-1 rounded-xl border border-red-200 px-4 py-3 text-sm font-semibold text-red-500 hover:bg-red-50 active:scale-[0.98] transition-transform"
+                  >
+                    Decline
+                  </button>
+                </div>
               )}
               {order.status === "picked-up" && (
-                <button
-                  type="button"
-                  disabled={pendingOrderId === order.id}
-                  onClick={() => handleMarkOnTheWay(order)}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
-                >
-                  {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Mark as On the Way <span className="text-base">→</span></>}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={pendingOrderId === order.id}
+                    onClick={() => handleMarkOnTheWay(order)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                  >
+                    {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>On the Way →</>}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setReportOrder(order); setReportReason("") }}
+                    className="flex items-center justify-center rounded-xl border border-red-200 px-3 py-3 text-red-500 hover:bg-red-50"
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                  </button>
+                </div>
               )}
               {order.status === "in-transit" && (
-                <button
-                  type="button"
-                  onClick={() => router.push(`/driver/delivery/${order.id}`)}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700 active:scale-[0.98] transition-transform"
-                >
-                  Complete Delivery
-                  <span className="text-base">→</span>
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/driver/delivery/${order.id}`)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700 active:scale-[0.98] transition-transform"
+                  >
+                    Complete Delivery →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setReportOrder(order); setReportReason("") }}
+                    className="flex items-center justify-center rounded-xl border border-red-200 px-3 py-3 text-red-500 hover:bg-red-50"
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                  </button>
+                </div>
               )}
             </div>
           ))}
@@ -572,6 +645,82 @@ export default function DriverDashboard() {
               <p className="text-center text-base font-semibold">
                 Optimizing your route...
               </p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Decline Order Modal ── */}
+      {declineOrder && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setDeclineOrder(null)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4">
+            <div className="rounded-t-2xl bg-background px-5 pb-8 pt-4 shadow-2xl">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-base font-bold">Decline Order</h3>
+                <button type="button" onClick={() => setDeclineOrder(null)} className="rounded-lg p-1.5 hover:bg-muted">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="mb-4 text-sm text-muted-foreground">Select a reason for declining <span className="font-semibold text-foreground">{declineOrder.orderNumber}</span>. It will be returned to dispatch.</p>
+              <div className="mb-4 space-y-2">
+                {["Cannot reach location", "Order unclear / wrong details", "Too far from my current location", "Customer cancelled", "Other"].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setDeclineReason(r)}
+                    className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors ${declineReason === r ? "border-red-400 bg-red-50 text-red-700" : "hover:bg-muted"}`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                disabled={!declineReason || actionPending}
+                onClick={handleDeclineOrder}
+                className="w-full rounded-xl bg-red-500 py-3.5 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                {actionPending ? "Declining..." : "Confirm Decline"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Report Issue / Failed Delivery Modal ── */}
+      {reportOrder && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setReportOrder(null)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4">
+            <div className="rounded-t-2xl bg-background px-5 pb-8 pt-4 shadow-2xl">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-base font-bold">Report Issue</h3>
+                <button type="button" onClick={() => setReportOrder(null)} className="rounded-lg p-1.5 hover:bg-muted">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="mb-4 text-sm text-muted-foreground">What happened with <span className="font-semibold text-foreground">{reportOrder.orderNumber}</span>? This will mark the delivery as failed.</p>
+              <div className="mb-4 space-y-2">
+                {["Customer not home", "Wrong address / cannot find location", "Customer refused delivery", "Access denied / gated area", "Item damaged", "Other"].map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setReportReason(r)}
+                    className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors ${reportReason === r ? "border-orange-400 bg-orange-50 text-orange-700" : "hover:bg-muted"}`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                disabled={!reportReason || actionPending}
+                onClick={handleReportFailed}
+                className="w-full rounded-xl bg-orange-500 py-3.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+              >
+                {actionPending ? "Reporting..." : "Mark as Failed Delivery"}
+              </button>
             </div>
           </div>
         </>

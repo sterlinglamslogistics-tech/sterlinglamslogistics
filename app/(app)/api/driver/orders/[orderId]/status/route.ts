@@ -10,7 +10,7 @@ import type { OrderEvent } from "@/lib/server/notifications"
 
 const log = createLogger("api:driver:order-status")
 
-type DriverOrderStatusAction = "picked-up" | "in-transit" | "delivered"
+type DriverOrderStatusAction = "picked-up" | "in-transit" | "delivered" | "failed"
 
 function buildTrackingUrl(req: Request, orderNumber: string): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_ORIGIN
@@ -33,6 +33,7 @@ export async function POST(
       photoData?: string
       signatureData?: string
       deliveryNotes?: string
+      failedReason?: string
     }
 
     const nextStatus = body.status
@@ -43,7 +44,7 @@ export async function POST(
     if (!nextStatus) {
       return NextResponse.json({ ok: false, error: "status is required." }, { status: 400 })
     }
-    if (!["picked-up", "in-transit", "delivered"].includes(nextStatus)) {
+    if (!["picked-up", "in-transit", "delivered", "failed"].includes(nextStatus)) {
       return NextResponse.json({ ok: false, error: "Unsupported status transition." }, { status: 400 })
     }
 
@@ -85,6 +86,18 @@ export async function POST(
         }
         txn.update(orderRef, { status: "in-transit", inTransitAt: now, updatedAt: now })
         notificationEvent = "out_for_delivery"
+      } else if (nextStatus === "failed") {
+        const activeStatuses = ["started", "picked-up", "in-transit"]
+        if (!activeStatuses.includes(data.status as string)) {
+          txnError = { status: 409, message: "Cannot mark order as failed from its current state." }
+          return
+        }
+        txn.update(orderRef, {
+          status: "failed",
+          failedAt: now,
+          updatedAt: now,
+          ...(body.failedReason ? { failedReason: body.failedReason } : {}),
+        })
       } else {
         if (data.status !== "in-transit") {
           txnError = { status: 409, message: "Order must be in transit first." }
@@ -116,7 +129,7 @@ export async function POST(
     // Side-effects outside the transaction (best-effort)
     if (nextStatus === "picked-up") {
       await adminUpdateDriver(driverId, { status: "on-delivery" }).catch(() => null)
-    } else if (nextStatus === "delivered") {
+    } else if (nextStatus === "delivered" || nextStatus === "failed") {
       await adminUpdateDriver(driverId, { status: "available" }).catch(() => null)
     }
 
