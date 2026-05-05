@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, CheckCircle2, Loader2, Package } from "lucide-react"
+import { ArrowLeft, Loader2, Package } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { fetchOrdersByDriver } from "@/lib/firestore"
+import { parseFirestoreDate } from "@/lib/order-utils"
 import type { Order } from "@/lib/data"
 import { formatCurrency } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
@@ -12,28 +13,28 @@ import { useDriver } from "@/components/driver-context"
 import { cn } from "@/lib/utils"
 
 function isToday(date: unknown): boolean {
-  if (!date) return false
-  const d = date instanceof Date ? date : new Date(date as string)
-  if (Number.isNaN(d.getTime())) return false
+  const d = parseFirestoreDate(date)
+  if (!d) return false
   const now = new Date()
   return d.toDateString() === now.toDateString()
 }
 
 function isYesterday(date: unknown): boolean {
-  if (!date) return false
-  const d = date instanceof Date ? date : new Date(date as string)
-  if (Number.isNaN(d.getTime())) return false
+  const d = parseFirestoreDate(date)
+  if (!d) return false
   const yesterday = new Date()
   yesterday.setDate(yesterday.getDate() - 1)
   return d.toDateString() === yesterday.toDateString()
 }
+
+type Tab = "today" | "yesterday" | "all"
 
 export default function DriverCompletedOrdersPage() {
   const router = useRouter()
   const { session } = useDriver()
   const [loading, setLoading] = useState(true)
   const [orders, setOrders] = useState<Order[]>([])
-  const [tab, setTab] = useState<"today" | "yesterday">("today")
+  const [tab, setTab] = useState<Tab>("today")
 
   useEffect(() => {
     async function loadCompletedOrders() {
@@ -44,8 +45,8 @@ export default function DriverCompletedOrdersPage() {
         const completed = allOrders
           .filter((order) => order.status === "delivered")
           .sort((a, b) => {
-            const aTime = a.deliveredAt ? new Date(a.deliveredAt as string).getTime() : 0
-            const bTime = b.deliveredAt ? new Date(b.deliveredAt as string).getTime() : 0
+            const aTime = parseFirestoreDate(a.deliveredAt)?.getTime() ?? 0
+            const bTime = parseFirestoreDate(b.deliveredAt)?.getTime() ?? 0
             return bTime - aTime
           })
         setOrders(completed)
@@ -61,7 +62,13 @@ export default function DriverCompletedOrdersPage() {
 
   const todayOrders = orders.filter((o) => isToday(o.deliveredAt))
   const yesterdayOrders = orders.filter((o) => isYesterday(o.deliveredAt))
-  const displayedOrders = tab === "today" ? todayOrders : yesterdayOrders
+  const displayedOrders = tab === "today" ? todayOrders : tab === "yesterday" ? yesterdayOrders : orders
+
+  const tabs: { key: Tab; label: string; count: number }[] = [
+    { key: "today", label: "Today", count: todayOrders.length },
+    { key: "yesterday", label: "Yesterday", count: yesterdayOrders.length },
+    { key: "all", label: "All", count: orders.length },
+  ]
 
   return (
     <div className="mx-auto max-w-md px-4 pb-8">
@@ -79,26 +86,19 @@ export default function DriverCompletedOrdersPage() {
 
       {/* Tabs */}
       <div className="mb-4 flex rounded-xl border bg-muted/50 p-1">
-        <button
-          type="button"
-          onClick={() => setTab("today")}
-          className={cn(
-            "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
-            tab === "today" ? "bg-background shadow-sm" : "text-muted-foreground"
-          )}
-        >
-          Today ({todayOrders.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("yesterday")}
-          className={cn(
-            "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
-            tab === "yesterday" ? "bg-background shadow-sm" : "text-muted-foreground"
-          )}
-        >
-          Yesterday ({yesterdayOrders.length})
-        </button>
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "flex-1 rounded-lg py-2 text-sm font-medium transition-colors",
+              tab === t.key ? "bg-background shadow-sm" : "text-muted-foreground"
+            )}
+          >
+            {t.label} ({t.count})
+          </button>
+        ))}
       </div>
 
       {/* Orders list */}
@@ -109,27 +109,35 @@ export default function DriverCompletedOrdersPage() {
       ) : displayedOrders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20">
           <Package className="mb-3 h-16 w-16 text-muted-foreground/30" />
-          <p className="text-sm text-muted-foreground">
-            There are currently no finished orders
-          </p>
+          <p className="text-sm text-muted-foreground">No completed orders</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {displayedOrders.map((order) => (
-            <div key={order.id} className="rounded-xl border bg-card p-4">
-              <div className="mb-2 flex items-start justify-between">
-                <div>
-                  <p className="font-semibold">{order.orderNumber}</p>
-                  <p className="text-sm text-muted-foreground">{order.customerName}</p>
+          {displayedOrders.map((order) => {
+            const deliveredAt = parseFirestoreDate(order.deliveredAt)
+            return (
+              <div key={order.id} className="rounded-xl border bg-card p-4">
+                <div className="mb-2 flex items-start justify-between">
+                  <div>
+                    <p className="font-semibold">{order.orderNumber}</p>
+                    <p className="text-sm text-muted-foreground">{order.customerName}</p>
+                  </div>
+                  <Badge variant="outline" className="bg-success/15 text-success border-success/20">
+                    Delivered
+                  </Badge>
                 </div>
-                <Badge variant="outline" className="bg-success/15 text-success border-success/20">
-                  Delivered
-                </Badge>
+                <p className="text-sm text-muted-foreground">{order.address}</p>
+                <div className="mt-1 flex items-center justify-between">
+                  <p className="text-sm font-medium">{formatCurrency(order.amount)}</p>
+                  {deliveredAt && (
+                    <p className="text-xs text-muted-foreground">
+                      {deliveredAt.toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                    </p>
+                  )}
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground">{order.address}</p>
-              <p className="mt-1 text-sm font-medium">{formatCurrency(order.amount)}</p>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
