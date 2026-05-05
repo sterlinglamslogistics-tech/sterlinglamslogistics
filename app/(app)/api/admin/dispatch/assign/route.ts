@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server"
 import { verifyAdmin } from "@/lib/server/auth"
-import { adminFetchOrder, adminUpdateOrder } from "@/lib/server/firestore-admin"
+import { adminFetchOrder, adminUpdateOrder, adminFetchDriverById } from "@/lib/server/firestore-admin"
 import { ORDER_STATUS } from "@/lib/constants"
 import { createLogger } from "@/lib/logger"
+import { notifyOrderEventServer } from "@/lib/server/notify-order-event"
 
 const log = createLogger("api:admin:dispatch:assign")
+
+function buildTrackingUrl(req: Request, orderNumber: string, orderId: string): string {
+  const origin = process.env.NEXT_PUBLIC_SITE_ORIGIN || new URL(req.url).origin
+  // Use orderNumber as tracking token; fall back to orderId if orderNumber is empty
+  const token = orderNumber || orderId
+  return `${origin}/track/${encodeURIComponent(token)}`
+}
 
 export async function POST(req: Request) {
   const admin = await verifyAdmin(req)
@@ -37,6 +45,22 @@ export async function POST(req: Request) {
         status: ORDER_STATUS.STARTED,
         startedAt: new Date(),
       })
+
+      // Fire order_accepted notification server-side (best-effort — never blocks response)
+      const driver = await adminFetchDriverById(driverId).catch(() => null)
+      notifyOrderEventServer("order_accepted", {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        customerPhone: order.phone,
+        customerEmail: order.customerEmail ?? null,
+        trackingUrl: buildTrackingUrl(req, order.orderNumber, order.id),
+        address: order.address,
+        driverName: driver?.name ?? undefined,
+        items: order.items,
+      }).catch((err) =>
+        log.error({ err, orderId: order.id }, "order_accepted notification failed")
+      )
     }
 
     return NextResponse.json({ ok: true })

@@ -16,8 +16,11 @@ interface OrderNotificationPayload {
 export async function notifyOrderEvent(event: OrderEvent, payload: OrderNotificationPayload) {
   try {
     const trackingBase = typeof window !== "undefined" ? window.location.origin : ""
-    const trackingUrl = trackingBase
-      ? `${trackingBase}/track/${encodeURIComponent(payload.orderNumber)}`
+    // Use orderNumber as tracking token — fall back to orderId so the
+    // tracking page can find the order even if orderNumber is not set.
+    const trackingToken = payload.orderNumber || payload.orderId
+    const trackingUrl = trackingBase && trackingToken
+      ? `${trackingBase}/track/${encodeURIComponent(trackingToken)}`
       : undefined
 
     const idToken = await auth.currentUser?.getIdToken()
