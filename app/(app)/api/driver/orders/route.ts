@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server"
 import { adminDb } from "@/lib/server/firebase-admin"
-import { verifyDriverSession } from "@/lib/server/driver-auth"
+import { verifyDriverSession } from "@/lib/server/driver-session"
 import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 
 export async function GET(req: Request) {
   const rl = await checkRateLimit(getRateLimitIdentifier(req))
   if (rl) return rl
 
-  const session = await verifyDriverSession(req)
-  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+  const tokenDriverId = verifyDriverSession(req)
+  if (!tokenDriverId) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
   const driverId = searchParams.get("driverId")
 
-  if (!driverId || driverId !== session.driverId) {
+  if (!driverId || driverId !== tokenDriverId) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 })
   }
 
