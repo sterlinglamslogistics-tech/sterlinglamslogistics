@@ -10,7 +10,7 @@ import type { OrderEvent } from "@/lib/server/notifications"
 
 const log = createLogger("api:driver:order-status")
 
-type DriverOrderStatusAction = "picked-up" | "in-transit" | "delivered" | "failed"
+type DriverOrderStatusAction = "started" | "picked-up" | "in-transit" | "delivered" | "failed"
 
 function buildTrackingUrl(req: Request, orderNumber: string): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_ORIGIN
@@ -44,7 +44,7 @@ export async function POST(
     if (!nextStatus) {
       return NextResponse.json({ ok: false, error: "status is required." }, { status: 400 })
     }
-    if (!["picked-up", "in-transit", "delivered", "failed"].includes(nextStatus)) {
+    if (!["started", "picked-up", "in-transit", "delivered", "failed"].includes(nextStatus)) {
       return NextResponse.json({ ok: false, error: "Unsupported status transition." }, { status: 400 })
     }
 
@@ -73,7 +73,18 @@ export async function POST(
 
       const now = new Date()
 
-      if (nextStatus === "picked-up") {
+      // ── Backward transitions (driver reverts a step) ──────────────────────
+      if (nextStatus === "started") {
+        if (data.status !== "picked-up") {
+          txnError = { status: 409, message: "Can only revert to started from picked-up." }
+          return
+        }
+        txn.update(orderRef, { status: "started", pickedUpAt: null, updatedAt: now })
+      } else if (nextStatus === "picked-up" && data.status === "in-transit") {
+        // Revert in-transit → picked-up
+        txn.update(orderRef, { status: "picked-up", inTransitAt: null, updatedAt: now })
+      } else if (nextStatus === "picked-up") {
+        // Forward: started → picked-up
         if (data.status !== "started") {
           txnError = { status: 409, message: "Order must be in started state first." }
           return
@@ -127,7 +138,9 @@ export async function POST(
     }
 
     // Side-effects outside the transaction (best-effort)
-    if (nextStatus === "picked-up") {
+    if (nextStatus === "picked-up" || nextStatus === "in-transit") {
+      await adminUpdateDriver(driverId, { status: "on-delivery" }).catch(() => null)
+    } else if (nextStatus === "started") {
       await adminUpdateDriver(driverId, { status: "on-delivery" }).catch(() => null)
     } else if (nextStatus === "delivered" || nextStatus === "failed") {
       await adminUpdateDriver(driverId, { status: "available" }).catch(() => null)
