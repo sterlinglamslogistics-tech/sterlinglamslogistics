@@ -44,7 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2 } from "lucide-react"
+import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -112,6 +112,8 @@ export default function OrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [activeTab, setActiveTab] = useState<OrderTab>("current")
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([])
+  const [sortCol, setSortCol] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
   const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false)
   const [bulkDriverId, setBulkDriverId] = useState<string>(UNASSIGNED_DRIVER)
   const [reassignOrderId, setReassignOrderId] = useState<string | null>(null)
@@ -543,7 +545,59 @@ export default function OrdersPage() {
           ? incompleteOrders
           : historyOrders
 
-  const visibleOrderIds = visibleOrders.map((o) => o.id)
+  function toggleSort(col: string) {
+    if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc")
+    else { setSortCol(col); setSortDir("asc") }
+  }
+
+  function SortHead({ col, label, className }: { col: string; label: string; className?: string }) {
+    const active = sortCol === col
+    return (
+      <TableHead
+        className={`cursor-pointer select-none whitespace-nowrap ${className ?? ""}`}
+        onClick={() => toggleSort(col)}
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {active
+            ? sortDir === "asc"
+              ? <ArrowUp className="h-3 w-3 text-primary" />
+              : <ArrowDown className="h-3 w-3 text-primary" />
+            : <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+          }
+        </span>
+      </TableHead>
+    )
+  }
+
+  const sortedOrders = [...visibleOrders].sort((a, b) => {
+    if (!sortCol) return 0
+    const dir = sortDir === "asc" ? 1 : -1
+    const val = (o: Order): string | number => {
+      switch (sortCol) {
+        case "orderNumber": return o.orderNumber ?? ""
+        case "customerName": return o.customerName ?? ""
+        case "phone": return o.phone ?? ""
+        case "address": return o.address ?? ""
+        case "amount": return o.amount ?? 0
+        case "status": return o.status ?? ""
+        case "driver": return o.assignedDriver ?? ""
+        case "distance": return o.distanceKm ?? 0
+        case "placementTime": {
+          const d = o.createdAt
+          if (!d) return 0
+          if (typeof d === "object" && "seconds" in (d as object)) return (d as { seconds: number }).seconds
+          return new Date(d as string | number).getTime() / 1000
+        }
+        default: return ""
+      }
+    }
+    const av = val(a), bv = val(b)
+    if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir
+    return String(av).localeCompare(String(bv)) * dir
+  })
+
+  const visibleOrderIds = sortedOrders.map((o) => o.id)
   const selectedVisibleCount = visibleOrderIds.filter((id) => selectedOrderIds.includes(id)).length
   const allVisibleSelected = visibleOrderIds.length > 0 && selectedVisibleCount === visibleOrderIds.length
   const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected
@@ -758,16 +812,16 @@ export default function OrdersPage() {
                   aria-label="Select all visible orders"
                 />
               </TableHead>
-              <TableHead>Order Number</TableHead>
-              <TableHead>Customer Name</TableHead>
-              <TableHead className="hidden md:table-cell">Phone</TableHead>
-              <TableHead className="hidden lg:table-cell">Address</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="hidden sm:table-cell">Driver</TableHead>
+              <SortHead col="orderNumber" label="Order Number" />
+              <SortHead col="customerName" label="Customer Name" />
+              <SortHead col="phone" label="Phone" className="hidden md:table-cell" />
+              <SortHead col="address" label="Address" className="hidden lg:table-cell" />
+              <SortHead col="amount" label="Amount" />
+              <SortHead col="status" label="Status" />
+              <SortHead col="driver" label="Driver" className="hidden sm:table-cell" />
               <TableHead>Track</TableHead>
-              <TableHead>Distance</TableHead>
-              <TableHead>Placement Time</TableHead>
+              <SortHead col="distance" label="Distance" />
+              <SortHead col="placementTime" label="Placement Time" />
               <TableHead>Start Time</TableHead>
               <TableHead>Pick up Time</TableHead>
               {(activeTab === "completed" || activeTab === "history") && <TableHead>Delivery Time</TableHead>}
@@ -775,7 +829,7 @@ export default function OrdersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visibleOrders.map((order) => (
+            {sortedOrders.map((order) => (
               <TableRow key={order.id}>
                 <TableCell>
                   <Checkbox
