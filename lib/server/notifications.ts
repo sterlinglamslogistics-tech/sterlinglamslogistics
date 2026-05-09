@@ -114,6 +114,14 @@ function buildWhatsappContentVariables(
   event: OrderEvent,
   payload: NotificationPayload,
 ): Record<string, string> {
+  // The out_for_delivery template (order_out_for_delivery_eta) uses a single
+  // variable {{1}} inserted into the button URL:
+  //   https://sterlinglamslogistics.com/track/{{1}}
+  // So {{1}} must be the order number (tracking token), not the customer name.
+  if (event === "out_for_delivery") {
+    return { "1": payload.orderNumber ?? "" }
+  }
+
   const statusText: Record<OrderEvent, string> = {
     order_accepted: "has been accepted",
     out_for_delivery: "is on the way",
