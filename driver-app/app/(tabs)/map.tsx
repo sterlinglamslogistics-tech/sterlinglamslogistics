@@ -53,11 +53,14 @@ function formatTime(ts: unknown): string {
 }
 
 function OrderPin({ time }: { time: string }) {
-  const parts = time ? time.split(" ") : [""]
+  const parts = time ? time.split(" ") : ["--"]
   return (
-    <View collapsable={false} style={styles.pin}>
-      <Text style={styles.pinTime}>{parts[0]}</Text>
-      {parts[1] ? <Text style={styles.pinAmPm}>{parts[1]}</Text> : null}
+    <View collapsable={false} style={{ alignItems: "center" }}>
+      <View style={styles.pin}>
+        <Text style={styles.pinTime}>{parts[0]}</Text>
+        {parts[1] ? <Text style={styles.pinAmPm}>{parts[1]}</Text> : null}
+      </View>
+      <View style={styles.pinTail} />
     </View>
   )
 }
@@ -178,6 +181,7 @@ export default function MapScreen() {
               key={p.order.id}
               coordinate={{ latitude: p.lat, longitude: p.lng }}
               onPress={() => setSelected(p)}
+              tracksViewChanges={false}
             >
               <OrderPin time={p.time} />
             </Marker>
@@ -253,13 +257,33 @@ const styles = StyleSheet.create({
   badge: { backgroundColor: "#dcfce7", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
   badgeText: { fontSize: 12, fontWeight: "600", color: "#16a34a" },
   pin: {
-    width: 64, height: 44, borderRadius: 22,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
     backgroundColor: "#1a1a1a",
-    borderWidth: 2.5, borderColor: "#fff",
-    alignItems: "center", justifyContent: "center",
-    elevation: 5,
+    borderWidth: 2,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 64,
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
   },
-  pinTime: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  pinTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 9,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#1a1a1a",
+    marginTop: -1,
+  },
+  pinTime: { color: "#fff", fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
   pinAmPm: { color: "#d1d5db", fontSize: 9, fontWeight: "600" },
   storePinOuter: { alignItems: "center" },
   storePin: {

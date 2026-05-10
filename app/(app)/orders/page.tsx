@@ -739,17 +739,24 @@ export default function OrdersPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Orders
-        </h1>
-        <div className="mt-4 flex items-center gap-5 overflow-x-auto border-b border-border pb-0.5">
+    <div className="flex flex-col gap-4">
+      {/* ── Title row ── */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Orders</h1>
+        <Button onClick={openNewOrderDialog}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Order
+        </Button>
+      </div>
+
+      {/* ── Tabs + bulk action icons ── */}
+      <div className="flex items-center justify-between border-b border-border">
+        <div className="flex items-center gap-5 overflow-x-auto">
           {(["current", "completed", "incomplete", "history"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`border-b-2 pb-3 text-lg transition-colors ${
+              className={`border-b-2 pb-3 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? "border-primary text-primary"
                   : "border-transparent text-muted-foreground hover:text-foreground"
@@ -757,44 +764,31 @@ export default function OrdersPage() {
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
               {tab === "current" && (
-                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-sm text-primary-foreground">{currentOrders.length}</span>
+                <span className="ml-1.5 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{currentOrders.length}</span>
               )}
             </button>
           ))}
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage and track all delivery orders
-        </p>
-        {error && (
-          <p className="mt-2 text-sm text-destructive">{error}</p>
+        {activeTab === "current" && (
+          <div className="flex items-center gap-1.5 pb-2">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={openBulkAssignDialog} disabled={selectedOrderIds.length === 0 || isSaving} title="Assign Orders">
+              <UserPlus className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBulkSendEta} disabled={selectedOrderIds.length === 0 || isSaving} title="Send ETA">
+              <Send className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.print()} disabled={selectedOrderIds.length === 0} title="Print">
+              <Printer className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBulkDelete} disabled={selectedOrderIds.length === 0 || isSaving} title="Delete">
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
         )}
       </div>
 
-      {activeTab === "current" && (
-        <div className="flex justify-between items-start">
-          <div></div>
-          <div className="flex flex-col items-end gap-2">
-            <Button onClick={openNewOrderDialog}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Order
-            </Button>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={openBulkAssignDialog} disabled={selectedOrderIds.length === 0 || isSaving} title="Assign Orders">
-                <UserPlus className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon" onClick={handleBulkSendEta} disabled={selectedOrderIds.length === 0 || isSaving} title="Send ETA">
-                <Send className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon" onClick={() => window.print()} disabled={selectedOrderIds.length === 0} title="Print Label">
-                <Printer className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon" onClick={handleBulkDelete} disabled={selectedOrderIds.length === 0 || isSaving} title="Delete Orders">
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <p className="-mt-2 text-sm text-muted-foreground">Manage and track all delivery orders</p>
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <div>
         {visibleOrders.length === 0 ? (
@@ -805,40 +799,37 @@ export default function OrdersPage() {
           <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-12">
+              <TableHead className="w-10 px-2">
                 <Checkbox
                   checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
                   onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
                   aria-label="Select all visible orders"
                 />
               </TableHead>
-              <SortHead col="orderNumber" label="Order Number" />
-              <SortHead col="customerName" label="Customer Name" />
-              <SortHead col="phone" label="Phone" className="hidden md:table-cell" />
-              <SortHead col="address" label="Address" className="hidden lg:table-cell" />
-              <SortHead col="amount" label="Amount" />
-              <SortHead col="status" label="Status" />
-              <SortHead col="driver" label="Driver" className="hidden sm:table-cell" />
-              <TableHead>Track</TableHead>
-              <SortHead col="distance" label="Distance" />
-              <SortHead col="placementTime" label="Placement Time" />
-              <TableHead>Start Time</TableHead>
-              <TableHead>Pick up Time</TableHead>
-              {(activeTab === "completed" || activeTab === "history") && <TableHead>Delivery Time</TableHead>}
-              {activeTab !== "completed" && activeTab !== "history" && <TableHead>Actions</TableHead>}
+              <SortHead col="orderNumber" label="Order No." className="w-24" />
+              <SortHead col="customerName" label="C. Name" />
+              <SortHead col="address" label="C. Address" className="hidden lg:table-cell" />
+              <SortHead col="amount" label="Amount" className="w-28" />
+              <SortHead col="distance" label="Distance" className="w-24" />
+              <SortHead col="placementTime" label="Order Placed" className="w-28" />
+              <SortHead col="status" label="Status" className="w-28" />
+              <SortHead col="driver" label="Driver" className="w-36" />
+              <TableHead className="w-16">Track</TableHead>
+              {(activeTab === "completed" || activeTab === "history") && <TableHead className="w-28">Delivery Time</TableHead>}
+              {activeTab !== "completed" && activeTab !== "history" && <TableHead className="w-10"></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedOrders.map((order) => (
-              <TableRow key={order.id}>
-                <TableCell>
+              <TableRow key={order.id} className="text-sm">
+                <TableCell className="px-2">
                   <Checkbox
                     checked={selectedOrderIds.includes(order.id)}
                     onCheckedChange={(checked) => toggleOrderSelection(order.id, checked === true)}
                     aria-label={`Select order ${order.orderNumber}`}
                   />
                 </TableCell>
-                <TableCell className="font-medium text-foreground">
+                <TableCell className="font-medium text-foreground whitespace-nowrap">
                   <button
                     onClick={() => setSelectedOrder(order)}
                     className="underline hover:text-primary"
@@ -846,25 +837,35 @@ export default function OrdersPage() {
                     {order.orderNumber}
                   </button>
                 </TableCell>
-                <TableCell className="text-foreground">{order.customerName}</TableCell>
-                <TableCell className="hidden text-muted-foreground md:table-cell">
-                  {order.phone}
-                </TableCell>
-                <TableCell className="hidden max-w-[200px] truncate text-muted-foreground lg:table-cell">
+                <TableCell className="text-foreground whitespace-nowrap">{order.customerName}</TableCell>
+                <TableCell className="hidden max-w-[180px] truncate text-muted-foreground lg:table-cell">
                   {order.address}
                 </TableCell>
-                <TableCell className="font-medium text-foreground">
+                <TableCell className="font-medium text-foreground whitespace-nowrap">
                   {formatCurrency(order.amount)}
                 </TableCell>
+                <TableCell className="text-muted-foreground whitespace-nowrap">{formatDistance(order.distanceKm)}</TableCell>
+                <TableCell className="text-muted-foreground whitespace-nowrap">{formatOrderTime(order.createdAt)}</TableCell>
                 <TableCell>
                   <StatusBadge status={order.status} />
                 </TableCell>
-                <TableCell className="hidden text-muted-foreground sm:table-cell">
+                <TableCell>
                   {order.assignedDriver ? (
-                    <span>{getDriverDisplayName(order.assignedDriver)}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm text-foreground">{getDriverDisplayName(order.assignedDriver)}</span>
+                      {activeTab !== "completed" && activeTab !== "history" && (
+                        <button
+                          onClick={() => setReassignOrderId(order.id)}
+                          className="text-xs text-muted-foreground hover:text-primary"
+                          title="Reassign"
+                        >
+                          ↺
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <Select onValueChange={(value) => handleAssignDriver(order.id, value)}>
-                      <SelectTrigger className="h-9 w-[130px] rounded-md border bg-secondary/50 text-sm font-medium shadow-sm">
+                      <SelectTrigger className="h-8 w-[110px] rounded-md border bg-amber-50 text-xs font-medium shadow-sm border-amber-200 text-amber-700">
                         <SelectValue placeholder="+ Assign" />
                       </SelectTrigger>
                       <SelectContent className="shadow-xl">
@@ -879,7 +880,7 @@ export default function OrdersPage() {
                 </TableCell>
                 <TableCell>
                   {order.assignedDriver ? (
-                    <Button asChild size="sm" variant="outline" className="h-8">
+                    <Button asChild size="sm" variant="link" className="h-7 px-0 text-primary">
                       <Link
                         href={`/track/${encodeURIComponent(order.orderNumber)}`}
                         target="_blank"
@@ -890,18 +891,14 @@ export default function OrdersPage() {
                     </Button>
                   ) : null}
                 </TableCell>
-                <TableCell className="text-muted-foreground">{formatDistance(order.distanceKm)}</TableCell>
-                <TableCell className="text-muted-foreground">{formatOrderTime(order.createdAt)}</TableCell>
-                <TableCell className="text-muted-foreground">{formatOrderTime(order.startedAt)}</TableCell>
-                <TableCell className="text-muted-foreground">{formatOrderTime(order.pickedUpAt)}</TableCell>
                 {(activeTab === "completed" || activeTab === "history") && (
-                  <TableCell className="text-muted-foreground">{formatOrderTime(order.deliveredAt)}</TableCell>
+                  <TableCell className="text-muted-foreground whitespace-nowrap">{formatOrderTime(order.deliveredAt)}</TableCell>
                 )}
                 {activeTab !== "completed" && activeTab !== "history" && (
-                  <TableCell>
+                  <TableCell className="px-1">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-8 w-8">
+                        <Button variant="ghost" size="icon" className="h-7 w-7">
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
