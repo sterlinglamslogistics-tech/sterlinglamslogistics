@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } from "react-native"
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Platform } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps"
 import { Feather, MaterialIcons } from "@expo/vector-icons"
@@ -55,8 +55,8 @@ function formatTime(ts: unknown): string {
 function OrderPin({ time }: { time: string }) {
   const parts = time ? time.split(" ") : ["--"]
   return (
-    <View collapsable={false} style={{ alignItems: "center" }}>
-      <View collapsable={false} style={styles.pin}>
+    <View collapsable={false} renderToHardwareTextureAndroid style={{ alignItems: "center" }}>
+      <View collapsable={false} renderToHardwareTextureAndroid style={styles.pin}>
         <Text style={styles.pinTime}>{parts[0]}</Text>
         {parts[1] ? <Text style={styles.pinAmPm}>{parts[1]}</Text> : null}
       </View>
@@ -67,8 +67,8 @@ function OrderPin({ time }: { time: string }) {
 
 function StorePin() {
   return (
-    <View collapsable={false} style={styles.storePinOuter}>
-      <View collapsable={false} style={styles.storePin}>
+    <View collapsable={false} renderToHardwareTextureAndroid style={styles.storePinOuter}>
+      <View collapsable={false} renderToHardwareTextureAndroid style={styles.storePin}>
         <MaterialIcons name="storefront" size={20} color="#fff" />
       </View>
       <View collapsable={false} style={styles.storePinTail} />
@@ -82,6 +82,8 @@ export default function MapScreen() {
   const [pinned, setPinned] = useState<PinnedOrder[]>([])
   const [geocoding, setGeocoding] = useState(false)
   const [selected, setSelected] = useState<PinnedOrder | null>(null)
+  // Android: keep tracksViewChanges=true briefly so the marker snapshot captures the painted view
+  const [markersReady, setMarkersReady] = useState(false)
 
   const activeOrders = orders.filter(
     (o) => o.status === "started" || o.status === "picked-up" || o.status === "in-transit"
@@ -112,6 +114,9 @@ export default function MapScreen() {
 
     setPinned(results)
     setGeocoding(false)
+    // Give Android time to paint the custom views before freezing the marker snapshot
+    setMarkersReady(false)
+    setTimeout(() => setMarkersReady(true), 500)
   }, [orders])
 
   useEffect(() => {
@@ -181,7 +186,7 @@ export default function MapScreen() {
               key={p.order.id}
               coordinate={{ latitude: p.lat, longitude: p.lng }}
               onPress={() => setSelected(p)}
-              tracksViewChanges={false}
+              tracksViewChanges={Platform.OS === "android" ? !markersReady : false}
             >
               <OrderPin time={p.time} />
             </Marker>
