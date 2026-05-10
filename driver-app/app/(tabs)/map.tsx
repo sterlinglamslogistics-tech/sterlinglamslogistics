@@ -56,11 +56,11 @@ function OrderPin({ time }: { time: string }) {
   const parts = time ? time.split(" ") : ["--"]
   return (
     <View collapsable={false} style={{ alignItems: "center" }}>
-      <View style={styles.pin}>
+      <View collapsable={false} style={styles.pin}>
         <Text style={styles.pinTime}>{parts[0]}</Text>
         {parts[1] ? <Text style={styles.pinAmPm}>{parts[1]}</Text> : null}
       </View>
-      <View style={styles.pinTail} />
+      <View collapsable={false} style={styles.pinTail} />
     </View>
   )
 }
@@ -68,10 +68,10 @@ function OrderPin({ time }: { time: string }) {
 function StorePin() {
   return (
     <View collapsable={false} style={styles.storePinOuter}>
-      <View style={styles.storePin}>
+      <View collapsable={false} style={styles.storePin}>
         <MaterialIcons name="storefront" size={20} color="#fff" />
       </View>
-      <View style={styles.storePinTail} />
+      <View collapsable={false} style={styles.storePinTail} />
     </View>
   )
 }
