@@ -176,6 +176,7 @@ export default function MapScreen() {
             coordinate={{ latitude: HUB_LAT, longitude: HUB_LNG }}
             title="Sterlinglams"
             description="Pickup – Ikota Ajah, Lagos"
+            tracksViewChanges={false}
           >
             <StorePin />
           </Marker>
@@ -262,6 +263,7 @@ const styles = StyleSheet.create({
   badge: { backgroundColor: "#dcfce7", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
   badgeText: { fontSize: 12, fontWeight: "600", color: "#16a34a" },
   pin: {
+<<<<<<< HEAD
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
@@ -290,14 +292,23 @@ const styles = StyleSheet.create({
   },
   pinTime: { color: "#fff", fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
   pinAmPm: { color: "#d1d5db", fontSize: 9, fontWeight: "600" },
+=======
+    width: 68, height: 46, borderRadius: 23,
+    backgroundColor: "#1a1a1a",
+    borderWidth: 3, borderColor: "#ffffff",
+    alignItems: "center", justifyContent: "center",
+    overflow: "hidden",
+  },
+  pinTime: { color: "#ffffff", fontSize: 13, fontWeight: "800" },
+  pinAmPm: { color: "#cccccc", fontSize: 10, fontWeight: "600" },
+>>>>>>> a81fc59 (fix: tracksViewChanges=false and overflow:hidden for Android map markers)
   storePinOuter: { alignItems: "center" },
   storePin: {
-    width: 44, height: 44, borderRadius: 12,
+    width: 46, height: 46, borderRadius: 10,
     backgroundColor: "#f97316",
-    borderWidth: 2.5, borderColor: "#fff",
+    borderWidth: 3, borderColor: "#ffffff",
     alignItems: "center", justifyContent: "center",
-    shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 5,
-    shadowOffset: { width: 0, height: 3 }, elevation: 5,
+    overflow: "hidden",
   },
   storePinTail: {
     width: 0, height: 0,
