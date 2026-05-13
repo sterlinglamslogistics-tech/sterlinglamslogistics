@@ -4,15 +4,24 @@ import Constants from "expo-constants"
 import { driverFetch } from "./api"
 import { savePushToken } from "./storage"
 
+// shouldShowAlert was removed in SDK 53 — use shouldShowBanner + shouldShowList
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
 })
 
+function isExpoGo(): boolean {
+  return Constants.appOwnership === "expo"
+}
+
 export async function registerForPushNotifications(driverId: string): Promise<string | null> {
+  // Remote push tokens are not available in Expo Go since SDK 53
+  if (isExpoGo()) return null
+
   const { status: existingStatus } = await Notifications.getPermissionsAsync()
   let finalStatus = existingStatus
 
@@ -71,6 +80,7 @@ export function showLocalNotification(
   data?: Record<string, unknown>,
   channelId = "default"
 ) {
+  // Local notifications (scheduleNotificationAsync) work in both Expo Go and dev builds
   return Notifications.scheduleNotificationAsync({
     content: { title, body, data, sound: true, ...(Platform.OS === "android" ? { channelId } : {}) },
     trigger: null,
