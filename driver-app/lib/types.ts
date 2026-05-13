@@ -1,6 +1,13 @@
-// Re-export types from constants for backwards compatibility
-import type { OrderStatus, DriverStatus } from "./constants"
-export type { OrderStatus, DriverStatus } from "./constants"
+export type OrderStatus =
+  | "unassigned"
+  | "started"
+  | "picked-up"
+  | "in-transit"
+  | "delivered"
+  | "failed"
+  | "cancelled"
+
+export type DriverStatus = "available" | "on-delivery" | "offline"
 
 export interface OrderItem {
   name: string
@@ -20,18 +27,12 @@ export interface Order {
   status: OrderStatus
   assignedDriver: string | null
   items?: OrderItem[]
-
-  // Pick-up From
   pickupName?: string
   pickupPhone?: string
   pickupAddress?: string
   pickupTime?: string
-
-  // Deliver to scheduling
   deliveryDate?: string
   deliveryTime?: string
-
-  // Order Details (optional)
   subtotal?: number
   taxRate?: number
   tax?: number
@@ -43,16 +44,8 @@ export interface Order {
   proofOfDelivery?: string
   proofOfPickup?: string
   deliveryNote?: string
-  // Set by driver at delivery
-  photoData?: string        // base64 JPEG delivery photo
-  signatureData?: string    // base64 SVG customer signature
-  deliveryLat?: number      // GPS latitude at moment of delivery
-  deliveryLng?: number      // GPS longitude at moment of delivery
-
   customerRating?: number
   driverRating?: number
-  customerFeedback?: string
-  customerRatedAt?: unknown
   distanceKm?: number
   lat?: number
   lng?: number
@@ -76,29 +69,26 @@ export interface Driver {
   status: DriverStatus
   rating: number
   note?: string
-  password?: string
   lastLocation?: { lat: number; lng: number }
-  locationUpdatedAt?: unknown
 }
 
-export interface NotificationChannelResult {
-  sent: boolean
-  reason?: string
-  detail?: string
-}
-
-export interface NotificationLog {
+export interface DriverSession {
   id: string
-  event: "order_accepted" | "out_for_delivery" | "delivered"
+  name: string
+  phone: string
+  token: string
+}
+
+export interface PendingDelivery {
+  id: string
   orderId: string
   orderNumber: string
-  customerName?: string
-  customerPhone?: string
-  customerEmail?: string | null
-  sms: NotificationChannelResult
-  whatsapp: NotificationChannelResult
-  email: NotificationChannelResult
-  createdAt?: unknown
+  customerName: string
+  driverId: string
+  photoData: string | null
+  signatureData: string | null
+  deliveryNotes: string
+  capturedAt: number
 }
 
 export function formatCurrency(amount: number): string {
@@ -107,4 +97,39 @@ export function formatCurrency(amount: number): string {
     currency: "NGN",
     minimumFractionDigits: 0,
   }).format(amount)
+}
+
+export const ACTIVE_STATUSES: OrderStatus[] = ["unassigned", "started", "picked-up", "in-transit"]
+export const TERMINAL_STATUSES: OrderStatus[] = ["delivered", "failed", "cancelled"]
+
+export const STATUS_LABELS: Record<OrderStatus, string> = {
+  unassigned: "Unassigned",
+  started: "Started",
+  "picked-up": "Picked Up",
+  "in-transit": "In Transit",
+  delivered: "Delivered",
+  failed: "Failed",
+  cancelled: "Cancelled",
+}
+
+export interface ChatThread {
+  id: string
+  type: "dispatcher" | "customer"
+  name: string
+  avatar?: string
+  orderId?: string
+  orderNumber?: string
+  lastMessage: string
+  lastMessageAt: number | string
+  unreadCount: number
+}
+
+export interface ChatMessage {
+  id: string
+  threadId: string
+  text: string
+  senderId: string
+  senderType: "driver" | "dispatcher" | "customer" | "system"
+  timestamp: number | string
+  isRead: boolean
 }

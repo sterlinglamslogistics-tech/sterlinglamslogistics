@@ -27,14 +27,34 @@ interface OrderDetailDialogProps {
   getDriverDisplayName: (driverId: string | null) => string
 }
 
+function timestampToMs(ts: unknown): number | null {
+  if (!ts) return null
+  if (ts instanceof Date) return ts.getTime()
+  if (typeof ts === "number") return ts
+  if (typeof ts === "object" && ts !== null && "seconds" in ts)
+    return (ts as { seconds: number }).seconds * 1000
+  if (typeof ts === "string") {
+    const d = new Date(ts)
+    return isNaN(d.getTime()) ? null : d.getTime()
+  }
+  return null
+}
+
+function calcDuration(from: unknown, to: unknown): string {
+  const fromMs = timestampToMs(from)
+  const toMs = timestampToMs(to)
+  if (!fromMs || !toMs) return "N/A"
+  const diffMins = Math.round((toMs - fromMs) / 60000)
+  if (diffMins < 1) return "< 1 min"
+  if (diffMins < 60) return `${diffMins} mins`
+  const hrs = Math.floor(diffMins / 60)
+  const rem = diffMins % 60
+  return rem > 0 ? `${hrs} hour${hrs > 1 ? "s" : ""} ${rem} mins` : `${hrs} hour${hrs > 1 ? "s" : ""}`
+}
+
 export function OrderDetailDialog({ order, onClose, onDelete, getDriverDisplayName }: OrderDetailDialogProps) {
   return (
-    <Dialog
-      open={!!order}
-      onOpenChange={(open) => {
-        if (!open) onClose()
-      }}
-    >
+    <Dialog open={!!order} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-[700px] max-h-[90vh] overflow-y-auto">
         {order && (
           <>
@@ -63,10 +83,7 @@ export function OrderDetailDialog({ order, onClose, onDelete, getDriverDisplayNa
                       <Printer className="mr-2 h-4 w-4" />
                       Print order
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => onDelete(order.id)}
-                    >
+                    <DropdownMenuItem variant="destructive" onSelect={() => onDelete(order.id)}>
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
                     </DropdownMenuItem>
@@ -105,7 +122,9 @@ export function OrderDetailDialog({ order, onClose, onDelete, getDriverDisplayNa
                       <span className="text-muted-foreground mr-2">{item.qty ?? 1}</span>
                       x {item.name}
                     </p>
-                    <p className="text-sm font-medium whitespace-nowrap ml-4">{formatCurrency((item.price ?? 0) * (item.qty ?? 1))}</p>
+                    <p className="text-sm font-medium whitespace-nowrap ml-4">
+                      {formatCurrency((item.price ?? 0) * (item.qty ?? 1))}
+                    </p>
                   </div>
                   {item.meta && (
                     <p className="text-xs text-muted-foreground ml-8 whitespace-pre-line">{item.meta}</p>
@@ -175,34 +194,96 @@ export function OrderDetailDialog({ order, onClose, onDelete, getDriverDisplayNa
               </p>
               <p className="text-sm">
                 <span className="text-muted-foreground">Order Completion Time: </span>
-                {formatOrderTime(order.deliveredAt) === "--" ? "N/A" : formatOrderTime(order.deliveredAt)}
+                {order.deliveredAt
+                  ? calcDuration(order.createdAt, order.deliveredAt)
+                  : formatOrderTime(order.deliveredAt) === "--" ? "N/A" : formatOrderTime(order.deliveredAt)}
               </p>
-              <div className="border-t pt-2 text-sm">
-                <span className="text-muted-foreground">Delivery Instruction: </span>
-                {order.deliveryInstruction || "N/A"}
-              </div>
+              {order.deliveryInstruction && (
+                <div className="border-t pt-2 text-sm">
+                  <span className="text-muted-foreground">Delivery Instruction: </span>
+                  {order.deliveryInstruction}
+                </div>
+              )}
+              {order.signatureData && (
+                <div className="border-t pt-2 text-sm">
+                  <span className="text-muted-foreground">Dropoff Instructions: </span>
+                  Signed by: {getDriverDisplayName(order.assignedDriver)}
+                </div>
+              )}
             </div>
 
-            {/* Payment Details / Proof */}
+            {/* Payment / Proof of Delivery / Proof of Pickup */}
             <div className="rounded-md border p-3">
               <div className="grid grid-cols-3 gap-4 text-sm">
+                {/* Payment */}
                 <div className="space-y-1">
                   <p className="font-semibold">Payment Details</p>
-                  <p><span className="text-muted-foreground">Payment Method: </span>{order.paymentMethod || "N/A"}</p>
+                  <p>
+                    <span className="text-muted-foreground">Payment Method: </span>
+                    {order.paymentMethod || "N/A"}
+                  </p>
                 </div>
+
+                {/* Proof of Delivery — signature first, fallback to photo */}
                 <div className="space-y-1">
                   <p className="font-semibold">Proof of Delivery</p>
-                  <p className="text-muted-foreground">{order.proofOfDelivery || "N/A"}</p>
+                  {order.signatureData ? (
+                    <img
+                      src={order.signatureData}
+                      alt="Customer signature"
+                      className="h-20 w-full object-contain border rounded bg-white"
+                    />
+                  ) : order.photoData ? (
+                    <img
+                      src={order.photoData}
+                      alt="Delivery photo"
+                      className="h-20 w-full object-cover rounded"
+                    />
+                  ) : order.proofOfDelivery ? (
+                    <img
+                      src={order.proofOfDelivery}
+                      alt="Proof of delivery"
+                      className="h-20 w-full object-cover rounded"
+                    />
+                  ) : (
+                    <p className="text-orange-500 text-xs font-medium">No Proof of Delivery Taken</p>
+                  )}
                 </div>
+
+                {/* Proof of Pickup */}
                 <div className="space-y-1">
                   <p className="font-semibold">Proof of Pickup</p>
-                  <p className="text-muted-foreground">{order.proofOfPickup || "N/A"}</p>
+                  {order.proofOfPickup ? (
+                    <img
+                      src={order.proofOfPickup}
+                      alt="Proof of pickup"
+                      className="h-20 w-full object-cover rounded"
+                    />
+                  ) : (
+                    <p className="text-orange-500 text-xs font-medium">No Proof of Pickup Taken</p>
+                  )}
                 </div>
               </div>
-              <div className="border-t mt-2 pt-2 text-sm">
+
+              {/* Delivery note */}
+              <div className="border-t mt-3 pt-2 text-sm">
                 <span className="text-muted-foreground">Delivery Note: </span>
                 {order.deliveryNote || "N/A"}
               </div>
+
+              {/* GPS delivery location */}
+              {order.deliveryLat != null && order.deliveryLng != null && (
+                <div className="mt-1 text-sm">
+                  <a
+                    href={`https://www.google.com/maps?q=${order.deliveryLat},${order.deliveryLng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline hover:text-blue-800"
+                  >
+                    Delivery Location ({order.deliveryLat.toFixed(7)}, {order.deliveryLng.toFixed(7)})
+                  </a>
+                </div>
+              )}
             </div>
           </>
         )}

@@ -32,8 +32,10 @@ export async function POST(
       status?: DriverOrderStatusAction
       photoData?: string
       signatureData?: string
-      deliveryNotes?: string
+      deliveryNote?: string
       failedReason?: string
+      deliveryLat?: number
+      deliveryLng?: number
     }
 
     const nextStatus = body.status
@@ -126,10 +128,12 @@ export async function POST(
 
     // Persist proof-of-delivery fields (best-effort — never blocks status update)
     if (nextStatus === "delivered") {
-      const proof: Record<string, string> = {}
+      const proof: Record<string, unknown> = {}
       if (body.photoData) proof.photoData = body.photoData
       if (body.signatureData) proof.signatureData = body.signatureData
-      if (body.deliveryNotes) proof.deliveryNotes = body.deliveryNotes
+      if (body.deliveryNote) proof.deliveryNote = body.deliveryNote
+      if (typeof body.deliveryLat === "number") proof.deliveryLat = body.deliveryLat
+      if (typeof body.deliveryLng === "number") proof.deliveryLng = body.deliveryLng
       if (Object.keys(proof).length > 0) {
         adminDb.collection("orders").doc(orderId).update(proof).catch((err) =>
           log.error({ err, orderId }, "Failed to save proof of delivery")

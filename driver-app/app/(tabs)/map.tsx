@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking, Platform } from "react-native"
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps"
-import { Feather, MaterialIcons } from "@expo/vector-icons"
-import * as Location from "expo-location"
+import MapView, { Marker, PROVIDER_GOOGLE, Callout } from "react-native-maps"
+import { MaterialIcons, Feather } from "@expo/vector-icons"
 import { useDriver } from "@/context/DriverContext"
 import type { Order } from "@/lib/types"
 
+const GMAPS_KEY = "AIzaSyBzQ99MEiVzwN8alDZykNoP1hy6IG8679g"
 const HUB_LAT = 6.465305
 const HUB_LNG = 3.557488
 
@@ -17,25 +17,23 @@ interface PinnedOrder {
   lng: number
 }
 
-// In-memory geocode cache — survives re-renders, cleared on app restart
 const geocodeCache = new Map<string, { lat: number; lng: number } | null>()
 
 async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
   const q = address.trim()
   if (!q) return null
   if (geocodeCache.has(q)) return geocodeCache.get(q) ?? null
-
   try {
-    // Use expo-location's device geocoder — uses native Google Maps on Android,
-    // no API key required, works well with Nigerian addresses
-    const results = await Location.geocodeAsync(q)
-    if (results && results.length > 0 && results[0].latitude && results[0].longitude) {
-      const coords = { lat: results[0].latitude, lng: results[0].longitude }
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${GMAPS_KEY}`
+    const res = await fetch(url)
+    const json = await res.json()
+    if (json.status === "OK" && json.results?.length > 0) {
+      const { lat, lng } = json.results[0].geometry.location
+      const coords = { lat, lng }
       geocodeCache.set(q, coords)
       return coords
     }
   } catch { /* fall through */ }
-
   geocodeCache.set(q, null)
   return null
 }
@@ -52,78 +50,60 @@ function formatTime(ts: unknown): string {
   return d.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit", hour12: true }).toUpperCase()
 }
 
-function OrderPin({ time }: { time: string }) {
-  const parts = time ? time.split(" ") : ["--"]
-  return (
-    <View collapsable={false} renderToHardwareTextureAndroid style={{ alignItems: "center" }}>
-      <View collapsable={false} renderToHardwareTextureAndroid style={styles.pin}>
-        <Text style={styles.pinTime}>{parts[0]}</Text>
-        {parts[1] ? <Text style={styles.pinAmPm}>{parts[1]}</Text> : null}
-      </View>
-      <View collapsable={false} style={styles.pinTail} />
-    </View>
-  )
-}
-
-function StorePin() {
-  return (
-    <View collapsable={false} renderToHardwareTextureAndroid style={styles.storePinOuter}>
-      <View collapsable={false} renderToHardwareTextureAndroid style={styles.storePin}>
-        <MaterialIcons name="storefront" size={20} color="#fff" />
-      </View>
-      <View collapsable={false} style={styles.storePinTail} />
-    </View>
-  )
-}
-
 export default function MapScreen() {
-  const { liveGps, orders } = useDriver()
+  const { liveGps, orders, setDrawerOpen } = useDriver()
   const mapRef = useRef<MapView>(null)
   const [pinned, setPinned] = useState<PinnedOrder[]>([])
   const [geocoding, setGeocoding] = useState(false)
   const [selected, setSelected] = useState<PinnedOrder | null>(null)
-  // Android: keep tracksViewChanges=true briefly so the marker snapshot captures the painted view
-  const [markersReady, setMarkersReady] = useState(false)
 
   const activeOrders = orders.filter(
-    (o) => o.status === "started" || o.status === "picked-up" || o.status === "in-transit"
+    (o) => o.status === "started" || o.status === "picked-up" || o.status === "in-transit" || o.status === "unassigned"
   )
 
   const geocodeOrders = useCallback(async () => {
+    console.log('[MAP] geocodeOrders called, activeOrders count:', activeOrders.length)
     if (activeOrders.length === 0) { setPinned([]); return }
     setGeocoding(true)
     const results: PinnedOrder[] = []
 
-    for (const order of activeOrders) {
-      const time = formatTime((order as any).startedAt ?? order.createdAt)
+    for (let idx = 0; idx < activeOrders.length; idx++) {
+      const order = activeOrders[idx]
+      const time = formatTime(order.startedAt ?? order.createdAt)
+      console.log(`[MAP] Processing order ${order.id}, address: ${order.address}`)
 
-      // Use stored coordinates if available
       if (typeof order.lat === "number" && typeof order.lng === "number") {
+        console.log(`[MAP] Order ${order.id} has stored coords:`, order.lat, order.lng)
         results.push({ order, time, lat: order.lat, lng: order.lng })
         continue
       }
 
-      // Geocode via Nominatim (direct, no auth needed)
       if (order.address) {
+        console.log(`[MAP] Geocoding address for order ${order.id}...`)
         const coords = await geocodeAddress(order.address)
         if (coords) {
+          console.log(`[MAP] Geocoding succeeded for order ${order.id}:`, coords)
           results.push({ order, time, lat: coords.lat, lng: coords.lng })
+          continue
+        } else {
+          console.log(`[MAP] Geocoding failed for order ${order.id}, using fallback`)
         }
       }
+
+      const offset = idx * 0.005
+      const fallbackLat = HUB_LAT + offset
+      const fallbackLng = HUB_LNG + offset
+      console.log(`[MAP] Using fallback coords for order ${order.id}:`, fallbackLat, fallbackLng)
+      results.push({ order, time, lat: fallbackLat, lng: fallbackLng })
     }
 
+    console.log('[MAP] Total pinned orders:', results.length)
     setPinned(results)
     setGeocoding(false)
-    // Give Android time to paint the custom views before freezing the marker snapshot
-    setMarkersReady(false)
-    setTimeout(() => setMarkersReady(true), 500)
   }, [orders])
 
-  useEffect(() => {
-    geocodeOrders()
-  }, [geocodeOrders])
+  useEffect(() => { geocodeOrders() }, [geocodeOrders])
 
-  // Center map on driver when GPS first arrives
   useEffect(() => {
     if (!liveGps || !mapRef.current) return
     mapRef.current.animateToRegion({
@@ -135,6 +115,7 @@ export default function MapScreen() {
   }, [liveGps?.lat, liveGps?.lng])
 
   if (!liveGps) {
+    console.log('[MAP] liveGps is null, showing loading state')
     return (
       <SafeAreaView style={styles.center}>
         <ActivityIndicator size="large" color="#16a34a" />
@@ -143,17 +124,19 @@ export default function MapScreen() {
     )
   }
 
+  console.log('[MAP] Rendering map with liveGps:', liveGps, 'pinned orders:', pinned.length)
+
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }} edges={["top"]}>
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => setDrawerOpen(true)} style={styles.headerBtn}>
+          <Feather name="menu" size={22} color="#111827" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Map</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {geocoding && <ActivityIndicator size="small" color="#6b7280" />}
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {activeOrders.length} order{activeOrders.length !== 1 ? "s" : ""}
-            </Text>
-          </View>
+        <View style={styles.headerBtn}>
+          {geocoding
+            ? <ActivityIndicator size="small" color="#6b7280" />
+            : <View style={{ width: 22 }} />}
         </View>
       </View>
 
@@ -168,35 +151,28 @@ export default function MapScreen() {
             latitudeDelta: 0.12,
             longitudeDelta: 0.12,
           }}
-          showsUserLocation
           showsMyLocationButton={false}
+          showsUserLocation={true}
         >
-          {/* Sterlinglams hub / store pin */}
           <Marker
             coordinate={{ latitude: HUB_LAT, longitude: HUB_LNG }}
-            title="Sterlinglams"
-            description="Pickup – Ikota Ajah, Lagos"
-            tracksViewChanges={false}
-          >
-            <StorePin />
-          </Marker>
+            title="Store"
+            description="Victoria Garden City Hub"
+          />
 
-          {/* Order time pins */}
           {pinned.map((p) => (
             <Marker
               key={p.order.id}
               coordinate={{ latitude: p.lat, longitude: p.lng }}
+              title={`#${p.order.orderNumber} - ${p.time}`}
+              description={p.order.customerName}
               onPress={() => setSelected(p)}
-              tracksViewChanges={Platform.OS === "android" ? !markersReady : false}
-            >
-              <OrderPin time={p.time} />
-            </Marker>
+            />
           ))}
         </MapView>
 
-        {/* My location button */}
         <TouchableOpacity
-          style={styles.myLocBtn}
+          style={styles.gpsBtn}
           onPress={() => {
             if (liveGps && mapRef.current) {
               mapRef.current.animateToRegion({
@@ -208,10 +184,9 @@ export default function MapScreen() {
             }
           }}
         >
-          <Feather name="navigation" size={18} color="#2563eb" />
+          <MaterialIcons name="my-location" size={22} color="#374151" />
         </TouchableOpacity>
 
-        {/* Order detail bottom sheet on pin tap */}
         {selected && (
           <View style={styles.sheet}>
             <View style={styles.sheetHandle} />
@@ -255,66 +230,48 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", gap: 12 },
   waiting: { fontSize: 14, color: "#6b7280" },
   header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 16, paddingVertical: 12,
-    backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#f3f4f6",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: "#fff",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e5e7eb",
   },
+  headerBtn: { width: 40, alignItems: "center" },
   headerTitle: { fontSize: 18, fontWeight: "700", color: "#111827" },
-  badge: { backgroundColor: "#dcfce7", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100 },
-  badgeText: { fontSize: 12, fontWeight: "600", color: "#16a34a" },
-  pin: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: "#1a1a1a",
-    borderWidth: 2,
-    borderColor: "#fff",
+  gpsBtn: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 64,
-    overflow: "hidden",
-  },
-  pinTail: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 7,
-    borderRightWidth: 7,
-    borderTopWidth: 9,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderTopColor: "#1a1a1a",
-    marginTop: -1,
-  },
-  pinTime: { color: "#fff", fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
-  pinAmPm: { color: "#d1d5db", fontSize: 9, fontWeight: "600" },
-  storePinOuter: { alignItems: "center" },
-  storePin: {
-    width: 46, height: 46, borderRadius: 10,
-    backgroundColor: "#f97316",
-    borderWidth: 3, borderColor: "#ffffff",
-    alignItems: "center", justifyContent: "center",
-    overflow: "hidden",
-  },
-  storePinTail: {
-    width: 0, height: 0,
-    borderLeftWidth: 8, borderRightWidth: 8, borderTopWidth: 10,
-    borderLeftColor: "transparent", borderRightColor: "transparent",
-    borderTopColor: "#f97316", marginTop: -1,
-  },
-  myLocBtn: {
-    position: "absolute", bottom: 20, right: 16,
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: "#fff", borderWidth: 1, borderColor: "#e5e7eb",
-    alignItems: "center", justifyContent: "center",
-    shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 }, elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   sheet: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 16, paddingBottom: 32,
-    shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 12,
-    shadowOffset: { width: 0, height: -3 }, elevation: 8,
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    paddingBottom: 32,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -3 },
+    elevation: 8,
   },
   sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: "#d1d5db", alignSelf: "center", marginBottom: 14 },
   sheetRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
