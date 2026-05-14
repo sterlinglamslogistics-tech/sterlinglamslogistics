@@ -189,6 +189,27 @@ export default function RoutesPage() {
   }, [drivers, selectedOrder])
   const selectedDestination = selectedOrder ? orderCoords[selectedOrder.id] : null
 
+  // ── Helper: native-style GPS navigation arrow for driver markers ──
+  function makeDriverArrowIcon(size: number = 38): google.maps.Icon {
+    const half = size / 2
+    // Classic Google Maps navigation chevron — filled blue arrow pointing north
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 40 40">
+      <defs>
+        <filter id="ds" x="-40%" y="-40%" width="180%" height="180%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.35"/>
+        </filter>
+      </defs>
+      <path d="M20 4 L34 33 L20 27 L6 33 Z"
+        fill="#4285F4" stroke="white" stroke-width="2.5" stroke-linejoin="round" filter="url(%23ds)"/>
+      <circle cx="20" cy="20" r="3.5" fill="white" opacity="0.9"/>
+    </svg>`
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      scaledSize: new google.maps.Size(size, size),
+      anchor: new google.maps.Point(half, half),
+    }
+  }
+
   // ── Helper: build filled‑circle SVG marker with single-line label ──
   function makeLabeledMarkerIcon(
     bgColor: string,
@@ -510,19 +531,19 @@ export default function RoutesPage() {
         animate()
         // Update icon (selection state may have changed)
         const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
-        const size = isSelectedDrv ? 48 : 42
-        existing.setIcon(makeLabeledMarkerIcon("#3b82f6", driver.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase(), size, isSelectedDrv ? 12 : 10))
+        const size = isSelectedDrv ? 46 : 38
+        existing.setIcon(makeDriverArrowIcon(size))
         existing.setZIndex(isSelectedDrv ? 998 : 20)
       } else {
         // Create new marker for this driver
         const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
-        const size = isSelectedDrv ? 48 : 42
+        const size = isSelectedDrv ? 46 : 38
 
         const marker = new google.maps.Marker({
           map,
           position: newPos,
           title: driver.name,
-          icon: makeLabeledMarkerIcon("#3b82f6", driver.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase(), size, isSelectedDrv ? 12 : 10),
+          icon: makeDriverArrowIcon(size),
           zIndex: isSelectedDrv ? 998 : 20,
         })
 
