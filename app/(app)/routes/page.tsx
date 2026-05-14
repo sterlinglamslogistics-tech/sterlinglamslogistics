@@ -189,19 +189,14 @@ export default function RoutesPage() {
   }, [drivers, selectedOrder])
   const selectedDestination = selectedOrder ? orderCoords[selectedOrder.id] : null
 
-  // ── Helper: native-style GPS navigation arrow for driver markers ──
-  function makeDriverArrowIcon(size: number = 38): google.maps.Icon {
+  // ── Helper: native Google Maps "My Location" blue dot ──
+  function makeDriverArrowIcon(size: number = 40): google.maps.Icon {
     const half = size / 2
-    // Classic Google Maps navigation chevron — filled blue arrow pointing north
+    // Outer halo, white ring, inner blue dot — identical to the Google Maps current-location indicator
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 40 40">
-      <defs>
-        <filter id="ds" x="-40%" y="-40%" width="180%" height="180%">
-          <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-opacity="0.35"/>
-        </filter>
-      </defs>
-      <path d="M20 4 L34 33 L20 27 L6 33 Z"
-        fill="#4285F4" stroke="white" stroke-width="2.5" stroke-linejoin="round" filter="url(%23ds)"/>
-      <circle cx="20" cy="20" r="3.5" fill="white" opacity="0.9"/>
+      <circle cx="20" cy="20" r="18" fill="#4285F4" fill-opacity="0.15"/>
+      <circle cx="20" cy="20" r="10" fill="white"/>
+      <circle cx="20" cy="20" r="7"  fill="#4285F4"/>
     </svg>`
     return {
       url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
