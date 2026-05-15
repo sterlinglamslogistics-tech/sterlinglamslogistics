@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { randomUUID } from "crypto"
 import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 import { adminUpdateDriver, adminFetchDriverById } from "@/lib/server/firestore-admin"
 import { adminDb, adminStorage } from "@/lib/server/firebase-admin"
@@ -11,8 +12,10 @@ import type { OrderEvent } from "@/lib/server/notifications"
 const log = createLogger("api:driver:order-status")
 
 /**
- * Upload a base64 data URL (JPEG or SVG) to Firebase Storage and return the
- * public HTTPS download URL. Returns null on failure so callers can fall back.
+ * Upload a base64 data URL (JPEG or SVG) to Firebase Storage and return a
+ * stable Firebase download URL. Uses a download token embedded in the file
+ * metadata so the URL works without public ACLs (makePublic is not used —
+ * uniform bucket-level access blocks object ACLs on modern Firebase buckets).
  */
 async function uploadProofFile(
   dataUrl: string,
@@ -23,11 +26,27 @@ async function uploadProofFile(
     if (!match) return null
     const [, mimeType, base64] = match
     const buffer = Buffer.from(base64, "base64")
-    const bucket = adminStorage.bucket(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)
+    const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    if (!bucketName) {
+      log.error({ path }, "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is not set — cannot upload proof file")
+      return null
+    }
+    const bucket = adminStorage.bucket(bucketName)
     const file = bucket.file(path)
-    await file.save(buffer, { contentType: mimeType, resumable: false })
-    await file.makePublic()
-    return `https://storage.googleapis.com/${bucket.name}/${file.name}`
+    // Embed a Firebase download token in the object metadata.
+    // This generates a stable firebasestorage.googleapis.com URL that works
+    // regardless of Storage security rules and avoids makePublic() / ACL calls
+    // which fail when uniform bucket-level access is enabled.
+    const downloadToken = randomUUID()
+    await file.save(buffer, {
+      contentType: mimeType,
+      resumable: false,
+      metadata: {
+        metadata: { firebaseStorageDownloadTokens: downloadToken },
+      },
+    })
+    const encodedPath = encodeURIComponent(path)
+    return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedPath}?alt=media&token=${downloadToken}`
   } catch (err) {
     log.error({ err, path }, "Failed to upload proof file to Storage")
     return null
@@ -176,13 +195,16 @@ export async function POST(
     if (nextStatus === "delivered") {
       const proof: Record<string, unknown> = {}
 
-      // Upload photo to Storage; fall back to base64 if Storage upload fails
+      // Upload photo to Storage. Do NOT fall back to storing raw base64 in
+      // Firestore — a mobile photo can be 500 KB–2 MB of base64, which exceeds
+      // Firestore's 1 MB document limit and causes the update to silently fail.
       if (body.photoData) {
         const photoUrl = await uploadProofFile(body.photoData, `deliveries/${orderId}/photo.jpg`)
-        proof.photoData = photoUrl ?? body.photoData
+        if (photoUrl) proof.photoData = photoUrl
       }
 
-      // Upload signature SVG to Storage; fall back to base64 if upload fails
+      // Upload signature SVG. SVG data is small (~5–20 KB) so fall back to
+      // base64 inline only if Storage is unavailable.
       if (body.signatureData) {
         const sigUrl = await uploadProofFile(body.signatureData, `deliveries/${orderId}/signature.svg`)
         proof.signatureData = sigUrl ?? body.signatureData

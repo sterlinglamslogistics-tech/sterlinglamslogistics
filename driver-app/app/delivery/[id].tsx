@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, TextInput, Image, Alert, PanResponder,
+  ActivityIndicator, TextInput, Image, Alert,
 } from "react-native"
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, router } from "expo-router"
@@ -13,6 +13,8 @@ import { driverFetch } from "@/lib/api"
 import { queueDelivery } from "@/lib/storage"
 import type { Order } from "@/lib/types"
 import { useDriver } from "@/context/DriverContext"
+import { GestureDetector, Gesture } from "react-native-gesture-handler"
+import { runOnJS } from "react-native-reanimated"
 
 const TEAL = "#0d9488"
 const GREEN = "#16a34a"
@@ -77,33 +79,50 @@ export default function DeliveryScreen() {
   const [sigDataUrl, setSigDataUrl] = useState<string | null>(null)
   const [canvasLayout, setCanvasLayout] = useState({ width: 0, height: 0 })
 
-  // Mutable ref for the stroke currently being drawn — avoids stale closures in PanResponder
+  // Mutable ref for the stroke currently being drawn
   const activeStroke = useRef<Stroke>([])
 
-  // PanResponder stored in a ref so it is created once and never re-created mid-gesture
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => {
-        const { locationX, locationY } = e.nativeEvent
-        activeStroke.current = [{ x: locationX, y: locationY }]
-        setRenderTick((t) => t + 1)
-      },
-      onPanResponderMove: (e) => {
-        const { locationX, locationY } = e.nativeEvent
-        activeStroke.current = [...activeStroke.current, { x: locationX, y: locationY }]
-        setRenderTick((t) => t + 1)
-      },
-      onPanResponderRelease: () => {
-        if (activeStroke.current.length > 0) {
-          setStrokes((prev) => [...prev, [...activeStroke.current]])
-          activeStroke.current = []
-          setHasSig(true)
-        }
-      },
-    })
-  ).current
+  // JS-thread callbacks for gesture events (called via runOnJS from UI thread)
+  const _onBegin = useCallback((x: number, y: number) => {
+    activeStroke.current = [{ x, y }]
+    setRenderTick((t) => t + 1)
+  }, [])
+
+  const _onUpdate = useCallback((x: number, y: number) => {
+    activeStroke.current = [...activeStroke.current, { x, y }]
+    setRenderTick((t) => t + 1)
+  }, [])
+
+  const _onEnd = useCallback(() => {
+    // Capture stroke data into a local variable BEFORE clearing the ref.
+    // setStrokes uses a functional updater that React may call after this
+    // function returns — by that point activeStroke.current would already be []
+    // if we cleared it first, causing the stroke to silently disappear.
+    const finished = [...activeStroke.current]
+    activeStroke.current = []
+    if (finished.length > 0) {
+      setStrokes((prev) => [...prev, finished])
+      setHasSig(true)
+    }
+    setRenderTick((t) => t + 1)
+  }, [])
+
+  const panGesture = useMemo(() =>
+    Gesture.Pan()
+      .minDistance(0)
+      .onBegin((e) => {
+        'worklet'
+        runOnJS(_onBegin)(e.x, e.y)
+      })
+      .onUpdate((e) => {
+        'worklet'
+        runOnJS(_onUpdate)(e.x, e.y)
+      })
+      .onFinalize(() => {
+        'worklet'
+        runOnJS(_onEnd)()
+      }),
+    [_onBegin, _onUpdate, _onEnd])
 
   useEffect(() => {
     if (!id) return
@@ -262,37 +281,41 @@ export default function DeliveryScreen() {
 
         <Text style={s.sigHint}>Please sign here:</Text>
 
-        {/* Drawing canvas — no key prop on Svg so it never unmounts mid-gesture */}
-        <View
-          style={s.sigCanvas}
-          onLayout={(e) => {
-            const { width, height } = e.nativeEvent.layout
-            setCanvasLayout({ width, height })
-          }}
-          {...panResponder.panHandlers}
-        >
-          <Svg
-            width={canvasLayout.width || "100%"}
-            height={canvasLayout.height || "100%"}
-            style={StyleSheet.absoluteFillObject}
+        {/* Drawing canvas — GestureDetector + Gesture.Pan handles touches correctly
+            with new arch (Fabric) and react-native-gesture-handler */}
+        <GestureDetector gesture={panGesture}>
+          <View
+            style={s.sigCanvas}
+            onLayout={(e) => {
+              const { width, height } = e.nativeEvent.layout
+              setCanvasLayout({ width, height })
+            }}
           >
-            {displayStrokes.map((stroke, i) => {
-              const d = strokeToPath(stroke)
-              if (!d) return null
-              return (
-                <Path
-                  key={i}
-                  d={d}
-                  stroke="#111827"
-                  strokeWidth={2.5}
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )
-            })}
-          </Svg>
-        </View>
+            <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+              <Svg
+                width={canvasLayout.width || "100%"}
+                height={canvasLayout.height || "100%"}
+                style={StyleSheet.absoluteFillObject}
+              >
+                {displayStrokes.map((stroke, i) => {
+                  const d = strokeToPath(stroke)
+                  if (!d) return null
+                  return (
+                    <Path
+                      key={i}
+                      d={d}
+                      stroke="#111827"
+                      strokeWidth={2.5}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )
+                })}
+              </Svg>
+            </View>
+          </View>
+        </GestureDetector>
 
         <View style={[s.sigBottom, { paddingBottom: Math.max(16, insets.bottom + 8) }]}>
           <TouchableOpacity
