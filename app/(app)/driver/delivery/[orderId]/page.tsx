@@ -46,7 +46,7 @@ export default function DeliveryCompletionPage({
 }) {
   const { orderId } = use(params)
   const router = useRouter()
-  const { session } = useDriver()
+  const { session, liveGps } = useDriver()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
@@ -169,6 +169,7 @@ export default function DeliveryCompletionPage({
       ...(photoData ? { photoData } : {}),
       ...(signatureData ? { signatureData } : {}),
       ...(notes.trim() ? { deliveryNote: notes.trim() } : {}),
+      ...(liveGps ? { deliveryLat: liveGps.lat, deliveryLng: liveGps.lng } : {}),
     }
 
     try {
