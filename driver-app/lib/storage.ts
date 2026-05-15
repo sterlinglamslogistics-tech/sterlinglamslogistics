@@ -1,9 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import * as SecureStore from "expo-secure-store"
 import type { DriverSession, PendingDelivery } from "./types"
 
 const KEYS = {
+  // Stored in SecureStore (encrypted, hardware-backed where available)
   SESSION: "driverSession",
   TOKEN: "driverToken",
+  // Stored in AsyncStorage (non-sensitive)
   PENDING: "pendingDeliveries",
   NAV_APP: "navApp",
   PREFS: "driverPreferences",
@@ -15,13 +18,13 @@ const KEYS = {
 // ── Session ──────────────────────────────────────────────────────────────────
 
 export async function saveSession(session: DriverSession): Promise<void> {
-  await AsyncStorage.setItem(KEYS.SESSION, JSON.stringify(session))
-  await AsyncStorage.setItem(KEYS.TOKEN, session.token)
+  await SecureStore.setItemAsync(KEYS.SESSION, JSON.stringify(session))
+  await SecureStore.setItemAsync(KEYS.TOKEN, session.token)
 }
 
 export async function loadSession(): Promise<DriverSession | null> {
   try {
-    const raw = await AsyncStorage.getItem(KEYS.SESSION)
+    const raw = await SecureStore.getItemAsync(KEYS.SESSION)
     if (!raw) return null
     return JSON.parse(raw) as DriverSession
   } catch {
@@ -30,11 +33,12 @@ export async function loadSession(): Promise<DriverSession | null> {
 }
 
 export async function clearSession(): Promise<void> {
-  await AsyncStorage.multiRemove([KEYS.SESSION, KEYS.TOKEN])
+  await SecureStore.deleteItemAsync(KEYS.SESSION).catch(() => {})
+  await SecureStore.deleteItemAsync(KEYS.TOKEN).catch(() => {})
 }
 
 export async function getToken(): Promise<string | null> {
-  return AsyncStorage.getItem(KEYS.TOKEN)
+  return SecureStore.getItemAsync(KEYS.TOKEN)
 }
 
 // ── Pending offline deliveries ────────────────────────────────────────────────
@@ -142,7 +146,7 @@ export function buildNavUrl(address: string, app: "google" | "waze" | "yandex"):
     case "waze":
       return `waze://?q=${encoded}&navigate=yes`
     case "yandex":
-      return `yandexnavi://build_route_on_map?lat_to=0&lon_to=0&addr_to=${encoded}`
+      return `yandexnavi://build_route_on_map?addr_to=${encoded}`
     default:
       return `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`
   }

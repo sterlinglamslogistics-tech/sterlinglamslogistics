@@ -21,10 +21,20 @@ export function queueDelivery(item: PendingDelivery): void {
   } catch { /* ignore storage errors */ }
 }
 
+const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+
 export function getPendingDeliveries(): PendingDelivery[] {
   try {
     const raw = localStorage.getItem(QUEUE_KEY)
-    return raw ? (JSON.parse(raw) as PendingDelivery[]) : []
+    if (!raw) return []
+    const all = JSON.parse(raw) as PendingDelivery[]
+    const cutoff = Date.now() - MAX_AGE_MS
+    const fresh = all.filter((d) => d.capturedAt > cutoff)
+    // Persist pruned list if any entries were removed
+    if (fresh.length !== all.length) {
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(fresh))
+    }
+    return fresh
   } catch {
     return []
   }

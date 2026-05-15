@@ -115,14 +115,17 @@ export default function DashboardScreen() {
 
   // ── Contact sheet ──────────────────────────────────────────────────────────
   function handleCall(phone: string) {
+    if (!phone) return
     setContactSheet(null)
     setTimeout(() => Linking.openURL(`tel:${phone}`).catch(() => { }), 300)
   }
   function handleSMS(phone: string) {
+    if (!phone) return
     setContactSheet(null)
     setTimeout(() => Linking.openURL(`sms:${phone}`).catch(() => { }), 300)
   }
   function handleWhatsApp(phone: string) {
+    if (!phone) return
     setContactSheet(null)
     const cleaned = phone.replace(/\D/g, "")
     setTimeout(() => Linking.openURL(`whatsapp://send?phone=${cleaned}`).catch(() => { }), 300)

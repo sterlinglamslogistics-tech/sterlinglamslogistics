@@ -1,6 +1,7 @@
 import { initializeApp, getApps, cert, type App } from "firebase-admin/app"
 import { getAuth, type Auth } from "firebase-admin/auth"
 import { getFirestore, type Firestore } from "firebase-admin/firestore"
+import { getStorage, type Storage } from "firebase-admin/storage"
 import { createLogger } from "@/lib/logger"
 
 const log = createLogger("firebase-admin")
@@ -8,6 +9,7 @@ const log = createLogger("firebase-admin")
 let app: App
 let auth: Auth
 let firestore: Firestore
+let storage: Storage
 
 try {
   if (getApps().length === 0) {
@@ -66,6 +68,7 @@ try {
 
   auth = getAuth(app)
   firestore = getFirestore(app)
+  storage = getStorage(app)
 } catch (err) {
   // Last-resort: if anything above threw, initialise without credentials so
   // the module still exports valid (but unauthenticated) instances rather than
@@ -78,7 +81,9 @@ try {
   }
   auth = getAuth(app)
   firestore = getFirestore(app)
+  storage = getStorage(app)
 }
 
 export { auth as adminAuth }
 export { firestore as adminDb }
+export { storage as adminStorage }

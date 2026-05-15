@@ -2,17 +2,16 @@ import { useState, useEffect, useRef } from "react"
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, TextInput, Image, Alert, PanResponder,
-  Dimensions,
 } from "react-native"
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLocalSearchParams, router } from "expo-router"
 import * as ImagePicker from "expo-image-picker"
 import * as ScreenOrientation from "expo-screen-orientation"
-import Svg, { Path } from "react-native-svg"
+import Svg, { Path, SvgXml } from "react-native-svg"
 import { Feather } from "@expo/vector-icons"
 import { driverFetch } from "@/lib/api"
 import { queueDelivery } from "@/lib/storage"
-import { formatCurrency, type Order } from "@/lib/types"
+import type { Order } from "@/lib/types"
 import { useDriver } from "@/context/DriverContext"
 
 const TEAL = "#0d9488"
@@ -40,20 +39,23 @@ function strokeToPath(stroke: Stroke): string {
   return d
 }
 
-// Serialize all strokes to a base64-encoded SVG data URL
-function strokesToBase64Svg(strokes: Stroke[], w: number, h: number): string {
+// Serialize all strokes to a raw SVG XML string and a base64 data URL.
+// Also exported so the preview can render via SvgXml without decoding.
+function buildSvg(strokes: Stroke[], w: number, h: number): string {
   const pathTags = strokes
     .map((s) => strokeToPath(s))
     .filter(Boolean)
     .map((d) => `<path d="${d}" stroke="#111827" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`)
     .join("\n")
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>${pathTags}</svg>`
+}
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-<rect width="${w}" height="${h}" fill="white"/>
-${pathTags}
-</svg>`
-  // btoa needs Latin1; encodeURIComponent + unescape handles any Unicode safely
-  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
+function svgToDataUrl(svg: string): string {
+  // Encode percent-encoded UTF-8 bytes back to Latin-1 for btoa (no deprecated unescape)
+  const encoded = encodeURIComponent(svg).replace(/%([0-9A-F]{2})/g, (_, hex) =>
+    String.fromCharCode(parseInt(hex, 16))
+  )
+  return `data:image/svg+xml;base64,${btoa(encoded)}`
 }
 
 export default function DeliveryScreen() {
@@ -74,6 +76,7 @@ export default function DeliveryScreen() {
   const [strokes, setStrokes] = useState<Stroke[]>([])
   const [hasSig, setHasSig] = useState(false)
   const [sigDataUrl, setSigDataUrl] = useState<string | null>(null)
+  const [sigXml, setSigXml] = useState<string | null>(null)  // raw SVG for SvgXml preview
   const currentStroke = useRef<Stroke>([])
   const [sigKey, setSigKey] = useState(0)
   const [canvasLayout, setCanvasLayout] = useState({ width: 0, height: 0 })
@@ -93,6 +96,7 @@ export default function DeliveryScreen() {
     currentStroke.current = []
     setHasSig(false)
     setSigDataUrl(null)
+    setSigXml(null)
     setSigKey(0)
     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT)
     setShowSig(true)
@@ -108,14 +112,16 @@ export default function DeliveryScreen() {
     currentStroke.current = []
     setHasSig(false)
     setSigDataUrl(null)
+    setSigXml(null)
     setSigKey(0)
     await closeSignaturePad()
   }
 
   async function confirmSignature() {
     if (canvasLayout.width > 0 && canvasLayout.height > 0 && strokes.length > 0) {
-      const dataUrl = strokesToBase64Svg(strokes, canvasLayout.width, canvasLayout.height)
-      setSigDataUrl(dataUrl)
+      const xml = buildSvg(strokes, canvasLayout.width, canvasLayout.height)
+      setSigXml(xml)
+      setSigDataUrl(svgToDataUrl(xml))
       setHasSig(true)
     }
     await closeSignaturePad()
@@ -319,10 +325,10 @@ export default function DeliveryScreen() {
           )}
         </TouchableOpacity>
 
-        {/* Signature preview (when captured) */}
-        {sigDataUrl && (
+        {/* Signature preview — use SvgXml because RN <Image> can't render SVG */}
+        {sigXml && (
           <View style={s.sigPreviewWrap}>
-            <Image source={{ uri: sigDataUrl }} style={s.sigPreview} resizeMode="contain" />
+            <SvgXml xml={sigXml} width="100%" height={76} />
             <View style={s.sigPreviewBadge}>
               <Feather name="check-circle" size={14} color={GREEN} />
               <Text style={s.sigPreviewText}>Signature captured</Text>

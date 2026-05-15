@@ -7,7 +7,7 @@ const log = createLogger("server:driver-auth")
  * Resolve the driverId for a request from a verified HMAC session token
  * (cookie or X-Driver-Token header). Returns null if no valid session exists.
  */
-export function resolveDriverIdFromRequest(req: Request, bodyDriverId: string | null | undefined): string | null {
+export function resolveDriverIdFromRequest(req: Request, bodyDriverId?: string | null): string | null {
   const sessionDriverId = verifyDriverSession(req)
   const trimmedBody = bodyDriverId?.trim() || null
 

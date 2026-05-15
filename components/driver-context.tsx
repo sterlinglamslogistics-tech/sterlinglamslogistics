@@ -62,6 +62,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const [pendingDeliveryCount, setPendingDeliveryCount] = useState(0)
   const watchIdRef = useRef<number | null>(null)
   const lastGpsWriteRef = useRef<number>(0)
+  const isRetryingRef = useRef(false)
 
   // Load session from localStorage
   useEffect(() => {
@@ -180,31 +181,39 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     updateCount()
 
     async function retryPending() {
-      const pending = getPendingDeliveries()
-      if (pending.length === 0) return
-      for (const item of pending) {
-        try {
-          const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(item.orderId)}/status`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              driverId: item.driverId,
-              status: "delivered",
-              ...(item.photoData ? { photoData: item.photoData } : {}),
-              ...(item.signatureData ? { signatureData: item.signatureData } : {}),
-              ...(item.deliveryNotes ? { deliveryNotes: item.deliveryNotes } : {}),
-            }),
-          })
-          if (res.ok) {
-            removePendingDelivery(item.orderId)
-            toast({ title: "Delivery synced", description: `${item.orderNumber} confirmed while offline.` })
-          }
-        } catch { /* retry next time */ }
+      if (isRetryingRef.current) return
+      isRetryingRef.current = true
+      try {
+        const pending = getPendingDeliveries()
+        if (pending.length === 0) return
+        for (const item of pending) {
+          try {
+            const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(item.orderId)}/status`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                driverId: item.driverId,
+                status: "delivered",
+                ...(item.photoData ? { photoData: item.photoData } : {}),
+                ...(item.signatureData ? { signatureData: item.signatureData } : {}),
+                ...(item.deliveryNotes ? { deliveryNotes: item.deliveryNotes } : {}),
+              }),
+            })
+            if (res.ok) {
+              removePendingDelivery(item.orderId)
+              toast({ title: "Delivery synced", description: `${item.orderNumber} confirmed while offline.` })
+            }
+          } catch { /* retry next time */ }
+        }
+        updateCount()
+      } finally {
+        isRetryingRef.current = false
       }
-      updateCount()
     }
 
     window.addEventListener("online", retryPending)
+    // Also retry immediately if the device is already online when the component mounts
+    if (navigator.onLine) void retryPending()
     return () => window.removeEventListener("online", retryPending)
   }, [])
 

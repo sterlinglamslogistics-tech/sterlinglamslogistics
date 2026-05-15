@@ -48,7 +48,7 @@ export default function ChatScreen() {
   const { name, orderId, orderNumber } = useLocalSearchParams<{
     name?: string; orderId?: string; orderNumber?: string
   }>()
-  const { session, refreshUnreadCount } = useDriver()
+  const { session, setUnreadMessageCount, refreshUnreadCount } = useDriver()
   const insets = useSafeAreaInsets()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(true)
@@ -77,16 +77,17 @@ export default function ChatScreen() {
     }
   }, [session, threadId])
 
-  // Mark thread as read and refresh unread count in context
+  // Mark thread as read — zero the badge immediately then sync with server
   const markRead = useCallback(async () => {
     if (!session || !threadId) return
+    setUnreadMessageCount(0)
     await driverFetch("/api/driver/messages/read", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ driverId: session.id, threadId }),
     }).catch(() => {})
     void refreshUnreadCount()
-  }, [session, threadId, refreshUnreadCount])
+  }, [session, threadId, setUnreadMessageCount, refreshUnreadCount])
 
   useEffect(() => {
     void fetchMessages()

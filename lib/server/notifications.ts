@@ -592,6 +592,8 @@ export async function sendOrderEventNotifications(
   }
 
   if (event === "delivered") {
+    doWhatsapp = false  // delivery-complete WhatsApp disabled — customers receive the email receipt instead
+    doSms = false
     doEmail = settings.deliveryReceiptEmail
   }
 

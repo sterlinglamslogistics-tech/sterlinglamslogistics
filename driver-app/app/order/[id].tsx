@@ -123,9 +123,11 @@ export default function OrderDetailScreen() {
               <Text style={styles.timelineLabel}>Pick up  <Text style={styles.timelineBold}>{pickupTime}</Text></Text>
               <Text style={styles.timelineName}>{HUB_NAME}</Text>
               <Text style={styles.timelineAddress}>{HUB_ADDRESS}</Text>
-              <TouchableOpacity onPress={() => Linking.openURL(`tel:${HUB_PHONE}`)}>
-                <Text style={styles.phoneLink}>{HUB_PHONE}</Text>
-              </TouchableOpacity>
+              {HUB_PHONE ? (
+                <TouchableOpacity onPress={() => Linking.openURL(`tel:${HUB_PHONE}`).catch(() => {})}>
+                  <Text style={styles.phoneLink}>{HUB_PHONE}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
 
@@ -138,9 +140,11 @@ export default function OrderDetailScreen() {
               <Text style={styles.timelineLabel}>Delivery  <Text style={styles.timelineBold}>{deliveryTime}</Text></Text>
               <Text style={styles.timelineName}>{order.customerName}</Text>
               <Text style={styles.timelineAddress}>{order.address}</Text>
-              <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.phone}`)}>
-                <Text style={styles.phoneLink}>{order.phone}</Text>
-              </TouchableOpacity>
+              {order.phone ? (
+                <TouchableOpacity onPress={() => Linking.openURL(`tel:${order.phone}`).catch(() => {})}>
+                  <Text style={styles.phoneLink}>{order.phone}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         </View>

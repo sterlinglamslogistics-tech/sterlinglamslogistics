@@ -168,7 +168,7 @@ export default function DeliveryCompletionPage({
       status: "delivered" as const,
       ...(photoData ? { photoData } : {}),
       ...(signatureData ? { signatureData } : {}),
-      ...(notes.trim() ? { deliveryNotes: notes.trim() } : {}),
+      ...(notes.trim() ? { deliveryNote: notes.trim() } : {}),
     }
 
     try {
@@ -197,7 +197,7 @@ export default function DeliveryCompletionPage({
           driverId: session.id,
           photoData: photoData ?? null,
           signatureData: signatureData ?? null,
-          deliveryNotes: notes.trim(),
+          deliveryNotes: notes.trim(), // PendingDelivery interface uses deliveryNotes
           capturedAt: Date.now(),
         })
         toast({

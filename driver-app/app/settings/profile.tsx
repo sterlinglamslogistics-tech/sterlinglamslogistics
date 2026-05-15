@@ -26,6 +26,7 @@ export default function ProfileScreen() {
   const [city, setCity] = useState(driver?.area ?? "")
   const [saving, setSaving] = useState(false)
   const [showVehiclePicker, setShowVehiclePicker] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
 
   async function pickPhoto() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -34,6 +35,47 @@ export default function ProfileScreen() {
     if (!result.canceled && result.assets[0]) {
       await setProfilePhoto(result.assets[0].uri)
     }
+  }
+
+  function handleChangePassword() {
+    Alert.prompt(
+      "Current Password",
+      "Enter your current password to continue",
+      (currentPassword) => {
+        if (!currentPassword) return
+        Alert.prompt(
+          "New Password",
+          "Enter your new password (min 6 characters)",
+          async (newPassword) => {
+            if (!newPassword || newPassword.length < 6) {
+              Alert.alert("Too short", "Password must be at least 6 characters.")
+              return
+            }
+            if (!session) return
+            setChangingPassword(true)
+            try {
+              const res = await driverFetch("/api/driver/profile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ driverId: session.id, currentPassword, newPassword }),
+              })
+              const data = await res.json() as { ok: boolean; error?: string }
+              if (data.ok) {
+                Alert.alert("Done", "Password updated successfully.")
+              } else {
+                Alert.alert("Error", data.error ?? "Failed to change password.")
+              }
+            } catch {
+              Alert.alert("Error", "Network error. Please try again.")
+            } finally {
+              setChangingPassword(false)
+            }
+          },
+          "secure-text"
+        )
+      },
+      "secure-text"
+    )
   }
 
   async function save() {
@@ -142,8 +184,14 @@ export default function ProfileScreen() {
           </View>
         ))}
 
-        <TouchableOpacity style={styles.changePasswordBtn}>
-          <Text style={styles.changePasswordText}>Change password</Text>
+        <TouchableOpacity
+          style={[styles.changePasswordBtn, changingPassword && { opacity: 0.6 }]}
+          onPress={handleChangePassword}
+          disabled={changingPassword}
+        >
+          {changingPassword
+            ? <ActivityIndicator size="small" color="#374151" />
+            : <Text style={styles.changePasswordText}>Change password</Text>}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

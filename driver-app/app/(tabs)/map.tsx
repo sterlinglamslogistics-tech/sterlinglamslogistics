@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import MapView, { Marker, PROVIDER_GOOGLE, Callout } from "react-native-maps"
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps"
 import { MaterialIcons, Feather } from "@expo/vector-icons"
+import Constants from "expo-constants"
 import { useDriver } from "@/context/DriverContext"
 import type { Order } from "@/lib/types"
 
-const GMAPS_KEY = "AIzaSyBzQ99MEiVzwN8alDZykNoP1hy6IG8679g"
+const GMAPS_KEY: string = Constants.expoConfig?.android?.config?.googleMaps?.apiKey ?? ""
 const HUB_LAT = 6.465305
 const HUB_LNG = 3.557488
 
@@ -62,7 +63,6 @@ export default function MapScreen() {
   )
 
   const geocodeOrders = useCallback(async () => {
-    console.log('[MAP] geocodeOrders called, activeOrders count:', activeOrders.length)
     if (activeOrders.length === 0) { setPinned([]); return }
     setGeocoding(true)
     const results: PinnedOrder[] = []
@@ -70,34 +70,24 @@ export default function MapScreen() {
     for (let idx = 0; idx < activeOrders.length; idx++) {
       const order = activeOrders[idx]
       const time = formatTime(order.startedAt ?? order.createdAt)
-      console.log(`[MAP] Processing order ${order.id}, address: ${order.address}`)
 
       if (typeof order.lat === "number" && typeof order.lng === "number") {
-        console.log(`[MAP] Order ${order.id} has stored coords:`, order.lat, order.lng)
         results.push({ order, time, lat: order.lat, lng: order.lng })
         continue
       }
 
       if (order.address) {
-        console.log(`[MAP] Geocoding address for order ${order.id}...`)
         const coords = await geocodeAddress(order.address)
         if (coords) {
-          console.log(`[MAP] Geocoding succeeded for order ${order.id}:`, coords)
           results.push({ order, time, lat: coords.lat, lng: coords.lng })
           continue
-        } else {
-          console.log(`[MAP] Geocoding failed for order ${order.id}, using fallback`)
         }
       }
 
       const offset = idx * 0.005
-      const fallbackLat = HUB_LAT + offset
-      const fallbackLng = HUB_LNG + offset
-      console.log(`[MAP] Using fallback coords for order ${order.id}:`, fallbackLat, fallbackLng)
-      results.push({ order, time, lat: fallbackLat, lng: fallbackLng })
+      results.push({ order, time, lat: HUB_LAT + offset, lng: HUB_LNG + offset })
     }
 
-    console.log('[MAP] Total pinned orders:', results.length)
     setPinned(results)
     setGeocoding(false)
   }, [orders])
@@ -115,7 +105,6 @@ export default function MapScreen() {
   }, [liveGps?.lat, liveGps?.lng])
 
   if (!liveGps) {
-    console.log('[MAP] liveGps is null, showing loading state')
     return (
       <SafeAreaView style={styles.center}>
         <ActivityIndicator size="large" color="#16a34a" />
@@ -123,8 +112,6 @@ export default function MapScreen() {
       </SafeAreaView>
     )
   }
-
-  console.log('[MAP] Rendering map with liveGps:', liveGps, 'pinned orders:', pinned.length)
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }} edges={["top"]}>

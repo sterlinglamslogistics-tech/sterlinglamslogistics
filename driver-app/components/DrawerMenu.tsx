@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react"
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
-  Dimensions, Image, ScrollView, Platform,
+  Dimensions, Image, ScrollView,
 } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { router } from "expo-router"
-import { Feather, MaterialIcons } from "@expo/vector-icons"
+import { Feather } from "@expo/vector-icons"
 import { useDriver } from "@/context/DriverContext"
 
 const { width: SCREEN_W } = Dimensions.get("window")
@@ -14,7 +14,7 @@ const DRAWER_W = SCREEN_W * 0.78
 const GREEN = "#16a34a"
 
 export function DrawerMenu() {
-  const { drawerOpen, setDrawerOpen, session, driver, profilePhoto, goOffline, logout } = useDriver()
+  const { drawerOpen, setDrawerOpen, session, driver, profilePhoto, goOffline } = useDriver()
   const insets = useSafeAreaInsets()
   const translateX = useRef(new Animated.Value(-DRAWER_W)).current
   const opacity = useRef(new Animated.Value(0)).current
@@ -102,8 +102,8 @@ export function DrawerMenu() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.menuItem} onPress={() => navigate("/settings/display")}>
-            <MaterialIcons name="language" size={20} color="#374151" />
-            <Text style={styles.menuItemText}>Language</Text>
+            <Feather name="sun" size={20} color="#374151" />
+            <Text style={styles.menuItemText}>Display</Text>
           </TouchableOpacity>
         </ScrollView>
 

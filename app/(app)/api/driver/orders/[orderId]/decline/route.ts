@@ -21,6 +21,9 @@ export async function POST(
     if (!driverId) {
       return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
     }
+    if (body.reason && body.reason.length > 2000) {
+      return NextResponse.json({ ok: false, error: "Reason exceeds maximum length." }, { status: 400 })
+    }
 
     const orderRef = adminDb.collection("orders").doc(orderId)
     let txnError: { status: number; message: string } | null = null

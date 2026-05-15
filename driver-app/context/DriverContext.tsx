@@ -2,6 +2,7 @@ import React, {
   createContext, useContext, useState, useEffect,
   useCallback, useRef, useMemo, type ReactNode,
 } from "react"
+import * as SecureStore from "expo-secure-store"
 import * as Location from "expo-location"
 import * as TaskManager from "expo-task-manager"
 import * as Notifications from "expo-notifications"
@@ -24,11 +25,21 @@ TaskManager.defineTask(BG_LOCATION_TASK, async ({ data, error }: TaskManager.Tas
   const { locations } = data
   const loc = locations[0]
   if (!loc) return
-  await fetch("https://sterlinglamslogistics.com/api/driver/location", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lat: loc.coords.latitude, lng: loc.coords.longitude }),
-  }).catch(() => { /* best-effort */ })
+  try {
+    // Read session from secure storage since this task runs outside the React context
+    const [sessionRaw, token] = await Promise.all([
+      SecureStore.getItemAsync("driverSession"),
+      SecureStore.getItemAsync("driverToken"),
+    ])
+    if (!token || !sessionRaw) return
+    const session = JSON.parse(sessionRaw) as { id?: string }
+    if (!session?.id) return
+    await fetch("https://sterlinglamslogistics.com/api/driver/location", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Driver-Token": token },
+      body: JSON.stringify({ driverId: session.id, lat: loc.coords.latitude, lng: loc.coords.longitude }),
+    })
+  } catch { /* best-effort */ }
 })
 
 interface DriverContextValue {
@@ -85,10 +96,14 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const locationSub = useRef<Location.LocationSubscription | null>(null)
   const unreadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevOrderIds = useRef<Set<string>>(new Set())
+  const isRetryingRef = useRef(false)
 
   useEffect(() => {
-    Promise.all([loadSession(), getProfilePhoto(), getPreferences()]).then(([s, photo, prefs]) => {
-      if (s) setSession(s)
+    Promise.all([loadSession(), getProfilePhoto(), getPreferences()]).then(async ([s, photo, prefs]) => {
+      if (s) {
+        setSession(s)
+        void fetchDriverProfile(s.id)
+      }
       if (photo) setProfilePhotoState(photo)
       setPreferences(prefs)
       setLoadingSession(false)
@@ -125,23 +140,30 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const sub = AppState.addEventListener("change", async (state: AppStateStatus) => {
       if (state !== "active") return
-      const pending = await getPendingDeliveries()
-      if (pending.length === 0) return
-      for (const item of pending) {
-        try {
-          const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(item.orderId)}/status`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              driverId: item.driverId, status: "delivered",
-              ...(item.photoData ? { photoData: item.photoData } : {}),
-              ...(item.deliveryNotes ? { deliveryNotes: item.deliveryNotes } : {}),
-            }),
-          })
-          if (res.ok) await removePendingDelivery(item.orderId)
-        } catch { /* retry next time */ }
+      if (isRetryingRef.current) return
+      isRetryingRef.current = true
+      try {
+        const pending = await getPendingDeliveries()
+        if (pending.length === 0) return
+        for (const item of pending) {
+          try {
+            const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(item.orderId)}/status`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                driverId: item.driverId, status: "delivered",
+                ...(item.photoData ? { photoData: item.photoData } : {}),
+                ...(item.signatureData ? { signatureData: item.signatureData } : {}),
+                ...(item.deliveryNotes ? { deliveryNotes: item.deliveryNotes } : {}),
+              }),
+            })
+            if (res.ok) await removePendingDelivery(item.orderId)
+          } catch { /* retry next time */ }
+        }
+        getPendingDeliveries().then((p) => setPendingDeliveryCount(p.length))
+      } finally {
+        isRetryingRef.current = false
       }
-      getPendingDeliveries().then((p) => setPendingDeliveryCount(p.length))
     })
     return () => sub.remove()
   }, [])
@@ -188,6 +210,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       setLiveGps(coords)
       sendLocation(coords)
     } catch { /* ignore */ }
+    setGpsError(false)
     locationSub.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 10 },
       (pos) => {
@@ -292,9 +315,19 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     if (res.ok) { setIsOnline(false); await stopGps() }
   }
 
+  async function fetchDriverProfile(driverId: string) {
+    try {
+      const res = await driverFetch(`/api/driver/profile?driverId=${encodeURIComponent(driverId)}`)
+      if (!res.ok) return
+      const data = await res.json() as { driver?: Driver }
+      if (data.driver) setDriver(data.driver)
+    } catch { /* ignore — driver profile is best-effort */ }
+  }
+
   async function login(s: DriverSession) {
     await saveSession(s)
     setSession(s)
+    void fetchDriverProfile(s.id)
   }
 
   async function logout() {

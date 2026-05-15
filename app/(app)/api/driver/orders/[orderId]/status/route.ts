@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 import { adminUpdateDriver, adminFetchDriverById } from "@/lib/server/firestore-admin"
-import { adminDb } from "@/lib/server/firebase-admin"
+import { adminDb, adminStorage } from "@/lib/server/firebase-admin"
 import { createLogger } from "@/lib/logger"
 import { resolveDriverIdFromRequest } from "@/lib/server/driver-auth"
 import { notifyOrderEventServer } from "@/lib/server/notify-order-event"
@@ -9,6 +9,30 @@ import type { Order } from "@/lib/data"
 import type { OrderEvent } from "@/lib/server/notifications"
 
 const log = createLogger("api:driver:order-status")
+
+/**
+ * Upload a base64 data URL (JPEG or SVG) to Firebase Storage and return the
+ * public HTTPS download URL. Returns null on failure so callers can fall back.
+ */
+async function uploadProofFile(
+  dataUrl: string,
+  path: string,
+): Promise<string | null> {
+  try {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+    if (!match) return null
+    const [, mimeType, base64] = match
+    const buffer = Buffer.from(base64, "base64")
+    const bucket = adminStorage.bucket(process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)
+    const file = bucket.file(path)
+    await file.save(buffer, { contentType: mimeType, resumable: false })
+    await file.makePublic()
+    return `https://storage.googleapis.com/${bucket.name}/${file.name}`
+  } catch (err) {
+    log.error({ err, path }, "Failed to upload proof file to Storage")
+    return null
+  }
+}
 
 type DriverOrderStatusAction = "started" | "picked-up" | "in-transit" | "delivered" | "failed"
 
@@ -32,7 +56,8 @@ export async function POST(
       status?: DriverOrderStatusAction
       photoData?: string
       signatureData?: string
-      deliveryNote?: string
+      deliveryNotes?: string
+      deliveryNote?: string  // legacy alias — prefer deliveryNotes
       failedReason?: string
       deliveryLat?: number
       deliveryLng?: number
@@ -48,6 +73,25 @@ export async function POST(
     }
     if (!["started", "picked-up", "in-transit", "delivered", "failed"].includes(nextStatus)) {
       return NextResponse.json({ ok: false, error: "Unsupported status transition." }, { status: 400 })
+    }
+
+    // Validate proof-of-delivery payload sizes to prevent Firestore document bloat.
+    // Base64 overhead is ~4/3x, so 2 MB binary ≈ 2.7 MB base64. Cap at 3 MB to stay
+    // well under Firestore's 1 MB document limit once combined with other fields.
+    const MAX_IMAGE_BYTES = 3 * 1024 * 1024
+    const MAX_NOTE_CHARS = 2000
+    if (body.photoData && body.photoData.length > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ ok: false, error: "Photo exceeds maximum allowed size." }, { status: 413 })
+    }
+    if (body.signatureData && body.signatureData.length > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ ok: false, error: "Signature exceeds maximum allowed size." }, { status: 413 })
+    }
+    const noteForValidation = body.deliveryNote ?? body.deliveryNotes
+    if (noteForValidation && noteForValidation.length > MAX_NOTE_CHARS) {
+      return NextResponse.json({ ok: false, error: "Delivery note exceeds maximum length." }, { status: 400 })
+    }
+    if (body.failedReason && body.failedReason.length > MAX_NOTE_CHARS) {
+      return NextResponse.json({ ok: false, error: "Failed reason exceeds maximum length." }, { status: 400 })
     }
 
     const orderRef = adminDb.collection("orders").doc(orderId)
@@ -126,16 +170,35 @@ export async function POST(
       return NextResponse.json({ ok: false, error: err.message }, { status: err.status })
     }
 
-    // Persist proof-of-delivery fields (best-effort — never blocks status update)
+    // Persist proof-of-delivery fields.
+    // Photos and signatures are uploaded to Firebase Storage (not stored inline in
+    // Firestore) to stay well under Firestore's 1 MB document limit.
     if (nextStatus === "delivered") {
       const proof: Record<string, unknown> = {}
-      if (body.photoData) proof.photoData = body.photoData
-      if (body.signatureData) proof.signatureData = body.signatureData
-      if (body.deliveryNote) proof.deliveryNote = body.deliveryNote
+
+      // Upload photo to Storage; fall back to base64 if Storage upload fails
+      if (body.photoData) {
+        const photoUrl = await uploadProofFile(body.photoData, `deliveries/${orderId}/photo.jpg`)
+        proof.photoData = photoUrl ?? body.photoData
+      }
+
+      // Upload signature SVG to Storage; fall back to base64 if upload fails
+      if (body.signatureData) {
+        const sigUrl = await uploadProofFile(body.signatureData, `deliveries/${orderId}/signature.svg`)
+        proof.signatureData = sigUrl ?? body.signatureData
+      }
+
+      // Accept both spellings from older clients; store as deliveryNote (singular)
+      const noteText = body.deliveryNotes ?? body.deliveryNote
+      if (noteText) proof.deliveryNote = noteText
+
       if (typeof body.deliveryLat === "number") proof.deliveryLat = body.deliveryLat
       if (typeof body.deliveryLng === "number") proof.deliveryLng = body.deliveryLng
+
       if (Object.keys(proof).length > 0) {
-        adminDb.collection("orders").doc(orderId).update(proof).catch((err) =>
+        // Await the update — in serverless environments a non-awaited promise is
+        // killed when the response is sent, silently losing the proof data.
+        await adminDb.collection("orders").doc(orderId).update(proof).catch((err) =>
           log.error({ err, orderId }, "Failed to save proof of delivery")
         )
       }
