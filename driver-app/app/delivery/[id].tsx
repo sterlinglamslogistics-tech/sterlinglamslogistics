@@ -20,7 +20,6 @@ const GREEN = "#16a34a"
 type Point = { x: number; y: number }
 type Stroke = Point[]
 
-// Build a smooth SVG path from a stroke using quadratic bezier curves
 function strokeToPath(stroke: Stroke): string {
   if (stroke.length === 0) return ""
   if (stroke.length === 1) {
@@ -39,8 +38,6 @@ function strokeToPath(stroke: Stroke): string {
   return d
 }
 
-// Serialize all strokes to a raw SVG XML string and a base64 data URL.
-// Also exported so the preview can render via SvgXml without decoding.
 function buildSvg(strokes: Stroke[], w: number, h: number): string {
   const pathTags = strokes
     .map((s) => strokeToPath(s))
@@ -51,7 +48,6 @@ function buildSvg(strokes: Stroke[], w: number, h: number): string {
 }
 
 function svgToDataUrl(svg: string): string {
-  // Encode percent-encoded UTF-8 bytes back to Latin-1 for btoa (no deprecated unescape)
   const encoded = encodeURIComponent(svg).replace(/%([0-9A-F]{2})/g, (_, hex) =>
     String.fromCharCode(parseInt(hex, 16))
   )
@@ -73,13 +69,41 @@ export default function DeliveryScreen() {
   const [showSig, setShowSig] = useState(false)
 
   // Signature state
+  // strokes = committed strokes; renderTick forces the Svg to repaint during drawing
   const [strokes, setStrokes] = useState<Stroke[]>([])
+  const [renderTick, setRenderTick] = useState(0)
   const [hasSig, setHasSig] = useState(false)
+  const [sigXml, setSigXml] = useState<string | null>(null)
   const [sigDataUrl, setSigDataUrl] = useState<string | null>(null)
-  const [sigXml, setSigXml] = useState<string | null>(null)  // raw SVG for SvgXml preview
-  const currentStroke = useRef<Stroke>([])
-  const [sigKey, setSigKey] = useState(0)
   const [canvasLayout, setCanvasLayout] = useState({ width: 0, height: 0 })
+
+  // Mutable ref for the stroke currently being drawn — avoids stale closures in PanResponder
+  const activeStroke = useRef<Stroke>([])
+
+  // PanResponder stored in a ref so it is created once and never re-created mid-gesture
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => {
+        const { locationX, locationY } = e.nativeEvent
+        activeStroke.current = [{ x: locationX, y: locationY }]
+        setRenderTick((t) => t + 1)
+      },
+      onPanResponderMove: (e) => {
+        const { locationX, locationY } = e.nativeEvent
+        activeStroke.current = [...activeStroke.current, { x: locationX, y: locationY }]
+        setRenderTick((t) => t + 1)
+      },
+      onPanResponderRelease: () => {
+        if (activeStroke.current.length > 0) {
+          setStrokes((prev) => [...prev, [...activeStroke.current]])
+          activeStroke.current = []
+          setHasSig(true)
+        }
+      },
+    })
+  ).current
 
   useEffect(() => {
     if (!id) return
@@ -90,14 +114,19 @@ export default function DeliveryScreen() {
       .finally(() => setLoading(false))
   }, [id])
 
-  // ── Signature pad — lock landscape on open, portrait on close ──────────────
-  async function openSignaturePad() {
+  // ── Signature pad helpers ─────────────────────────────────────────────────
+
+  function resetSignatureState() {
     setStrokes([])
-    currentStroke.current = []
+    activeStroke.current = []
+    setRenderTick(0)
     setHasSig(false)
-    setSigDataUrl(null)
     setSigXml(null)
-    setSigKey(0)
+    setSigDataUrl(null)
+  }
+
+  async function openSignaturePad() {
+    resetSignatureState()
     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT)
     setShowSig(true)
   }
@@ -108,12 +137,7 @@ export default function DeliveryScreen() {
   }
 
   async function discardSignature() {
-    setStrokes([])
-    currentStroke.current = []
-    setHasSig(false)
-    setSigDataUrl(null)
-    setSigXml(null)
-    setSigKey(0)
+    resetSignatureState()
     await closeSignaturePad()
   }
 
@@ -127,36 +151,15 @@ export default function DeliveryScreen() {
     await closeSignaturePad()
   }
 
-  // ── PanResponder for drawing ───────────────────────────────────────────────
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onPanResponderGrant: (e) => {
-      const { locationX, locationY } = e.nativeEvent
-      currentStroke.current = [{ x: locationX, y: locationY }]
-      setSigKey((k) => k + 1)
-    },
-    onPanResponderMove: (e) => {
-      const { locationX, locationY } = e.nativeEvent
-      currentStroke.current.push({ x: locationX, y: locationY })
-      setSigKey((k) => k + 1)
-    },
-    onPanResponderRelease: () => {
-      if (currentStroke.current.length > 0) {
-        setStrokes((prev) => [...prev, [...currentStroke.current]])
-        currentStroke.current = []
-        setHasSig(true)
-      }
-    },
-  })
-
   function clearCanvas() {
     setStrokes([])
-    currentStroke.current = []
+    activeStroke.current = []
+    setRenderTick(0)
     setHasSig(false)
-    setSigKey(0)
   }
 
-  // ── Camera ─────────────────────────────────────────────────────────────────
+  // ── Camera ────────────────────────────────────────────────────────────────
+
   async function takePhoto() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync()
     if (status !== "granted") {
@@ -172,7 +175,8 @@ export default function DeliveryScreen() {
     }
   }
 
-  // ── Submit ─────────────────────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────────────
+
   async function handleSubmit() {
     if (!order || !session) return
     setSubmitting(true)
@@ -218,7 +222,8 @@ export default function DeliveryScreen() {
     }
   }
 
-  // ── Loading / not found ────────────────────────────────────────────────────
+  // ── Loading / not found ───────────────────────────────────────────────────
+
   if (loading) {
     return <SafeAreaView style={s.center}><ActivityIndicator size="large" color={TEAL} /></SafeAreaView>
   }
@@ -233,13 +238,18 @@ export default function DeliveryScreen() {
     )
   }
 
-  // ── Landscape signature pad ────────────────────────────────────────────────
+  // ── Landscape signature pad ───────────────────────────────────────────────
+
   if (showSig) {
-    const allDisplayStrokes = [...strokes, ...(currentStroke.current.length > 0 ? [currentStroke.current] : [])]
+    // Combine committed strokes + the stroke currently being drawn
+    const displayStrokes = activeStroke.current.length > 0
+      ? [...strokes, activeStroke.current]
+      : strokes
+    // renderTick is read here so the component re-renders when it changes
+    void renderTick
 
     return (
       <SafeAreaView style={s.sigScreen}>
-        {/* Header row */}
         <View style={s.sigHeader}>
           <TouchableOpacity onPress={discardSignature} style={s.sigIconBtn}>
             <Feather name="arrow-left" size={22} color="#111827" />
@@ -250,10 +260,9 @@ export default function DeliveryScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Label */}
         <Text style={s.sigHint}>Please sign here:</Text>
 
-        {/* Drawing canvas */}
+        {/* Drawing canvas — no key prop on Svg so it never unmounts mid-gesture */}
         <View
           style={s.sigCanvas}
           onLayout={(e) => {
@@ -263,12 +272,11 @@ export default function DeliveryScreen() {
           {...panResponder.panHandlers}
         >
           <Svg
-            key={sigKey}
             width={canvasLayout.width || "100%"}
             height={canvasLayout.height || "100%"}
             style={StyleSheet.absoluteFillObject}
           >
-            {allDisplayStrokes.map((stroke, i) => {
+            {displayStrokes.map((stroke, i) => {
               const d = strokeToPath(stroke)
               if (!d) return null
               return (
@@ -286,7 +294,6 @@ export default function DeliveryScreen() {
           </Svg>
         </View>
 
-        {/* Bottom button */}
         <View style={[s.sigBottom, { paddingBottom: Math.max(16, insets.bottom + 8) }]}>
           <TouchableOpacity
             style={[s.addSigBtn, { backgroundColor: GREEN }, !hasSig && s.btnDisabled]}
@@ -301,7 +308,8 @@ export default function DeliveryScreen() {
     )
   }
 
-  // ── Main POD screen (portrait) ─────────────────────────────────────────────
+  // ── Main POD screen (portrait) ────────────────────────────────────────────
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
       <View style={s.header}>
@@ -313,7 +321,7 @@ export default function DeliveryScreen() {
       </View>
 
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        {/* Photo area */}
+        {/* Photo preview */}
         <TouchableOpacity style={s.photoBox} onPress={takePhoto} activeOpacity={0.8}>
           {photoUri ? (
             <Image source={{ uri: photoUri }} style={s.photoImg} resizeMode="cover" />
@@ -325,7 +333,7 @@ export default function DeliveryScreen() {
           )}
         </TouchableOpacity>
 
-        {/* Signature preview — use SvgXml because RN <Image> can't render SVG */}
+        {/* Signature preview — SvgXml because RN <Image> cannot render SVG */}
         {sigXml && (
           <View style={s.sigPreviewWrap}>
             <SvgXml xml={sigXml} width="100%" height={76} />
@@ -336,7 +344,6 @@ export default function DeliveryScreen() {
           </View>
         )}
 
-        {/* Photo / Signature buttons */}
         <View style={[s.btnRow, !isPOD && { justifyContent: "center" }]}>
           <TouchableOpacity style={[s.outlineBtn, !isPOD && { flex: 1 }]} onPress={takePhoto}>
             <Feather name="camera" size={16} color="#374151" />
@@ -352,7 +359,6 @@ export default function DeliveryScreen() {
           )}
         </View>
 
-        {/* Notes */}
         <Text style={s.noteLabel}>Write a Note for Future Reference</Text>
         <TextInput
           style={s.noteInput}
@@ -368,7 +374,6 @@ export default function DeliveryScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Bottom action */}
       <View style={[s.bottomBtn, { paddingBottom: Math.max(16, insets.bottom) }]}>
         <TouchableOpacity
           style={[s.submitBtn, { backgroundColor: isPOD ? TEAL : "#ef4444" }, submitting && s.btnDisabled]}
@@ -387,8 +392,6 @@ export default function DeliveryScreen() {
 
 const s = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
-
-  // Portrait main screen
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 12,
@@ -401,7 +404,6 @@ const s = StyleSheet.create({
   photoImg: { width: "100%", height: "100%" },
   photoPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f9fafb" },
   sigPreviewWrap: { borderWidth: 1, borderColor: "#d1fae5", borderRadius: 12, overflow: "hidden", height: 100, marginBottom: 12, backgroundColor: "#f0fdf4" },
-  sigPreview: { width: "100%", height: 76 },
   sigPreviewBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 6 },
   sigPreviewText: { fontSize: 12, color: "#16a34a", fontWeight: "600" },
   btnRow: { flexDirection: "row", gap: 12, marginBottom: 24 },
@@ -413,8 +415,6 @@ const s = StyleSheet.create({
   submitBtn: { borderRadius: 100, paddingVertical: 16, alignItems: "center" },
   submitBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   btnDisabled: { opacity: 0.5 },
-
-  // Landscape signature pad
   sigScreen: { flex: 1, backgroundColor: "#fff" },
   sigHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
