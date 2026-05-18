@@ -630,16 +630,12 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
                 <p className="mt-0.5 text-sm text-muted-foreground">Delivered on {formatTime(order.deliveredAt)}</p>
               )}
             </div>
-            {isActive && etaMs > 0 && (
-              <div className="flex flex-col items-end gap-0.5">
-                <div className="shrink-0 rounded-full border bg-secondary px-4 py-2 text-sm font-semibold text-foreground">
-                  {formatEta(etaMs)}
-                </div>
-                {liveRoute && (
-                  <p className="text-[11px] text-muted-foreground">
-                    {liveRoute.distanceKm.toFixed(1)} km away
-                  </p>
-                )}
+            {isActive && order.distanceKm != null && (
+              <div className="shrink-0 rounded-full border bg-secondary px-4 py-2 text-sm font-semibold text-foreground">
+                {(() => {
+                  const hrs = Math.min(Math.round(order.distanceKm / 10) + 1, 6)
+                  return `~${hrs} hr${hrs !== 1 ? "s" : ""}`
+                })()}
               </div>
             )}
           </div>
