@@ -46,7 +46,8 @@ function formatEtaWindow(ms: number): { start: string; end: string } | null {
   const MAX_MS = 6 * 60 * 60 * 1000 // 6 hours
   // Clamp centre so the ±30 min window stays within [1 hr, 6 hr] from now
   const centre = Math.min(Math.max(ms, MIN_MS + HALF), MAX_MS - HALF)
-  const fmt = (d: Date) => new Intl.DateTimeFormat("en-NG", { timeStyle: "short" }).format(d)
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat("en-NG", { hour: "numeric", minute: "2-digit", hour12: true }).format(d)
   return {
     start: fmt(new Date(Date.now() + centre - HALF)),
     end: fmt(new Date(Date.now() + centre + HALF)),
