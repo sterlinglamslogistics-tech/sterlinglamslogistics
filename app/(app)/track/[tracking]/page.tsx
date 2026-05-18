@@ -357,8 +357,8 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
             title: driver.name,
             icon: {
               url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
-              scaledSize: new google.maps.Size(64, 64),
-              anchor: new google.maps.Point(32, 32),
+              scaledSize: new google.maps.Size(32, 32),
+              anchor: new google.maps.Point(16, 16),
             },
           })
         } else {
