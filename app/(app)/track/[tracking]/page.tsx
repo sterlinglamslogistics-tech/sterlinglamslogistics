@@ -442,8 +442,14 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   }
 
   const stepIndex = getStepIndex(order.status)
-  const etaWindow = formatEtaWindow(etaMs)
   const isActive = order.status !== "delivered" && order.status !== "cancelled" && order.status !== "failed"
+  // Derive arrival window using the same distance formula as the pill (~1hr per 10km, min 1hr, max 6hr)
+  const etaWindow = (() => {
+    if (!isActive) return null
+    const km = typeof order.distanceKm === "number" ? order.distanceKm : 10
+    const hrs = Math.min(Math.round(km / 10) + 1, 6)
+    return formatEtaWindow(hrs * 3600 * 1000)
+  })()
 
   // ── Rating / Feedback page ──
   if (showRatingPage && order.status === "delivered" && !submitted) {
