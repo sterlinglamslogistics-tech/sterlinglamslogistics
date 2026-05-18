@@ -62,7 +62,7 @@ export default function DashboardScreen() {
   const [actionLoading, setActionLoading] = useState(false)
 
   const activeOrders = orders.filter(
-    (o) => o.status === "started" || o.status === "picked-up" || o.status === "in-transit" || o.status === "unassigned"
+    (o) => o.status === "started" || o.status === "picked-up" || o.status === "in-transit"
   )
 
   const onRefresh = useCallback(async () => {
