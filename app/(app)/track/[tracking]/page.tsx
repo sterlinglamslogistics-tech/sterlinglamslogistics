@@ -350,15 +350,15 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         hasPoints = true
 
         if (!driverMarkerRef.current) {
-          const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><circle cx="22" cy="22" r="20" fill="%231a1a2e" stroke="white" stroke-width="3"/><path d="M13 24l9-7 9 7v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 13 32z" fill="none" stroke="white" stroke-width="1.8"/><polyline points="19,33.5 19,27 25,27 25,33.5" fill="none" stroke="white" stroke-width="1.8"/></svg>`
+          const driverSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="%231a1a2e" fill-opacity="0.12"><animate attributeName="r" values="17;30;17" dur="2s" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.35;0;0.35" dur="2s" repeatCount="indefinite"/></circle><circle cx="32" cy="32" r="17" fill="%231a1a2e" stroke="white" stroke-width="4"/></svg>`
           driverMarkerRef.current = new google.maps.Marker({
             map,
             position: pos,
             title: driver.name,
             icon: {
               url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
-              scaledSize: new google.maps.Size(44, 44),
-              anchor: new google.maps.Point(22, 22),
+              scaledSize: new google.maps.Size(64, 64),
+              anchor: new google.maps.Point(32, 32),
             },
           })
         } else {
