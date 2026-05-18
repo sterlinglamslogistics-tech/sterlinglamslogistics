@@ -729,13 +729,17 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
                     <Phone className="h-4 w-4" />
                   </a>
                 )}
-                <button
-                  type="button"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border bg-secondary text-foreground hover:bg-muted"
-                  aria-label="Message driver"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                </button>
+                {driver.phone && (
+                  <a
+                    href={`https://wa.me/${driver.phone.replace(/\D/g, "")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border bg-secondary text-foreground hover:bg-muted"
+                    aria-label="Message driver on WhatsApp"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                  </a>
+                )}
               </div>
             </div>
           ) : (
