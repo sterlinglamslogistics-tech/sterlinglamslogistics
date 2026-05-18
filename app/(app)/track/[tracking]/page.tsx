@@ -39,9 +39,18 @@ function formatEta(ms: number) {
   return `${mins} mins`
 }
 
-function formatEtaTime(ms: number) {
+function formatEtaWindow(ms: number): { start: string; end: string } | null {
   if (ms <= 0) return null
-  return new Intl.DateTimeFormat("en-NG", { timeStyle: "short" }).format(new Date(Date.now() + ms))
+  const HALF = 30 * 60 * 1000 // ±30 min around centre
+  const MIN_MS = 60 * 60 * 1000 // 1 hour
+  const MAX_MS = 6 * 60 * 60 * 1000 // 6 hours
+  // Clamp centre so the ±30 min window stays within [1 hr, 6 hr] from now
+  const centre = Math.min(Math.max(ms, MIN_MS + HALF), MAX_MS - HALF)
+  const fmt = (d: Date) => new Intl.DateTimeFormat("en-NG", { timeStyle: "short" }).format(d)
+  return {
+    start: fmt(new Date(Date.now() + centre - HALF)),
+    end: fmt(new Date(Date.now() + centre + HALF)),
+  }
 }
 
 function parseRating(value: string | null) {
@@ -433,7 +442,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   }
 
   const stepIndex = getStepIndex(order.status)
-  const etaTime = formatEtaTime(etaMs)
+  const etaWindow = formatEtaWindow(etaMs)
   const isActive = order.status !== "delivered" && order.status !== "cancelled" && order.status !== "failed"
 
   // ── Rating / Feedback page ──
@@ -612,8 +621,10 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xl font-semibold text-foreground">{getStatusHeading(order.status)}</p>
-              {isActive && etaTime && (
-                <p className="mt-0.5 text-sm text-muted-foreground">Est. arrival at {etaTime}</p>
+              {isActive && etaWindow && (
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Est. arrival between {etaWindow.start} – {etaWindow.end}
+                </p>
               )}
               {order.status === "delivered" && (
                 <p className="mt-0.5 text-sm text-muted-foreground">Delivered on {formatTime(order.deliveredAt)}</p>
