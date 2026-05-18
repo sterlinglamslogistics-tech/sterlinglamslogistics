@@ -129,6 +129,8 @@ interface WooOrder {
   id: number
   number?: string
   status?: string
+  date_created?: string      // local time ISO-8601 from WooCommerce
+  date_created_gmt?: string  // UTC ISO-8601 from WooCommerce
   total?: string
   total_tax?: string
   shipping_total?: string
@@ -199,6 +201,24 @@ export async function POST(req: Request) {
       skipped: true,
       message: `Status "${wc.status}" not accepted – only processing or completed orders are imported`,
     })
+  }
+
+  // Reject orders older than 7 days — prevents WooCommerce webhook retries / backlog
+  // from importing historical orders every time the webhook is re-registered.
+  const MAX_ORDER_AGE_DAYS = 7
+  const rawDate = wc.date_created_gmt ?? wc.date_created
+  if (rawDate) {
+    const createdAt = new Date(rawDate)
+    const ageMs = Date.now() - createdAt.getTime()
+    const ageDays = ageMs / (1000 * 60 * 60 * 24)
+    if (ageDays > MAX_ORDER_AGE_DAYS) {
+      log.info({ orderNumber: `${wc.number ?? wc.id}`, ageDays: ageDays.toFixed(1) }, "Skipping stale order")
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        message: `Order is ${ageDays.toFixed(1)} days old – only orders within ${MAX_ORDER_AGE_DAYS} days are imported`,
+      })
+    }
   }
 
   const orderNumber = `${wc.number ?? wc.id}`.replace(/^WC-/i, "")
