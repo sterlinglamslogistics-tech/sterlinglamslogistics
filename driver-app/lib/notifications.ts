@@ -15,7 +15,8 @@ Notifications.setNotificationHandler({
 })
 
 function isExpoGo(): boolean {
-  return Constants.appOwnership === "expo"
+  // executionEnvironment replaces the deprecated appOwnership in SDK 53+
+  return Constants.executionEnvironment === "storeClient"
 }
 
 export async function registerForPushNotifications(driverId: string): Promise<string | null> {

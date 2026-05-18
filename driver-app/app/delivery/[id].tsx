@@ -14,7 +14,6 @@ import { queueDelivery } from "@/lib/storage"
 import type { Order } from "@/lib/types"
 import { useDriver } from "@/context/DriverContext"
 import { GestureDetector, Gesture } from "react-native-gesture-handler"
-import { runOnJS } from "react-native-reanimated"
 
 const TEAL = "#0d9488"
 const GREEN = "#16a34a"
@@ -107,21 +106,16 @@ export default function DeliveryScreen() {
     setRenderTick((t) => t + 1)
   }, [])
 
+  // .runOnJS(true) forces all gesture callbacks to execute on the JS thread,
+  // so we can call state setters and refs directly without runOnJS() wrappers
+  // (runOnJS is deprecated in Reanimated 4).
   const panGesture = useMemo(() =>
     Gesture.Pan()
       .minDistance(0)
-      .onBegin((e) => {
-        'worklet'
-        runOnJS(_onBegin)(e.x, e.y)
-      })
-      .onUpdate((e) => {
-        'worklet'
-        runOnJS(_onUpdate)(e.x, e.y)
-      })
-      .onFinalize(() => {
-        'worklet'
-        runOnJS(_onEnd)()
-      }),
+      .runOnJS(true)
+      .onBegin((e) => { _onBegin(e.x, e.y) })
+      .onUpdate((e) => { _onUpdate(e.x, e.y) })
+      .onFinalize(() => { _onEnd() }),
     [_onBegin, _onUpdate, _onEnd])
 
   useEffect(() => {

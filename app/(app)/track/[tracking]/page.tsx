@@ -340,12 +340,6 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
       await loadGoogleMaps()
       if (cancelled) return
 
-      // Clear old directions route
-      if (directionsRendererRef.current) {
-        directionsRendererRef.current.setMap(null)
-        directionsRendererRef.current = null
-      }
-
       const bounds = new google.maps.LatLngBounds()
       let hasPoints = false
 
@@ -402,41 +396,6 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
       } else if (destinationMarkerRef.current) {
         destinationMarkerRef.current.setMap(null)
         destinationMarkerRef.current = null
-      }
-
-      // Route via Directions API
-      if (driver?.lastLocation && destinationCoord) {
-        const directionsService = new google.maps.DirectionsService()
-        const directionsRenderer = new google.maps.DirectionsRenderer({
-          map,
-          suppressMarkers: true,
-          polylineOptions: { strokeColor: "#374151", strokeWeight: 5, strokeOpacity: 0.75 },
-        })
-        directionsRendererRef.current = directionsRenderer
-
-        directionsService.route(
-          {
-            origin: { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng },
-            destination: destinationCoord,
-            travelMode: google.maps.TravelMode.DRIVING,
-          },
-          (result, status) => {
-            if (cancelled) return
-            if (status === google.maps.DirectionsStatus.OK && result) {
-              directionsRenderer.setDirections(result)
-              const leg = result.routes?.[0]?.legs?.[0]
-              if (leg) {
-                setLiveRoute({
-                  distanceKm: (leg.distance?.value ?? 0) / 1000,
-                  durationMs: (leg.duration?.value ?? 0) * 1000,
-                  fetchedAt: Date.now(),
-                })
-              }
-            }
-          }
-        )
-      } else {
-        if (!cancelled) setLiveRoute(null)
       }
 
       // Fit bounds

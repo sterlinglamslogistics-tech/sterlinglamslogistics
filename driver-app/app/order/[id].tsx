@@ -151,6 +151,17 @@ export default function OrderDetailScreen() {
 
         <View style={styles.divider} />
 
+        {/* Customer note */}
+        {order.deliveryInstruction ? (
+          <>
+            <Text style={styles.sectionLabel}>CUSTOMER NOTE</Text>
+            <View style={styles.customerNoteBox}>
+              <Text style={styles.customerNoteText}>{order.deliveryInstruction}</Text>
+            </View>
+            <View style={styles.divider} />
+          </>
+        ) : null}
+
         {/* Order items */}
         <Text style={styles.sectionLabel}>ORDER ITEMS</Text>
         {(order.items ?? []).map((item, i) => (
@@ -244,4 +255,6 @@ const styles = StyleSheet.create({
   grandTotalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: "#f3f4f6", marginTop: 8 },
   grandTotalLabel: { fontSize: 17, fontWeight: "700", color: "#111827" },
   grandTotalValue: { fontSize: 17, fontWeight: "700", color: "#111827" },
+  customerNoteBox: { backgroundColor: "#fefce8", borderRadius: 8, padding: 12, marginBottom: 4, borderWidth: 1, borderColor: "#fef08a" },
+  customerNoteText: { fontSize: 14, color: "#374151", lineHeight: 20 },
 })
