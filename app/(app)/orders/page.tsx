@@ -44,7 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
+import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, ArrowUpDown, ArrowUp, ArrowDown, Search, Upload } from "lucide-react"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -117,6 +117,15 @@ export default function OrdersPage() {
   const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false)
   const [bulkDriverId, setBulkDriverId] = useState<string>(UNASSIGNED_DRIVER)
   const [reassignOrderId, setReassignOrderId] = useState<string | null>(null)
+
+  // Search / filter state
+  const [searchQuery, setSearchQuery] = useState("")
+  const [historyDateFrom, setHistoryDateFrom] = useState("")
+  const [historyDateTo, setHistoryDateTo] = useState("")
+  const [historySearchField, setHistorySearchField] = useState("orderNumber")
+  const [historyKeyword, setHistoryKeyword] = useState("")
+  const [historyResults, setHistoryResults] = useState<Order[] | null>(null)
+  const csvInputRef = useRef<HTMLInputElement | null>(null)
 
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ display_name: string; lat: string; lon: string; placeId?: string }>>([])
   const [addressSearching, setAddressSearching] = useState(false)
@@ -536,14 +545,26 @@ export default function OrdersPage() {
     (o) => TERMINAL_STATUSES.includes(o.status)
   )
 
-  const visibleOrders =
+  const baseVisibleOrders =
     activeTab === "current"
       ? currentOrders
       : activeTab === "completed"
         ? completedOrders
         : activeTab === "incomplete"
           ? incompleteOrders
-          : historyOrders
+          : historyResults ?? historyOrders
+
+  const visibleOrders = activeTab === "history"
+    ? baseVisibleOrders
+    : searchQuery.trim() === ""
+      ? baseVisibleOrders
+      : baseVisibleOrders.filter((o) => {
+          const q = searchQuery.trim().toLowerCase()
+          return (
+            (o.customerName ?? "").toLowerCase().includes(q) ||
+            (o.orderNumber ?? "").toLowerCase().includes(q)
+          )
+        })
 
   function toggleSort(col: string) {
     if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc")
@@ -738,16 +759,189 @@ export default function OrdersPage() {
     }
   }
 
+  function handleHistorySearch() {
+    let results = historyOrders
+    if (historyDateFrom) {
+      const from = new Date(historyDateFrom)
+      from.setHours(0, 0, 0, 0)
+      results = results.filter((o) => {
+        const d = o.createdAt
+        if (!d) return false
+        const date = typeof d === "object" && "seconds" in (d as object)
+          ? new Date((d as { seconds: number }).seconds * 1000)
+          : new Date(d as string | number)
+        return date >= from
+      })
+    }
+    if (historyDateTo) {
+      const to = new Date(historyDateTo)
+      to.setHours(23, 59, 59, 999)
+      results = results.filter((o) => {
+        const d = o.createdAt
+        if (!d) return false
+        const date = typeof d === "object" && "seconds" in (d as object)
+          ? new Date((d as { seconds: number }).seconds * 1000)
+          : new Date(d as string | number)
+        return date <= to
+      })
+    }
+    if (historyKeyword.trim()) {
+      const kw = historyKeyword.trim().toLowerCase()
+      results = results.filter((o) => {
+        switch (historySearchField) {
+          case "customerName": return (o.customerName ?? "").toLowerCase().includes(kw)
+          case "phone": return (o.phone ?? "").toLowerCase().includes(kw)
+          case "orderNumber": return (o.orderNumber ?? "").toLowerCase().includes(kw)
+          case "driver": return (o.assignedDriver ?? "").toLowerCase().includes(kw)
+          case "pickupName": return (o.pickupName ?? "").toLowerCase().includes(kw)
+          default: return true
+        }
+      })
+    }
+    setHistoryResults(results)
+  }
+
+  function handleCsvUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ""
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      const text = ev.target?.result as string
+      if (!text) return
+      const lines = text.split(/\r?\n/).filter((l) => l.trim())
+      if (lines.length < 2) {
+        toast({ title: "CSV has no data rows", variant: "destructive" })
+        return
+      }
+      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase())
+      const idx = (name: string) => headers.indexOf(name)
+      const rows = lines.slice(1)
+      let created = 0
+      let failed = 0
+      for (const row of rows) {
+        const cols = row.split(",").map((c) => c.trim())
+        const orderNumber = cols[idx("ordernumber")] ?? cols[idx("order number")] ?? cols[idx("order_number")] ?? ""
+        const customerName = cols[idx("customername")] ?? cols[idx("customer name")] ?? cols[idx("customer_name")] ?? ""
+        const phone = cols[idx("phone")] ?? cols[idx("customerphone")] ?? cols[idx("customer phone")] ?? ""
+        const address = cols[idx("address")] ?? ""
+        const amountStr = cols[idx("amount")] ?? ""
+        const amount = parseFloat(amountStr.replace(/[^0-9.]/g, "")) || 0
+        if (!orderNumber || !customerName) { failed++; continue }
+        try {
+          await createOrder({
+            orderNumber,
+            customerName,
+            phone,
+            address,
+            amount,
+            status: "unassigned",
+            assignedDriver: null,
+            pickupName: "Sterlin Glams",
+            pickupPhone: "+234 9160009893",
+            pickupAddress: "Sterlin Glams – Ikota Ajah Lagos",
+            pickupTime: "",
+            deliveryDate: new Date().toISOString().split("T")[0],
+            deliveryTime: "",
+            items: [],
+            createdAt: new Date(),
+          } as Parameters<typeof createOrder>[0])
+          created++
+        } catch {
+          failed++
+        }
+      }
+      toast({
+        title: `CSV import complete`,
+        description: `${created} order(s) imported${failed > 0 ? `, ${failed} failed` : ""}.`,
+        variant: failed > 0 && created === 0 ? "destructive" : "default",
+      })
+    }
+    reader.readAsText(file)
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* ── Title row ── */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Orders</h1>
-        <Button onClick={openNewOrderDialog}>
-          <Plus className="mr-2 h-4 w-4" />
-          New Order
-        </Button>
-      </div>
+      {activeTab === "current" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground mr-auto">Orders</h1>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              className="pl-8 w-56 h-9"
+              placeholder="Search name or order no…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
+          <Button variant="outline" className="h-9" onClick={() => csvInputRef.current?.click()}>
+            <Upload className="mr-2 h-4 w-4" />
+            CSV Upload
+          </Button>
+          <Button className="h-9" onClick={openNewOrderDialog}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Order
+          </Button>
+        </div>
+      )}
+      {(activeTab === "completed" || activeTab === "incomplete") && (
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground mr-auto">Orders</h1>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              className="pl-8 w-56 h-9"
+              placeholder="Search name or order no…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+      {activeTab === "history" && (
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground w-full sm:w-auto mr-auto">Orders</h1>
+          <Input
+            type="date"
+            className="h-9 w-36"
+            value={historyDateFrom}
+            onChange={(e) => setHistoryDateFrom(e.target.value)}
+            placeholder="From date"
+          />
+          <span className="text-muted-foreground text-sm">–</span>
+          <Input
+            type="date"
+            className="h-9 w-36"
+            value={historyDateTo}
+            onChange={(e) => setHistoryDateTo(e.target.value)}
+            placeholder="To date"
+          />
+          <Select value={historySearchField} onValueChange={setHistorySearchField}>
+            <SelectTrigger className="h-9 w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="orderNumber">Order Number</SelectItem>
+              <SelectItem value="customerName">Customer Name</SelectItem>
+              <SelectItem value="phone">Customer Phone</SelectItem>
+              <SelectItem value="driver">Driver</SelectItem>
+              <SelectItem value="pickupName">Pick Up From</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            className="h-9 w-44"
+            placeholder="Keyword…"
+            value={historyKeyword}
+            onChange={(e) => setHistoryKeyword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleHistorySearch()}
+          />
+          <Button className="h-9 bg-green-600 hover:bg-green-700 text-white" onClick={handleHistorySearch}>
+            Search
+          </Button>
+        </div>
+      )}
 
       {/* ── Tabs + bulk action icons ── */}
       <div className="flex items-center justify-between border-b border-border">
@@ -755,7 +949,7 @@ export default function OrdersPage() {
           {(["current", "completed", "incomplete", "history"] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => { setActiveTab(tab); setSearchQuery(""); setHistoryResults(null) }}
               className={`border-b-2 pb-3 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? "border-primary text-primary"
