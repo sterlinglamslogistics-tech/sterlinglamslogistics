@@ -134,11 +134,21 @@ export default function DashboardScreen() {
   // ── Route options ──────────────────────────────────────────────────────────
   async function pickUpAllOrders() {
     setRouteOptionsOpen(false)
-    const started = activeOrders.filter((o) => o.status === "started")
-    if (started.length === 0) return
-    for (const order of started) {
-      await updateStatus(order, "picked-up")
-    }
+    if (!session) return
+    // Only touch orders that are strictly "started" — skip picked-up, in-transit, etc.
+    const toPickUp = activeOrders.filter((o) => o.status === "started")
+    if (toPickUp.length === 0) return
+    // Fire all requests in parallel, independent of the shared pendingId state
+    await Promise.all(
+      toPickUp.map((order) =>
+        driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ driverId: session.id, status: "picked-up" }),
+        }).catch(() => {})
+      )
+    )
+    await refreshOrders()
   }
 
   // ── Offline welcome screen ─────────────────────────────────────────────────
@@ -453,14 +463,6 @@ export default function DashboardScreen() {
             <TouchableOpacity style={[styles.modalBtn, { backgroundColor: TEAL }]} onPress={pickUpAllOrders}>
               <Feather name="check-circle" size={18} color="#fff" style={{ marginRight: 8 }} />
               <Text style={styles.modalBtnText}>Pick Up all orders</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.modalBtn, { backgroundColor: TEAL, marginTop: 10 }]} onPress={() => setRouteOptionsOpen(false)}>
-              <MaterialIcons name="alt-route" size={18} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={styles.modalBtnText}>Optimize Route</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.modalBtn, { backgroundColor: TEAL, marginTop: 10 }]} onPress={() => setRouteOptionsOpen(false)}>
-              <MaterialIcons name="notifications" size={18} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={styles.modalBtnText}>Notify Customers</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.modalBtn, { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e5e7eb", marginTop: 10 }]} onPress={() => setRouteOptionsOpen(false)}>
               <Text style={[styles.modalBtnText, { color: "#374151" }]}>Close</Text>

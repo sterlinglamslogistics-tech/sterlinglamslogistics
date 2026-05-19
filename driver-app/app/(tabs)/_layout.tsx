@@ -6,7 +6,8 @@ import { useDriver } from "@/context/DriverContext"
 import { DrawerMenu } from "@/components/DrawerMenu"
 
 export default function TabsLayout() {
-  const { session, loadingSession, unreadMessageCount } = useDriver()
+  const { session, loadingSession, unreadMessageCount, orders } = useDriver()
+  const waitingCount = orders.filter((o) => o.status === "unassigned").length
   const insets = useSafeAreaInsets()
 
   if (loadingSession) {
@@ -55,7 +56,18 @@ export default function TabsLayout() {
           name="waiting"
           options={{
             title: "Waiting",
-            tabBarIcon: ({ color, size }) => <MaterialIcons name="format-list-bulleted" size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => (
+              <View>
+                <MaterialIcons name="format-list-bulleted" size={size} color={color} />
+                {waitingCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
+                      {waitingCount > 9 ? "9+" : String(waitingCount)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ),
           }}
         />
         <Tabs.Screen
