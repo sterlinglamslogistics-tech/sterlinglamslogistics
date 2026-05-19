@@ -1008,7 +1008,7 @@ export default function OrdersPage() {
               <SortHead col="placementTime" label="Order Placed" className="w-28" />
               <SortHead col="status" label="Status" className="w-28" />
               <SortHead col="driver" label="Driver" className="w-36" />
-              <TableHead className="w-16">Track</TableHead>
+              {activeTab === "current" && <TableHead className="w-16">Track</TableHead>}
               {(activeTab === "completed" || activeTab === "history") && <TableHead className="w-28">Delivery Time</TableHead>}
               {activeTab !== "completed" && activeTab !== "history" && <TableHead className="w-10"></TableHead>}
             </TableRow>
@@ -1072,19 +1072,21 @@ export default function OrdersPage() {
                     </Select>
                   )}
                 </TableCell>
-                <TableCell>
-                  {order.assignedDriver ? (
-                    <Button asChild size="sm" variant="link" className="h-7 px-0 text-primary">
-                      <Link
-                        href={`/track/${encodeURIComponent(order.orderNumber)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Track
-                      </Link>
-                    </Button>
-                  ) : null}
-                </TableCell>
+                {activeTab === "current" && (
+                  <TableCell>
+                    {order.assignedDriver ? (
+                      <Button asChild size="sm" variant="link" className="h-7 px-0 text-primary">
+                        <Link
+                          href={`/track/${encodeURIComponent(order.orderNumber)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Track
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </TableCell>
+                )}
                 {(activeTab === "completed" || activeTab === "history") && (
                   <TableCell className="text-muted-foreground whitespace-nowrap">{formatOrderTime(order.deliveredAt)}</TableCell>
                 )}
