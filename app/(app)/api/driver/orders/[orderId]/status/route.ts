@@ -75,6 +75,7 @@ export async function POST(
       status?: DriverOrderStatusAction
       photoData?: string
       signatureData?: string
+      signerName?: string
       deliveryNotes?: string
       deliveryNote?: string  // legacy alias — prefer deliveryNotes
       failedReason?: string
@@ -213,6 +214,8 @@ export async function POST(
       // Accept both spellings from older clients; store as deliveryNote (singular)
       const noteText = body.deliveryNotes ?? body.deliveryNote
       if (noteText) proof.deliveryNote = noteText
+
+      if (body.signerName?.trim()) proof.signerName = body.signerName.trim()
 
       if (typeof body.deliveryLat === "number") proof.deliveryLat = body.deliveryLat
       if (typeof body.deliveryLng === "number") proof.deliveryLng = body.deliveryLng
