@@ -86,7 +86,7 @@ export default function CompletedOrdersScreen() {
           </View>
         ) : (
           shown.map((order) => (
-            <View key={order.id} style={styles.card}>
+            <TouchableOpacity key={order.id} style={styles.card} onPress={() => router.push(`/order/${order.id}` as never)} activeOpacity={0.7}>
               <View style={styles.cardLeft}>
                 <Feather name={order.status === "delivered" ? "check-circle" : "x-circle"} size={18} color={order.status === "delivered" ? TEAL : "#ef4444"} />
                 <View style={{ flex: 1 }}>
@@ -94,8 +94,11 @@ export default function CompletedOrdersScreen() {
                   <Text style={styles.customer} numberOfLines={1}>{order.customerName}</Text>
                 </View>
               </View>
-              <Text style={styles.amount}>{formatCurrency(order.amount)}</Text>
-            </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={styles.amount}>{formatCurrency(order.amount)}</Text>
+                <Feather name="chevron-right" size={16} color="#9ca3af" />
+              </View>
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>

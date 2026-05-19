@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl } from "react-native"
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
+import { router } from "expo-router"
 import { useDriver } from "@/context/DriverContext"
 import { driverFetch } from "@/lib/api"
 import { formatCurrency, type Order } from "@/lib/types"
@@ -46,7 +47,7 @@ export default function CompletedScreen() {
           </View>
         ) : (
           orders.map((order) => (
-            <View key={order.id} style={styles.card}>
+            <TouchableOpacity key={order.id} style={styles.card} onPress={() => router.push(`/order/${order.id}` as never)} activeOpacity={0.7}>
               <View style={styles.cardLeft}>
                 {order.status === "delivered"
                   ? <Feather name="check-circle" size={20} color={GREEN} />
@@ -66,7 +67,7 @@ export default function CompletedScreen() {
                   </Text>
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
           ))
         )}
       </ScrollView>
