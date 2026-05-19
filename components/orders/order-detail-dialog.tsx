@@ -207,7 +207,7 @@ export function OrderDetailDialog({ order, onClose, onDelete, getDriverDisplayNa
               {order.signatureData && (
                 <div className="border-t pt-2 text-sm">
                   <span className="text-muted-foreground">Dropoff Instructions: </span>
-                  Signed by: {getDriverDisplayName(order.assignedDriver)}
+                  Signed by: {order.signerName || getDriverDisplayName(order.assignedDriver)}
                 </div>
               )}
             </div>

@@ -46,6 +46,7 @@ export interface Order {
   // Set by driver at delivery
   photoData?: string        // base64 JPEG delivery photo
   signatureData?: string    // base64 SVG customer signature
+  signerName?: string       // name of person who signed at delivery
   deliveryLat?: number      // GPS latitude at moment of delivery
   deliveryLng?: number      // GPS longitude at moment of delivery
 
