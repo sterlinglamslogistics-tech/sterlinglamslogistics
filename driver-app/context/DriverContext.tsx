@@ -22,6 +22,8 @@ const BG_LOCATION_TASK = "bg-location-task"
 
 TaskManager.defineTask(BG_LOCATION_TASK, async ({ data, error }: TaskManager.TaskManagerTaskBody<{ locations: Location.LocationObject[] }>) => {
   if (error || !data) return
+  // Skip background send when app is foregrounded — foreground watcher handles it
+  if (AppState.currentState === "active") return
   const { locations } = data
   const loc = locations[0]
   if (!loc) return
@@ -96,6 +98,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const lastGpsWrite = useRef(0)
   const locationSub = useRef<Location.LocationSubscription | null>(null)
   const unreadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const orderPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevOrderIds = useRef<Set<string>>(new Set())
   const isRetryingRef = useRef(false)
   // True until the first successful order load — controls the full-screen spinner
@@ -231,7 +234,8 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false)
       if (!already) {
         await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-          accuracy: Location.Accuracy.High, timeInterval: 15000, distanceInterval: 20,
+          // Balanced accuracy is sufficient for delivery tracking (~50m) and saves battery
+          accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 20,
           showsBackgroundLocationIndicator: true,
           foregroundService: { notificationTitle: "Sterlin Driver", notificationBody: "Location tracking active", notificationColor: "#16a34a" },
         })
@@ -302,6 +306,18 @@ export function DriverProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (session && isOnline) refreshOrders()
+  }, [session, isOnline, refreshOrders])
+
+  // ── Order polling (every 30s when online) ─────────────────────────────────
+  useEffect(() => {
+    if (!session || !isOnline) {
+      if (orderPollRef.current) { clearInterval(orderPollRef.current); orderPollRef.current = null }
+      return
+    }
+    orderPollRef.current = setInterval(() => { void refreshOrders() }, 30_000)
+    return () => {
+      if (orderPollRef.current) { clearInterval(orderPollRef.current); orderPollRef.current = null }
+    }
   }, [session, isOnline, refreshOrders])
 
   async function goOnline() {
