@@ -66,6 +66,7 @@ export default function DeliveryScreen() {
   const [submitting, setSubmitting] = useState(false)
   const [photoUri, setPhotoUri] = useState<string | null>(null)
   const [photoData, setPhotoData] = useState<string | null>(null)
+  const [signerName, setSignerName] = useState("")
   const [notes, setNotes] = useState("")
   const [showSig, setShowSig] = useState(false)
 
@@ -199,6 +200,7 @@ export default function DeliveryScreen() {
       status,
       ...(photoData ? { photoData } : {}),
       ...(notes.trim() ? { deliveryNote: notes.trim() } : {}),
+      ...(signerName.trim() ? { signerName: signerName.trim() } : {}),
       ...(sigDataUrl ? { signatureData: sigDataUrl } : {}),
       ...(liveGps ? { deliveryLat: liveGps.lat, deliveryLng: liveGps.lng } : {}),
     }
@@ -378,6 +380,14 @@ export default function DeliveryScreen() {
 
         <Text style={s.noteLabel}>Write a Note for Future Reference</Text>
         <TextInput
+          style={s.signerInput}
+          placeholder="Name of the person signed (Required)"
+          placeholderTextColor="#9ca3af"
+          value={signerName}
+          onChangeText={setSignerName}
+          returnKeyType="done"
+        />
+        <TextInput
           style={s.noteInput}
           placeholder="Enter Your Note"
           placeholderTextColor="#9ca3af"
@@ -427,6 +437,7 @@ const s = StyleSheet.create({
   outlineBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 100, paddingVertical: 12, backgroundColor: "#fff" },
   outlineBtnText: { fontSize: 14, color: "#374151", fontWeight: "500" },
   noteLabel: { fontSize: 16, fontWeight: "700", color: "#111827", marginBottom: 10 },
+  signerInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 14, fontSize: 14, color: "#111827", backgroundColor: "#f9fafb", marginBottom: 12 },
   noteInput: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 12, padding: 14, fontSize: 14, color: "#111827", backgroundColor: "#f9fafb", minHeight: 120 },
   bottomBtn: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 12, backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#f3f4f6" },
   submitBtn: { borderRadius: 100, paddingVertical: 16, alignItems: "center" },
