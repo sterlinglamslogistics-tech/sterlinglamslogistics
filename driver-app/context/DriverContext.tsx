@@ -6,7 +6,7 @@ import * as SecureStore from "expo-secure-store"
 import * as Location from "expo-location"
 import * as TaskManager from "expo-task-manager"
 import * as Notifications from "expo-notifications"
-import { AppState, type AppStateStatus } from "react-native"
+import { AppState, Alert, type AppStateStatus } from "react-native"
 import { router } from "expo-router"
 import {
   loadSession, saveSession, clearSession,
@@ -322,22 +322,38 @@ export function DriverProvider({ children }: { children: ReactNode }) {
 
   async function goOnline() {
     if (!session) return
-    const res = await driverFetch("/api/driver/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ driverId: session.id, status: "available" }),
-    })
-    if (res.ok) setIsOnline(true)
+    try {
+      const res = await driverFetch("/api/driver/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driverId: session.id, status: "available" }),
+      })
+      if (res.ok) {
+        setIsOnline(true)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        Alert.alert("Could not go online", (data as { error?: string }).error ?? `Server error (${res.status}). Please try again.`)
+      }
+    } catch {
+      Alert.alert("Connection error", "Could not reach the server. Check your internet connection and try again.")
+    }
   }
 
   async function goOffline() {
     if (!session) return
-    const res = await driverFetch("/api/driver/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ driverId: session.id, status: "offline" }),
-    })
-    if (res.ok) { setIsOnline(false); await stopGps() }
+    try {
+      const res = await driverFetch("/api/driver/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driverId: session.id, status: "offline" }),
+      })
+      if (res.ok) { setIsOnline(false); await stopGps() }
+      else {
+        Alert.alert("Could not go offline", "Please try again.")
+      }
+    } catch {
+      Alert.alert("Connection error", "Could not reach the server. Check your internet connection and try again.")
+    }
   }
 
   async function fetchDriverProfile(driverId: string) {
