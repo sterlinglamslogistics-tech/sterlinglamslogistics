@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useCallback } from "react"
 import {
   View, Text, ScrollView, StyleSheet, ActivityIndicator,
   RefreshControl, TouchableOpacity,
@@ -6,7 +6,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Feather } from "@expo/vector-icons"
 import { useDriver } from "@/context/DriverContext"
-import { driverFetch } from "@/lib/api"
 import { formatCurrency, type Order } from "@/lib/types"
 
 const TEAL = "#0d9488"
@@ -48,26 +47,16 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
 }
 
 export default function PerformanceScreen() {
-  const { session, driver, setDrawerOpen } = useDriver()
-  const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
+  const { session, driver, orders, loadingOrders, refreshOrders, setDrawerOpen } = useDriver()
   const [refreshing, setRefreshing] = useState(false)
   const [period, setPeriod] = useState<Period>("thisWeek")
   const [dropOpen, setDropOpen] = useState(false)
 
-  async function load() {
-    if (!session) return
-    try {
-      const res = await driverFetch(`/api/driver/orders?driverId=${encodeURIComponent(session.id)}`)
-      if (!res.ok) return
-      const data = await res.json() as { orders?: Order[] }
-      setOrders(data.orders ?? [])
-    } catch { /* ignore */ } finally {
-      setLoading(false); setRefreshing(false)
-    }
-  }
-
-  useEffect(() => { load() }, [session])
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    await refreshOrders()
+    setRefreshing(false)
+  }, [refreshOrders])
 
   const { start, end, label } = getDateRange(period)
 
@@ -103,7 +92,7 @@ export default function PerformanceScreen() {
 
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load() }} tintColor={TEAL} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={TEAL} />}
       >
         {/* Period selector */}
         <View style={styles.periodRow}>
@@ -125,7 +114,7 @@ export default function PerformanceScreen() {
           </View>
         )}
 
-        {loading ? (
+        {loadingOrders && !refreshing ? (
           <ActivityIndicator color={TEAL} style={{ marginTop: 60 }} />
         ) : (
           <View style={styles.grid}>

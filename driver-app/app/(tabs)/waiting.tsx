@@ -27,7 +27,7 @@ function formatOrderTime(ts: unknown): string {
 }
 
 export default function WaitingScreen() {
-  const { session, orders, loadingOrders, refreshOrders, setDrawerOpen } = useDriver()
+  const { session, orders, loadingOrders, refreshOrders, patchOrder, setDrawerOpen } = useDriver()
   const [refreshing, setRefreshing] = useState(false)
   const [pendingId, setPendingId] = useState<string | null>(null)
 
@@ -48,7 +48,10 @@ export default function WaitingScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ driverId: session.id, status: "started" }),
       })
-      if (res.ok) await refreshOrders()
+      if (res.ok) {
+        patchOrder(order.id, { status: "started" })
+        void refreshOrders()
+      }
     } catch { /* ignore */ } finally {
       setPendingId(null)
     }

@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context"
 import { useLocalSearchParams, router } from "expo-router"
 import { Feather } from "@expo/vector-icons"
+import { useDriver } from "@/context/DriverContext"
 import { driverFetch } from "@/lib/api"
 import { formatCurrency, type Order } from "@/lib/types"
 import { getNavApp, buildNavUrl, HUB_NAME, HUB_ADDRESS, HUB_PHONE } from "@/lib/storage"
@@ -44,17 +45,26 @@ function formatTs(ts: unknown): string {
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
+  const { orders } = useDriver()
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!id) return
+    // Check context cache first — avoids a round trip for active orders
+    const cached = orders.find((o) => o.id === id)
+    if (cached) {
+      setOrder(cached)
+      setLoading(false)
+      return
+    }
+    // Fallback to API for completed/historical orders not in context
     driverFetch(`/api/driver/orders/${encodeURIComponent(id)}`)
       .then((r) => r.json())
       .then((d: { ok?: boolean; order?: Order }) => setOrder(d.order ?? null))
       .catch(() => setOrder(null))
       .finally(() => setLoading(false))
-  }, [id])
+  }, [id, orders])
 
   async function navigate(address: string) {
     const app = await getNavApp()
