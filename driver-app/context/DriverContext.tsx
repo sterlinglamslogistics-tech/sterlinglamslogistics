@@ -14,7 +14,7 @@ import {
   getProfilePhoto, saveProfilePhoto as storeProfilePhoto,
   getPreferences, type Preferences,
 } from "@/lib/storage"
-import { driverFetch } from "@/lib/api"
+import { driverFetch, clearTokenCache } from "@/lib/api"
 import { registerForPushNotifications, showLocalNotification } from "@/lib/notifications"
 import type { Driver, DriverSession, Order } from "@/lib/types"
 
@@ -59,6 +59,7 @@ interface DriverContextValue {
   goOnline: () => Promise<void>
   goOffline: () => Promise<void>
   refreshOrders: () => Promise<void>
+  patchOrder: (id: string, updates: Partial<Order>) => void
   refreshUnreadCount: () => Promise<void>
   logout: () => Promise<void>
   login: (session: DriverSession) => Promise<void>
@@ -97,6 +98,8 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const unreadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevOrderIds = useRef<Set<string>>(new Set())
   const isRetryingRef = useRef(false)
+  // True until the first successful order load — controls the full-screen spinner
+  const isFirstOrderLoadRef = useRef(true)
 
   useEffect(() => {
     Promise.all([loadSession(), getProfilePhoto(), getPreferences()]).then(async ([s, photo, prefs]) => {
@@ -252,9 +255,14 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     }).catch(() => { })
   }
 
+  const patchOrder = useCallback((id: string, updates: Partial<Order>) => {
+    setOrders((prev) => prev.map((o) => o.id === id ? { ...o, ...updates } : o))
+  }, [])
+
   const refreshOrders = useCallback(async () => {
     if (!session) return
-    setLoadingOrders(true)
+    // Only show the full-screen spinner on the very first load; background refreshes are silent
+    if (isFirstOrderLoadRef.current) setLoadingOrders(true)
     try {
       const res = await driverFetch(`/api/driver/orders?driverId=${encodeURIComponent(session.id)}`)
       if (!res.ok) return
@@ -286,6 +294,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       prevOrderIds.current = new Set(sorted.map((o) => o.id))
 
       setOrders(sorted)
+      isFirstOrderLoadRef.current = false
     } catch { /* silently ignore */ } finally {
       setLoadingOrders(false)
     }
@@ -332,6 +341,8 @@ export function DriverProvider({ children }: { children: ReactNode }) {
 
   async function logout() {
     await stopGps()
+    clearTokenCache()
+    isFirstOrderLoadRef.current = true
     await clearSession()
     setSession(null); setDriver(null); setOrders([]); setIsOnline(false); setUnreadMessageCount(0)
     router.replace("/")
@@ -352,10 +363,10 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     session, driver, orders, isOnline, loadingSession, loadingOrders,
     gpsError, liveGps, pendingDeliveryCount, unreadMessageCount,
     drawerOpen, profilePhoto, preferences,
-    goOnline, goOffline, refreshOrders, refreshUnreadCount, logout, login,
+    goOnline, goOffline, refreshOrders, patchOrder, refreshUnreadCount, logout, login,
     setDrawerOpen, setProfilePhoto, updatePreferences, setUnreadMessageCount,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [session, driver, orders, isOnline, loadingSession, loadingOrders, gpsError, liveGps, pendingDeliveryCount, unreadMessageCount, drawerOpen, profilePhoto, preferences, refreshOrders, refreshUnreadCount])
+  }), [session, driver, orders, isOnline, loadingSession, loadingOrders, gpsError, liveGps, pendingDeliveryCount, unreadMessageCount, drawerOpen, profilePhoto, preferences, refreshOrders, patchOrder, refreshUnreadCount])
 
   return <DriverContext.Provider value={value}>{children}</DriverContext.Provider>
 }

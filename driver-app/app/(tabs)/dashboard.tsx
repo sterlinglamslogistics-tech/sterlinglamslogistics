@@ -48,7 +48,7 @@ function formatOrderTime(ts: unknown): { time: string; date: string } {
 }
 
 export default function DashboardScreen() {
-  const { session, orders, isOnline, loadingOrders, gpsError, pendingDeliveryCount, profilePhoto, goOnline, refreshOrders, setDrawerOpen } = useDriver()
+  const { session, orders, isOnline, loadingOrders, gpsError, pendingDeliveryCount, profilePhoto, goOnline, refreshOrders, patchOrder, setDrawerOpen } = useDriver()
   const insets = useSafeAreaInsets()
   const [refreshing, setRefreshing] = useState(false)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -81,14 +81,24 @@ export default function DashboardScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ driverId: session.id, status }),
       })
-      if (res.ok) await refreshOrders()
+      if (res.ok) {
+        // Instant local update — no spinner, no wait
+        patchOrder(order.id, { status })
+        // Background sync with server (silent — no full-screen spinner)
+        void refreshOrders()
+      }
     } catch { /* ignore */ } finally {
       setPendingId(null)
     }
   }
 
-  // ── "Mark as Picked Up" → open item checklist ──────────────────────────────
+  // ── "Mark as Picked Up" → open item checklist (skip if no items) ───────────
   function openChecklist(order: Order) {
+    if (!order.items || order.items.length === 0) {
+      // No items to verify — go straight to picked-up
+      void updateStatus(order, "picked-up")
+      return
+    }
     setCheckedItems(new Set())
     setChecklistOrder(order)
   }
@@ -138,7 +148,9 @@ export default function DashboardScreen() {
     // Only touch orders that are strictly "started" — skip picked-up, in-transit, etc.
     const toPickUp = activeOrders.filter((o) => o.status === "started")
     if (toPickUp.length === 0) return
-    // Fire all requests in parallel, independent of the shared pendingId state
+    // Optimistic: update all cards instantly
+    toPickUp.forEach((order) => patchOrder(order.id, { status: "picked-up" }))
+    // Fire all requests in parallel, background sync after
     await Promise.all(
       toPickUp.map((order) =>
         driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
@@ -148,7 +160,7 @@ export default function DashboardScreen() {
         }).catch(() => {})
       )
     )
-    await refreshOrders()
+    void refreshOrders()
   }
 
   // ── Offline welcome screen ─────────────────────────────────────────────────
