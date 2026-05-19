@@ -614,7 +614,11 @@ export function subscribeOrderByTrackingRealtime(
 
   let fallbackUnsubscribe: (() => void) | null = null
   let fallbackActive = false
-  const byOrderNumber = query(ordersCollection, where("orderNumber", "==", token))
+  const byOrderNumber = query(
+    ordersCollection,
+    where("orderNumber", "==", token),
+    orderBy("createdAt", "desc")
+  )
 
   const orderNumberUnsubscribe = onSnapshot(
     byOrderNumber,

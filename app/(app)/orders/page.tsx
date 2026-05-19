@@ -459,6 +459,17 @@ export default function OrdersPage() {
             : data.assignedDriver || null
         const initialStatus: Order["status"] = assignedDriverValue ? ORDER_STATUS.STARTED : ORDER_STATUS.UNASSIGNED
 
+        // Warn if another active order already uses this order number
+        const duplicate = orderList.find(
+          (o) => o.orderNumber === data.orderNumber && !["delivered", "cancelled", "failed"].includes(o.status)
+        )
+        if (duplicate) {
+          const proceed = window.confirm(
+            `Order number "${data.orderNumber}" is already in use by an active order (${duplicate.status}). Create anyway?`
+          )
+          if (!proceed) { setIsSaving(false); return }
+        }
+
         const orderId = await createOrder({
           orderNumber: data.orderNumber,
           pickupName: data.pickupName,

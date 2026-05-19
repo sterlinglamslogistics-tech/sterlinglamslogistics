@@ -126,7 +126,12 @@ export async function adminFetchOrder(orderId: string): Promise<Order | null> {
 export async function adminFetchOrderByTracking(tracking: string): Promise<Order | null> {
   const token = tracking.trim()
   if (!token) return null
-  const snap = await adminDb.collection("orders").where("orderNumber", "==", token).get()
+  const snap = await adminDb
+    .collection("orders")
+    .where("orderNumber", "==", token)
+    .orderBy("createdAt", "desc")
+    .limit(1)
+    .get()
   if (!snap.empty) {
     const d = snap.docs[0]
     return normalizeOrderDoc(d.id, d.data() as Record<string, unknown>)
