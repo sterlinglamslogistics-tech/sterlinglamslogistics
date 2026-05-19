@@ -129,11 +129,16 @@ export async function adminFetchOrderByTracking(tracking: string): Promise<Order
   const snap = await adminDb
     .collection("orders")
     .where("orderNumber", "==", token)
-    .orderBy("createdAt", "desc")
-    .limit(1)
     .get()
   if (!snap.empty) {
-    const d = snap.docs[0]
+    // Sort in memory — most recently created order wins (no composite index needed)
+    const toMs = (v: unknown): number => {
+      if (!v) return 0
+      if (typeof v === "object" && v !== null && "seconds" in v) return (v as { seconds: number }).seconds * 1000
+      return new Date(v as string | number).getTime()
+    }
+    const sorted = snap.docs.slice().sort((a, b) => toMs(b.data().createdAt) - toMs(a.data().createdAt))
+    const d = sorted[0]
     return normalizeOrderDoc(d.id, d.data() as Record<string, unknown>)
   }
   return adminFetchOrder(token)

@@ -616,8 +616,7 @@ export function subscribeOrderByTrackingRealtime(
   let fallbackActive = false
   const byOrderNumber = query(
     ordersCollection,
-    where("orderNumber", "==", token),
-    orderBy("createdAt", "desc")
+    where("orderNumber", "==", token)
   )
 
   const orderNumberUnsubscribe = onSnapshot(
@@ -629,7 +628,16 @@ export function subscribeOrderByTrackingRealtime(
           fallbackUnsubscribe = null
           fallbackActive = false
         }
-        const docRef = snapshot.docs[0]
+        // Sort in memory — most recently created order wins (no composite index needed)
+        const sorted = snapshot.docs.slice().sort((a, b) => {
+          const toMs = (v: unknown): number => {
+            if (!v) return 0
+            if (typeof v === "object" && "seconds" in (v as object)) return (v as { seconds: number }).seconds * 1000
+            return new Date(v as string | number).getTime()
+          }
+          return toMs(b.data().createdAt) - toMs(a.data().createdAt)
+        })
+        const docRef = sorted[0]
         onData(normalizeOrderDoc(docRef.id, docRef.data() as Record<string, unknown>))
         return
       }
