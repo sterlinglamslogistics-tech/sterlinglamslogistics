@@ -13,10 +13,17 @@ import { ORDER_STATUS, ORDER_STATUS_LABELS } from "@/lib/constants"
 function parseDate(value: unknown): Date | null {
   if (!value) return null
   if (value instanceof Date) return value
+  // ISO strings returned by the server-side tracking API
+  if (typeof value === "string") {
+    const d = new Date(value)
+    return isNaN(d.getTime()) ? null : d
+  }
+  if (typeof value === "number") return new Date(value)
   if (typeof value === "object" && value !== null) {
-    const maybeObj = value as { toDate?: () => Date; seconds?: number }
+    const maybeObj = value as { toDate?: () => Date; seconds?: number; _seconds?: number }
     if (typeof maybeObj.toDate === "function") return maybeObj.toDate()
     if (typeof maybeObj.seconds === "number") return new Date(maybeObj.seconds * 1000)
+    if (typeof maybeObj._seconds === "number") return new Date(maybeObj._seconds * 1000)
   }
   return null
 }
