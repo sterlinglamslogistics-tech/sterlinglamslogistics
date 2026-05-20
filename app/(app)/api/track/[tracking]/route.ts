@@ -7,6 +7,27 @@ import type { DriverStatus } from "@/lib/data"
 const log = createLogger("api:track")
 
 /**
+ * Convert a Firestore Admin Timestamp (or any timestamp-like value) to an ISO
+ * string so the client-side parseDate() helper can reliably parse it.
+ * Admin SDK Timestamps serialise their internal _seconds/_nanoseconds fields
+ * (not the public .seconds getter) when passed through JSON.stringify, which
+ * breaks client-side parsing that looks for the .seconds key.
+ */
+function tsToIso(v: unknown): string | null {
+  if (!v) return null
+  if (typeof v === "string") return v
+  if (typeof v === "number") return new Date(v).toISOString()
+  if (typeof v === "object" && v !== null) {
+    const t = v as { toDate?: () => Date; seconds?: number; _seconds?: number; toMillis?: () => number }
+    if (typeof t.toDate === "function") return t.toDate().toISOString()
+    if (typeof t.toMillis === "function") return new Date(t.toMillis()).toISOString()
+    if (typeof t.seconds === "number") return new Date(t.seconds * 1000).toISOString()
+    if (typeof t._seconds === "number") return new Date(t._seconds * 1000).toISOString()
+  }
+  return null
+}
+
+/**
  * Public tracking endpoint — returns order status and driver location for a
  * given tracking code (order number or order document ID).
  *
@@ -84,11 +105,11 @@ export async function GET(
       paymentMethod:       rawOrder.paymentMethod,
       customerRating:      rawOrder.customerRating,
       driverRating:        rawOrder.driverRating,
-      createdAt:           rawOrder.createdAt,
-      startedAt:           rawOrder.startedAt,
-      pickedUpAt:          rawOrder.pickedUpAt,
-      inTransitAt:         rawOrder.inTransitAt,
-      deliveredAt:         rawOrder.deliveredAt,
+      createdAt:           tsToIso(rawOrder.createdAt),
+      startedAt:           tsToIso(rawOrder.startedAt),
+      pickedUpAt:          tsToIso(rawOrder.pickedUpAt),
+      inTransitAt:         tsToIso(rawOrder.inTransitAt),
+      deliveredAt:         tsToIso(rawOrder.deliveredAt),
     }
 
     // ── Fetch driver (only if assigned) ────────────────────────────────────
