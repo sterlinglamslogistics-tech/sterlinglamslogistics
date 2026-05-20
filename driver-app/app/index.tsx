@@ -44,8 +44,13 @@ export default function LoginScreen() {
       }
       await login({ id: data.driver.id, name: data.driver.name, phone: data.driver.phone, token: data.token })
       router.replace("/(tabs)/dashboard")
-    } catch {
-      setError("Connection error. Check your internet and try again.")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : ""
+      if (msg.toLowerCase().includes("network") || msg.toLowerCase().includes("fetch") || msg.includes("abort")) {
+        setError("Connection error. Check your internet and try again.")
+      } else {
+        setError("Login failed. Please try again.")
+      }
     } finally {
       setLoading(false)
     }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
+import { checkRateLimit, getRateLimitIdentifier, getDriverRateLimitIdentifier } from "@/lib/rate-limit"
 import { adminUpdateDriverLocation } from "@/lib/server/firestore-admin"
 import { createLogger } from "@/lib/logger"
 import { resolveDriverIdFromRequest } from "@/lib/server/driver-auth"
@@ -7,8 +7,9 @@ import { resolveDriverIdFromRequest } from "@/lib/server/driver-auth"
 const log = createLogger("api:driver:location")
 
 export async function POST(req: Request) {
-  const rateLimitResponse = await checkRateLimit(getRateLimitIdentifier(req))
-  if (rateLimitResponse) return rateLimitResponse
+  // IP-level guard first (protects unauthenticated path)
+  const rl = await checkRateLimit(getRateLimitIdentifier(req))
+  if (rl) return rl
 
   try {
     const body = (await req.json()) as { driverId?: string; lat?: number; lng?: number }
@@ -19,6 +20,11 @@ export async function POST(req: Request) {
     if (!driverId) {
       return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
     }
+
+    // Per-driver rate limit — GPS sends every 5 s, so each driver uses ~12 req/min.
+    // Without this, multiple drivers behind the same NAT would share the IP bucket.
+    const driverRl = await checkRateLimit(getDriverRateLimitIdentifier(driverId))
+    if (driverRl) return driverRl
     if (typeof lat !== "number" || typeof lng !== "number") {
       return NextResponse.json({ ok: false, error: "lat and lng are required." }, { status: 400 })
     }

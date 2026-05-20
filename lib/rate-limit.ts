@@ -84,3 +84,12 @@ export function getRateLimitIdentifier(req: Request): string {
   const ip = candidate.split(",")[0]?.trim() || "unknown"
   return ip
 }
+
+/**
+ * Rate limit identifier for authenticated driver endpoints.
+ * Uses the verified driverId so each driver gets their own bucket regardless
+ * of shared IP (e.g. multiple drivers behind the same NAT or dispatching hub).
+ */
+export function getDriverRateLimitIdentifier(driverId: string): string {
+  return `driver:${driverId}`
+}

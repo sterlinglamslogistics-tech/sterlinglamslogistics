@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, use } from "react"
 import { Phone, MessageSquare, ChevronDown, ChevronUp, MapPin, Package, Star } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { Spinner } from "@/components/ui/spinner"
-import { subscribeDriverRealtime, subscribeOrderByTrackingRealtime } from "@/lib/firestore"
+
 import { formatCurrency } from "@/lib/data"
 import type { Driver, Order } from "@/lib/data"
 import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
@@ -152,8 +152,6 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  const activeDriverSubscriptionRef = useRef<(() => void) | null>(null)
-  const activeDriverIdRef = useRef<string | null>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
   const driverMarkerRef = useRef<google.maps.Marker | null>(null)
@@ -166,45 +164,29 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
 
   useEffect(() => {
     setLoading(true)
+    let cancelled = false
 
-    const unsubscribeOrder = subscribeOrderByTrackingRealtime(tracking, (foundOrder) => {
-      setOrder(foundOrder)
-
-      const nextDriverId = foundOrder?.assignedDriver ?? null
-      if (!nextDriverId) {
-        if (activeDriverSubscriptionRef.current) {
-          activeDriverSubscriptionRef.current()
-          activeDriverSubscriptionRef.current = null
-          activeDriverIdRef.current = null
-        }
-        setDriver(null)
-        setLoading(false)
-        return
+    async function poll() {
+      try {
+        const res = await fetch(`/api/track/${encodeURIComponent(tracking)}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json() as { ok: boolean; order: Order | null; driver: Driver | null }
+        if (cancelled) return
+        setOrder(data.order)
+        setDriver(data.driver)
+      } catch {
+        // ignore transient network errors — next poll will retry
+      } finally {
+        if (!cancelled) setLoading(false)
       }
+    }
 
-      if (activeDriverIdRef.current === nextDriverId) {
-        setLoading(false)
-        return
-      }
-
-      if (activeDriverSubscriptionRef.current) {
-        activeDriverSubscriptionRef.current()
-      }
-
-      activeDriverIdRef.current = nextDriverId
-      activeDriverSubscriptionRef.current = subscribeDriverRealtime(nextDriverId, (foundDriver) => {
-        setDriver(foundDriver)
-        setLoading(false)
-      })
-    })
+    poll()
+    const intervalId = window.setInterval(poll, 5000)
 
     return () => {
-      unsubscribeOrder()
-      if (activeDriverSubscriptionRef.current) {
-        activeDriverSubscriptionRef.current()
-        activeDriverSubscriptionRef.current = null
-      }
-      activeDriverIdRef.current = null
+      cancelled = true
+      window.clearInterval(intervalId)
     }
   }, [tracking])
 
@@ -481,102 +463,111 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     }
 
     return (
-      <div className="flex min-h-screen flex-col items-center bg-background px-6 py-8">
-        {/* Logo */}
-        <div className="mb-4">
+      <div className="flex min-h-screen flex-col bg-[hsl(330,50%,98%)]">
+        {/* Pink header */}
+        <div className="flex flex-col items-center bg-[hsl(330,82%,52%)] px-6 pt-12 pb-16 shadow-sm">
           <img
             src="/placeholder-logo.png"
             alt="Sterlin Glams Logistics"
-            className="h-32 w-auto"
+            className="mb-3 h-24 w-auto brightness-0 invert"
           />
+          <h2 className="text-xl font-bold text-white">Sterlin Glams</h2>
+          <p className="mt-1 text-sm text-white/75">How was your experience?</p>
         </div>
 
-        <h2 className="text-lg font-bold text-foreground">Sterlin Glams</h2>
-        <button
-          type="button"
-          onClick={() => {
-            setShowRatingPage(false)
-            setSubmitted(true)
-          }}
-          className="mb-6 text-sm font-medium text-green-600 hover:underline"
-        >
-          Delivery details
-        </button>
+        {/* Card body */}
+        <div className="-mt-6 mx-4 flex flex-col gap-6 rounded-2xl bg-white px-6 py-7 shadow-md">
+          {/* Overall service rating */}
+          <div className="flex flex-col items-center gap-3">
+            <p className="text-sm font-semibold text-foreground">Rate your overall experience</p>
+            <div className="flex items-center gap-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setServiceRating(i + 1)}
+                  className="transition-transform active:scale-110"
+                >
+                  <Star
+                    className={`h-10 w-10 ${
+                      i < serviceRating
+                        ? "fill-yellow-400 text-yellow-400"
+                        : "fill-yellow-400/20 text-yellow-400/40"
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
 
-        {/* Overall service rating */}
-        <div className="mb-2 flex items-center gap-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => setServiceRating(i + 1)}
-              className="transition-transform active:scale-110"
-            >
-              <Star
-                className={`h-10 w-10 ${
-                  i < serviceRating
-                    ? "fill-yellow-400 text-yellow-400"
-                    : "fill-yellow-400/20 text-yellow-400/40"
-                }`}
-              />
-            </button>
-          ))}
+          <div className="h-px bg-border" />
+
+          {/* Driver service rating */}
+          <div>
+            <h3 className="mb-4 text-base font-semibold text-foreground">How was the driver service?</h3>
+            <div className="flex items-center gap-4">
+              {/* Driver avatar */}
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[hsl(330,82%,52%)]/10 text-lg font-bold text-[hsl(330,82%,52%)]">
+                {driver?.name?.split(" ").map((n) => n[0]).join("").slice(0, 2) ?? "D"}
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-foreground">{driver?.name ?? "Driver"}</p>
+                <p className="text-xs text-muted-foreground">Your driver</p>
+              </div>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setDriverRating(i + 1)}
+                    className="transition-transform active:scale-110"
+                  >
+                    <Star
+                      className={`h-7 w-7 ${
+                        i < driverRating
+                          ? "fill-yellow-400 text-yellow-400"
+                          : "fill-yellow-400/20 text-yellow-400/40"
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="h-px bg-border" />
+
+          {/* Feedback */}
+          <textarea
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="We always appreciate your feedback to make our service better."
+            className="w-full rounded-xl border bg-background p-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[hsl(330,82%,52%)]/50"
+            rows={4}
+          />
+
+          {/* Submit */}
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={handleSubmitRating}
+            className="w-full rounded-xl bg-[hsl(330,82%,52%)] py-4 text-base font-semibold text-white hover:bg-[hsl(330,82%,44%)] disabled:opacity-60"
+          >
+            {submitting ? "Submitting..." : "Submit"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowRatingPage(false)
+              setSubmitted(true)
+            }}
+            className="text-center text-sm font-medium text-[hsl(330,82%,52%)] hover:underline"
+          >
+            Skip — view delivery details
+          </button>
         </div>
-
-        <div className="my-6 h-px w-full bg-border" />
-
-        {/* Driver service rating */}
-        <h3 className="mb-4 text-lg font-bold text-foreground">How was the driver service?</h3>
-
-        <div className="mb-4 flex items-center gap-4">
-          {/* Driver avatar */}
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted text-lg font-bold text-muted-foreground">
-            {driver?.name?.split(" ").map((n) => n[0]).join("").slice(0, 2) ?? "D"}
-          </div>
-          <div className="flex-1">
-            <p className="font-semibold text-foreground">{driver?.name ?? "Driver"}</p>
-            <p className="text-xs text-muted-foreground">Your driver</p>
-          </div>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setDriverRating(i + 1)}
-                className="transition-transform active:scale-110"
-              >
-                <Star
-                  className={`h-7 w-7 ${
-                    i < driverRating
-                      ? "fill-yellow-400 text-yellow-400"
-                      : "fill-yellow-400/20 text-yellow-400/40"
-                  }`}
-                />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="my-4 h-px w-full bg-border" />
-
-        {/* Feedback */}
-        <textarea
-          value={feedback}
-          onChange={(e) => setFeedback(e.target.value)}
-          placeholder="We always appreciate your feedback to make our service better."
-          className="mb-6 w-full rounded-xl border bg-background p-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-green-500/50"
-          rows={4}
-        />
-
-        {/* Submit */}
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={handleSubmitRating}
-          className="w-full rounded-xl bg-green-700 py-4 text-base font-semibold text-white hover:bg-green-800 disabled:opacity-60"
-        >
-          {submitting ? "Submitting..." : "Submit"}
-        </button>
+        <div className="pb-8" />
       </div>
     )
   }
@@ -601,7 +592,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         <button
           type="button"
           onClick={() => setSubmitted(false)}
-          className="text-sm text-green-600 hover:underline"
+          className="text-sm text-[hsl(330,82%,52%)] hover:underline"
         >
           View delivery details
         </button>
@@ -691,22 +682,22 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
                 <div key={step.label} className="flex flex-1 flex-col items-center">
                   <div className="flex w-full items-center">
                     {i > 0 && (
-                      <div className={`h-1 flex-1 ${done || active ? "bg-green-500" : "bg-muted"}`} />
+                      <div className={`h-1 flex-1 ${done || active ? "bg-primary" : "bg-muted"}`} />
                     )}
                     <div
                       className={`h-3 w-3 shrink-0 rounded-full border-2 ${
                         done
-                          ? "border-green-500 bg-green-500"
+                          ? "border-primary bg-primary"
                           : active
-                          ? "border-green-500 bg-white"
+                          ? "border-primary bg-white"
                           : "border-muted bg-muted"
                       }`}
                     />
                     {!isLast && (
-                      <div className={`h-1 flex-1 ${done ? "bg-green-500" : "bg-muted"}`} />
+                      <div className={`h-1 flex-1 ${done ? "bg-primary" : "bg-muted"}`} />
                     )}
                   </div>
-                  <p className={`mt-1 text-[10px] ${active || done ? "font-medium text-green-600" : "text-muted-foreground"}`}>
+                  <p className={`mt-1 text-[10px] ${active || done ? "font-medium text-primary" : "text-muted-foreground"}`}>
                     {step.label}
                   </p>
                 </div>
@@ -774,12 +765,12 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
               ].filter(Boolean).map((event, i, arr) => (
                 <div key={event!.label} className="flex gap-3">
                   <div className="flex flex-col items-center">
-                    <div className={`mt-4 h-3 w-3 shrink-0 rounded-full ${event!.current ? "bg-green-500" : "bg-muted-foreground/40"}`} />
+                    <div className={`mt-4 h-3 w-3 shrink-0 rounded-full ${event!.current ? "bg-primary" : "bg-muted-foreground/40"}`} />
                     {i < arr.length - 1 && <div className="w-px flex-1 bg-muted-foreground/20 my-1" />}
                   </div>
                   <div className="pb-4 pt-3">
                     <div className="flex items-center gap-2">
-                      <p className={`text-sm font-semibold ${event!.current ? "text-green-600" : "text-foreground"}`}>{event!.label}</p>
+                      <p className={`text-sm font-semibold ${event!.current ? "text-primary" : "text-foreground"}`}>{event!.label}</p>
                       <p className="text-xs text-muted-foreground">{formatTime(event!.time)}</p>
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">{event!.text}</p>

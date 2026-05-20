@@ -11,7 +11,7 @@ import { driverFetch } from "@/lib/api"
 import { getNavApp, buildNavUrl, HUB_ADDRESS, HUB_PHONE } from "@/lib/storage"
 import type { Order } from "@/lib/types"
 
-const GREEN = "#16a34a"
+const GREEN = "#3AC86E"
 const ORANGE = "#f97316"
 const TEAL = "#0d9488"
 
@@ -37,8 +37,9 @@ function formatOrderTime(ts: unknown): { time: string; date: string } {
   let d: Date
   if (ts instanceof Date) d = ts
   else if (typeof ts === "number") d = new Date(ts)
-  else if (typeof ts === "object" && ts !== null && "seconds" in ts) {
-    d = new Date((ts as { seconds: number }).seconds * 1000)
+  else if (typeof ts === "object" && ts !== null && ("seconds" in ts || "_seconds" in ts)) {
+    const secs = ("_seconds" in ts) ? (ts as any)._seconds : (ts as any).seconds
+    d = new Date(secs * 1000)
   } else if (typeof ts === "string") d = new Date(ts)
   else return { time: "", date: "" }
   if (isNaN(d.getTime())) return { time: "", date: "" }
@@ -234,11 +235,10 @@ export default function DashboardScreen() {
             <Text style={styles.emptySub}>New orders will appear here</Text>
           </View>
         ) : (
-          activeOrders.map((order, idx) => {
+          activeOrders.map((order) => {
             const { time, date } = formatOrderTime(order.startedAt ?? order.createdAt)
-            const isLast = idx === activeOrders.length - 1
             return (
-              <View key={order.id} style={[styles.card, isLast && styles.cardLast]}>
+              <View key={order.id} style={styles.card}>
                 {/* Status + icons row */}
                 <View style={styles.cardTop}>
                   <StatusBadge status={order.status} />
@@ -324,7 +324,7 @@ export default function DashboardScreen() {
             )
           })
         )}
-        <View style={{ height: 24 }} />
+        <View style={{ height: 16 }} />
       </ScrollView>
 
       {/* ── Item checklist modal ─────────────────────────────────────────────── */}
@@ -513,8 +513,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: "600", color: "#374151" },
   emptySub: { fontSize: 13, color: "#9ca3af", marginTop: 6 },
   // Cards
-  card: { borderBottomWidth: 1, borderBottomColor: "#f3f4f6", paddingHorizontal: 16, paddingVertical: 14 },
-  cardLast: { borderBottomWidth: 0 },
+  card: { borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 14, marginHorizontal: 14, marginTop: 12, paddingHorizontal: 14, paddingVertical: 14, backgroundColor: "#fff", shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6 },
   badgeText: { fontSize: 13, fontWeight: "600" },

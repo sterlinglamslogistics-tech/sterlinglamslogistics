@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import MapView, { Marker, Callout, PROVIDER_GOOGLE } from "react-native-maps"
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps"
 import { MaterialIcons, Feather } from "@expo/vector-icons"
 import Constants from "expo-constants"
 import { useDriver } from "@/context/DriverContext"
@@ -140,24 +140,18 @@ export default function MapScreen() {
         >
           <Marker
             coordinate={{ latitude: HUB_LAT, longitude: HUB_LNG }}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.hubMarker}>
-              <MaterialIcons name="storefront" size={14} color="#fff" />
-            </View>
-          </Marker>
+            title="Store"
+            description="Victoria Garden City Hub"
+          />
 
-          {pinned.map((p, idx) => (
+          {pinned.map((p) => (
             <Marker
               key={p.order.id}
               coordinate={{ latitude: p.lat, longitude: p.lng }}
-              anchor={{ x: 0.5, y: 0.5 }}
+              title={`#${p.order.orderNumber} - ${p.time}`}
+              description={p.order.customerName}
               onPress={() => setSelected(p)}
-            >
-              <View style={styles.numMarker}>
-                <Text style={styles.numMarkerText}>{idx + 1}</Text>
-              </View>
-            </Marker>
+            />
           ))}
         </MapView>
 
@@ -219,37 +213,6 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", gap: 12 },
   waiting: { fontSize: 14, color: "#6b7280" },
-  numMarker: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#111827",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  numMarkerText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  hubMarker: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#16a34a",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 4,
-  },
   header: {
     flexDirection: "row",
     alignItems: "center",

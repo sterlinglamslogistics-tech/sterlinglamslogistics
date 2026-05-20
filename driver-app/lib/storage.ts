@@ -16,29 +16,51 @@ const KEYS = {
 }
 
 // ── Session ──────────────────────────────────────────────────────────────────
+// SecureStore is preferred (hardware-backed encryption) but can fail on some
+// devices/OS combinations. AsyncStorage is used as a fallback.
+const FALLBACK_KEYS = {
+  SESSION: "fb_driverSession",
+  TOKEN: "fb_driverToken",
+}
 
 export async function saveSession(session: DriverSession): Promise<void> {
-  await SecureStore.setItemAsync(KEYS.SESSION, JSON.stringify(session))
-  await SecureStore.setItemAsync(KEYS.TOKEN, session.token)
+  const sessionStr = JSON.stringify(session)
+  try {
+    await SecureStore.setItemAsync(KEYS.SESSION, sessionStr)
+    await SecureStore.setItemAsync(KEYS.TOKEN, session.token)
+    // Clear any old fallback data
+    await AsyncStorage.multiRemove([FALLBACK_KEYS.SESSION, FALLBACK_KEYS.TOKEN]).catch(() => {})
+  } catch {
+    // SecureStore unavailable — fall back to AsyncStorage
+    await AsyncStorage.setItem(FALLBACK_KEYS.SESSION, sessionStr)
+    await AsyncStorage.setItem(FALLBACK_KEYS.TOKEN, session.token)
+  }
 }
 
 export async function loadSession(): Promise<DriverSession | null> {
   try {
     const raw = await SecureStore.getItemAsync(KEYS.SESSION)
-    if (!raw) return null
-    return JSON.parse(raw) as DriverSession
-  } catch {
-    return null
-  }
+    if (raw) return JSON.parse(raw) as DriverSession
+  } catch { /* fall through to AsyncStorage */ }
+  try {
+    const raw = await AsyncStorage.getItem(FALLBACK_KEYS.SESSION)
+    if (raw) return JSON.parse(raw) as DriverSession
+  } catch { /* ignore */ }
+  return null
 }
 
 export async function clearSession(): Promise<void> {
   await SecureStore.deleteItemAsync(KEYS.SESSION).catch(() => {})
   await SecureStore.deleteItemAsync(KEYS.TOKEN).catch(() => {})
+  await AsyncStorage.multiRemove([FALLBACK_KEYS.SESSION, FALLBACK_KEYS.TOKEN]).catch(() => {})
 }
 
 export async function getToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(KEYS.TOKEN)
+  try {
+    const token = await SecureStore.getItemAsync(KEYS.TOKEN)
+    if (token) return token
+  } catch { /* fall through */ }
+  return AsyncStorage.getItem(FALLBACK_KEYS.TOKEN)
 }
 
 // ── Pending offline deliveries ────────────────────────────────────────────────

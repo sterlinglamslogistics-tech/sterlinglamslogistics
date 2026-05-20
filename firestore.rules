@@ -28,21 +28,24 @@ service cloud.firestore {
     }
 
     // ── Orders ────────────────────────────────────────────────────────────────
-    // Customer tracking page reads orders unauthenticated by tracking token.
-    // Reads stay open; writes are admin-only (server uses admin SDK to bypass).
+    // Customer tracking page now uses /api/track/[tracking] (server-side admin
+    // SDK) so unauthenticated clients no longer need direct Firestore access.
+    // Admin dashboard reads are authenticated via Firebase Auth + admin claim.
     match /orders/{orderId} {
-      allow read: if true;
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 
     // ── Drivers ───────────────────────────────────────────────────────────────
-    // Tracking page shows driver name; driver app reads driver record.
-    // ⚠️ Password hashes live on these documents — restrict reads of the
-    // password field by moving credentials to a separate `driverCredentials`
-    // collection in a future pass. For now, password reads are allowed under
-    // the same permission as the rest of the doc.
+    // Tracking page now fetches driver data through /api/track/[tracking] which
+    // strips password, phone, and email before returning. Admin SDK bypasses
+    // these rules so all server-side routes continue to work.
+    //
+    // ⚠️ REMAINING RISK: Password hashes still live on driver documents.
+    // Recommended long-term fix: move credentials to a private
+    // `driverCredentials/{driverId}` subcollection with `allow read, write: if false`.
     match /drivers/{driverId} {
-      allow read: if true;
+      allow read: if isAdmin();
       allow create, update, delete: if isAdmin();
     }
 

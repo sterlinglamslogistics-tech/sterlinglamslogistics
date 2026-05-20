@@ -12,7 +12,7 @@ import {
   Star,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { fetchOrder } from "@/lib/firestore"
+import { driverFetch } from "@/lib/driver-client"
 import { parseFirestoreDate } from "@/lib/order-utils"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
@@ -59,10 +59,12 @@ export default function OrderDetailPage({
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchOrder(orderId).then((o) => {
-      setOrder(o)
-      setLoading(false)
-    })
+    driverFetch(`/api/driver/orders/${encodeURIComponent(orderId)}`, {})
+      .then((r) => r.json())
+      .then((d: { ok: boolean; order?: Order }) => {
+        setOrder(d.order ?? null)
+        setLoading(false)
+      })
   }, [orderId])
 
   // ETA: distance from driver GPS to order coordinates ÷ 25 km/h (avg Lagos speed)

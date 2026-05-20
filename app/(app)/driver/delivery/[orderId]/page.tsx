@@ -16,7 +16,6 @@ import {
   Navigation,
   X,
 } from "lucide-react"
-import { fetchOrder } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
@@ -61,10 +60,12 @@ export default function DeliveryCompletionPage({
   const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
-    fetchOrder(orderId).then((data) => {
-      setOrder(data)
-      setLoading(false)
-    })
+    driverFetch(`/api/driver/orders/${encodeURIComponent(orderId)}`, {})
+      .then((r) => r.json())
+      .then((d: { ok: boolean; order?: Order }) => {
+        setOrder(d.order ?? null)
+        setLoading(false)
+      })
   }, [orderId])
 
   // Always stop the camera stream when the component unmounts

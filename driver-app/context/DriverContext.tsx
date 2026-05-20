@@ -127,6 +127,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   }, [session?.id])
 
   // ── Foreground notification listener — handle new-order & message alerts ──
+  // refreshOrders is in deps so the listener always uses the current session
   useEffect(() => {
     const sub = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as Record<string, unknown> | undefined
@@ -140,7 +141,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       }
     })
     return () => sub.remove()
-  }, [])
+  }, [refreshOrders])
 
   // ── Offline sync on app foreground ────────────────────────────────────────
   useEffect(() => {

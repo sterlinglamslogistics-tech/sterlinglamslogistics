@@ -42,7 +42,7 @@ export default function CompletedScreen() {
           <ActivityIndicator color={GREEN} style={{ marginTop: 60 }} />
         ) : orders.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>📋</Text>
+            <Text style={styles.emptyIcon}>≡ƒôï</Text>
             <Text style={styles.emptyText}>No completed deliveries yet</Text>
           </View>
         ) : (

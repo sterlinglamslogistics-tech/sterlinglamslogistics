@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { fetchDriverById, fetchOrdersByDriver, subscribeDriverRealtime } from "@/lib/firestore"
 import { optimizeRouteOrder } from "@/lib/google-maps"
 import type { Driver, Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
@@ -82,16 +81,26 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     setLoadingSession(false)
   }, [])
 
-  // Subscribe to driver profile in realtime so lastLocation updates live
+  // Poll driver profile every 10 s so status and lastLocation stay in sync
   useEffect(() => {
     if (!session) return
-    const unsubscribe = subscribeDriverRealtime(session.id, (d) => {
-      if (d) {
-        setDriver(d)
-        setIsOnline(d.status === "available" || d.status === "on-delivery")
-      }
-    })
-    return () => unsubscribe()
+    let cancelled = false
+
+    async function pollProfile() {
+      try {
+        const res = await driverFetch("/api/driver/profile", {})
+        if (!res.ok || cancelled) return
+        const data = (await res.json()) as { ok: boolean; driver?: Driver }
+        if (data.driver && !cancelled) {
+          setDriver(data.driver)
+          setIsOnline(data.driver.status === "available" || data.driver.status === "on-delivery")
+        }
+      } catch { /* ignore transient errors — next poll will retry */ }
+    }
+
+    pollProfile()
+    const id = window.setInterval(pollProfile, 10_000)
+    return () => { cancelled = true; window.clearInterval(id) }
   }, [session])
 
   // GPS tracking when online
@@ -221,7 +230,9 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     if (!session) return
     setLoadingOrders(true)
     try {
-      const data = await fetchOrdersByDriver(session.id)
+      const res = await driverFetch(`/api/driver/orders?driverId=${encodeURIComponent(session.id)}`, {})
+      if (!res.ok) throw new Error("Failed to load orders")
+      const { orders: data } = (await res.json()) as { ok: boolean; orders: Order[] }
       const hasRouteOrder = data.some((o) => typeof o.routeOrder === "number")
       const sorted = data.sort((a, b) => {
         // If route has been optimized, sort active orders by routeOrder
@@ -261,7 +272,9 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const optimizeRoute = useCallback(async (lastStopId?: string | null): Promise<boolean> => {
     if (!session || !driver?.lastLocation) return false
     try {
-      const data = await fetchOrdersByDriver(session.id)
+      const res = await driverFetch(`/api/driver/orders?driverId=${encodeURIComponent(session.id)}`, {})
+      if (!res.ok) throw new Error("Failed to load orders for optimization")
+      const { orders: data } = (await res.json()) as { ok: boolean; orders: Order[] }
       const active = data.filter(
         (o) => o.status === "picked-up" || o.status === "in-transit"
       )
@@ -320,8 +333,11 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       setJustWentOnline(true)
       setGpsError(false)
       lastGpsWriteRef.current = 0
-      const d = await fetchDriverById(session.id)
-      if (d) setDriver(d)
+      const profileRes = await driverFetch("/api/driver/profile", {})
+      if (profileRes.ok) {
+        const { driver: d } = (await profileRes.json()) as { driver?: Driver }
+        if (d) setDriver(d)
+      }
     } catch {
       toast({ title: "Error", description: "Failed to go online.", variant: "destructive" })
     }
@@ -343,8 +359,11 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       if (!res.ok) throw new Error("Failed to go offline")
       setIsOnline(false)
       setJustWentOnline(false)
-      const d = await fetchDriverById(session.id)
-      if (d) setDriver(d)
+      const profileRes = await driverFetch("/api/driver/profile", {})
+      if (profileRes.ok) {
+        const { driver: d } = (await profileRes.json()) as { driver?: Driver }
+        if (d) setDriver(d)
+      }
     } catch {
       toast({ title: "Error", description: "Failed to go offline.", variant: "destructive" })
     }

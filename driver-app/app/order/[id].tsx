@@ -18,7 +18,7 @@ function StatusBadge({ status }: { status: string }) {
     started:      { bg: "#fef9c3", text: "#a16207", label: "Started" },
     "picked-up":  { bg: "#ffedd5", text: "#c2410c", label: "Picked up" },
     "in-transit": { bg: "#dcfce7", text: "#15803d", label: "On the way" },
-    delivered:    { bg: "#d1fae5", text: "#065f46", label: "Delivered" },
+    delivered:    { bg: "#374151", text: "#fff",     label: "Completed" },
     failed:       { bg: "#fee2e2", text: "#b91c1c", label: "Failed" },
     unassigned:   { bg: "#f3f4f6", text: "#6b7280", label: "Unassigned" },
   }
@@ -35,12 +35,18 @@ function formatTs(ts: unknown): string {
   let d: Date
   if (ts instanceof Date) d = ts
   else if (typeof ts === "number") d = new Date(ts)
-  else if (typeof ts === "object" && ts !== null && "seconds" in ts) d = new Date((ts as { seconds: number }).seconds * 1000)
-  else if (typeof ts === "string") d = new Date(ts)
+  else if (typeof ts === "object" && ts !== null && ("seconds" in ts || "_seconds" in ts)) {
+    const secs = ("_seconds" in ts) ? (ts as any)._seconds : (ts as any).seconds
+    d = new Date(secs * 1000)
+  } else if (typeof ts === "string") d = new Date(ts)
   else return ""
   if (isNaN(d.getTime())) return ""
-  return d.toLocaleDateString("en-NG", { day: "2-digit", month: "short", year: "numeric" }) +
-    ", " + d.toLocaleTimeString("en-NG", { hour: "numeric", minute: "2-digit", hour12: true }).toUpperCase()
+  const mon = d.toLocaleString("en-US", { month: "short" })
+  const day = d.getDate()
+  const h = d.getHours()
+  const min = d.getMinutes().toString().padStart(2, "0")
+  const ampm = h >= 12 ? "PM" : "AM"
+  return `${mon} ${day}, ${h % 12 || 12}:${min} ${ampm}`
 }
 
 export default function OrderDetailScreen() {
@@ -84,7 +90,7 @@ export default function OrderDetailScreen() {
   const paymentMethod = (order.paymentMethod ?? "Online").toUpperCase()
   const placementTime = formatTs(order.createdAt)
   const pickupTime = formatTs((order as any).startedAt ?? order.createdAt)
-  const deliveryTime = formatTs((order as any).inTransitAt ?? (order as any).startedAt ?? order.createdAt)
+  const deliveryTime = formatTs((order as any).deliveredAt ?? (order as any).inTransitAt ?? (order as any).startedAt ?? order.createdAt)
   const itemsTotal = (order.items ?? []).reduce((s, i) => s + (i.price ?? 0), 0)
 
   return (
@@ -205,12 +211,10 @@ export default function OrderDetailScreen() {
             <Text style={styles.breakdownValue}>{formatCurrency(row.value)}</Text>
           </View>
         ))}
-        {(order.discount ?? 0) > 0 && (
-          <View style={styles.breakdownRow}>
-            <Text style={[styles.breakdownLabel, { color: "#ef4444" }]}>Discount:</Text>
-            <Text style={styles.breakdownValue}>{formatCurrency(order.discount ?? 0)}</Text>
-          </View>
-        )}
+        <View style={styles.breakdownRow}>
+          <Text style={[styles.breakdownLabel, { color: "#ef4444" }]}>Discount:</Text>
+          <Text style={styles.breakdownValue}>{formatCurrency(order.discount ?? 0)}</Text>
+        </View>
 
         <View style={styles.grandTotalRow}>
           <Text style={styles.grandTotalLabel}>Total</Text>

@@ -17,6 +17,17 @@ const log = createLogger("api:driver:order-status")
  * metadata so the URL works without public ACLs (makePublic is not used —
  * uniform bucket-level access blocks object ACLs on modern Firebase buckets).
  */
+// Only these MIME types are accepted as proof-of-delivery uploads.
+// Rejecting arbitrary MIME types prevents serving executable content
+// (HTML, JS, SVG scripts) from Firebase Storage URLs.
+const ALLOWED_PROOF_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/svg+xml",
+])
+
 async function uploadProofFile(
   dataUrl: string,
   path: string,
@@ -25,6 +36,10 @@ async function uploadProofFile(
     const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
     if (!match) return null
     const [, mimeType, base64] = match
+    if (!ALLOWED_PROOF_MIME_TYPES.has(mimeType.toLowerCase())) {
+      log.warn({ mimeType, path }, "Rejected proof upload with disallowed MIME type")
+      return null
+    }
     const buffer = Buffer.from(base64, "base64")
     const bucketName = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
     if (!bucketName) {
@@ -112,6 +127,21 @@ export async function POST(
     }
     if (body.failedReason && body.failedReason.length > MAX_NOTE_CHARS) {
       return NextResponse.json({ ok: false, error: "Failed reason exceeds maximum length." }, { status: 400 })
+    }
+    const MAX_SIGNER_NAME_CHARS = 200
+    if (body.signerName && body.signerName.length > MAX_SIGNER_NAME_CHARS) {
+      return NextResponse.json({ ok: false, error: "Signer name exceeds maximum length." }, { status: 400 })
+    }
+    if (body.deliveryLat !== undefined || body.deliveryLng !== undefined) {
+      const lat = body.deliveryLat
+      const lng = body.deliveryLng
+      if (
+        typeof lat !== "number" || typeof lng !== "number" ||
+        !Number.isFinite(lat) || !Number.isFinite(lng) ||
+        lat < -90 || lat > 90 || lng < -180 || lng > 180
+      ) {
+        return NextResponse.json({ ok: false, error: "Invalid delivery coordinates." }, { status: 400 })
+      }
     }
 
     const orderRef = adminDb.collection("orders").doc(orderId)

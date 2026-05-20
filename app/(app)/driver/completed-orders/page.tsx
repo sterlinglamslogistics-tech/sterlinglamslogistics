@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Loader2, Package } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { fetchOrdersByDriver } from "@/lib/firestore"
+import { driverFetch } from "@/lib/driver-client"
 import { parseFirestoreDate } from "@/lib/order-utils"
 import type { Order } from "@/lib/data"
 import { formatCurrency } from "@/lib/data"
@@ -41,7 +41,9 @@ export default function DriverCompletedOrdersPage() {
       if (!session) return
       setLoading(true)
       try {
-        const allOrders = await fetchOrdersByDriver(session.id)
+        const res = await driverFetch(`/api/driver/orders?driverId=${encodeURIComponent(session.id)}`, {})
+        if (!res.ok) throw new Error("Failed to load orders")
+        const { orders: allOrders } = (await res.json()) as { ok: boolean; orders: Order[] }
         const completed = allOrders
           .filter((order) => order.status === "delivered")
           .sort((a, b) => {
