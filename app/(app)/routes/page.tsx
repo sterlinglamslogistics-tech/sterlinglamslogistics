@@ -647,8 +647,8 @@ export default function RoutesPage() {
                       </div>
                       <span className="flex-1 truncate text-sm font-medium text-foreground">{driver.name.split(" ")[0]}</span>
                       {hasGps
-                        ? <Wifi className="size-3.5 shrink-0 text-emerald-500" title="GPS active" />
-                        : <WifiOff className="size-3.5 shrink-0 text-amber-500" title="Waiting for GPS…" />
+                        ? <Wifi className="size-3.5 shrink-0 text-emerald-500" aria-label="GPS active" />
+                        : <WifiOff className="size-3.5 shrink-0 text-amber-500" aria-label="Waiting for GPS…" />
                       }
                     </div>
                   )
