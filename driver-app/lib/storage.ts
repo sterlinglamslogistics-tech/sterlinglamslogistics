@@ -13,6 +13,7 @@ const KEYS = {
   PROFILE_PHOTO: "driverProfilePhoto",
   THEME: "displayTheme",
   PUSH_TOKEN: "expoPushToken",
+  ONLINE_STATUS: "driverOnlineStatus",
 }
 
 // ── Session ──────────────────────────────────────────────────────────────────
@@ -177,3 +178,14 @@ export function buildNavUrl(address: string, app: "google" | "waze" | "yandex"):
 export const HUB_NAME = "Sterlin Glams"
 export const HUB_ADDRESS = "Sterlin Glams – Ikota Ajah Lagos"
 export const HUB_PHONE = "+2349160009893"
+
+// ── Online status (persisted so app restart keeps driver online) ───────────────
+
+export async function saveOnlineStatus(online: boolean): Promise<void> {
+  await AsyncStorage.setItem(KEYS.ONLINE_STATUS, online ? "1" : "0").catch(() => {})
+}
+
+export async function getOnlineStatus(): Promise<boolean> {
+  const val = await AsyncStorage.getItem(KEYS.ONLINE_STATUS).catch(() => null)
+  return val === "1"
+}

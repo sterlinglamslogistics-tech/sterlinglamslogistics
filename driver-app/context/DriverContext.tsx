@@ -13,6 +13,7 @@ import {
   getPendingDeliveries, removePendingDelivery,
   getProfilePhoto, saveProfilePhoto as storeProfilePhoto,
   getPreferences, type Preferences,
+  saveOnlineStatus, getOnlineStatus,
 } from "@/lib/storage"
 import { driverFetch, clearTokenCache } from "@/lib/api"
 import { registerForPushNotifications, showLocalNotification } from "@/lib/notifications"
@@ -105,10 +106,19 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const isFirstOrderLoadRef = useRef(true)
 
   useEffect(() => {
-    Promise.all([loadSession(), getProfilePhoto(), getPreferences()]).then(async ([s, photo, prefs]) => {
+    Promise.all([loadSession(), getProfilePhoto(), getPreferences(), getOnlineStatus()]).then(async ([s, photo, prefs, wasOnline]) => {
       if (s) {
         setSession(s)
         void fetchDriverProfile(s.id)
+        if (wasOnline) {
+          setIsOnline(true)
+          // Silently re-confirm online status with server so it doesn't mark driver offline
+          driverFetch("/api/driver/status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ driverId: s.id, status: "available" }),
+          }).catch(() => {})
+        }
       }
       if (photo) setProfilePhotoState(photo)
       setPreferences(prefs)
@@ -331,6 +341,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       })
       if (res.ok) {
         setIsOnline(true)
+        void saveOnlineStatus(true)
       } else {
         const data = await res.json().catch(() => ({}))
         Alert.alert("Could not go online", (data as { error?: string }).error ?? `Server error (${res.status}). Please try again.`)
@@ -348,7 +359,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ driverId: session.id, status: "offline" }),
       })
-      if (res.ok) { setIsOnline(false); await stopGps() }
+      if (res.ok) { setIsOnline(false); void saveOnlineStatus(false); await stopGps() }
       else {
         Alert.alert("Could not go offline", "Please try again.")
       }
@@ -377,6 +388,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     clearTokenCache()
     isFirstOrderLoadRef.current = true
     await clearSession()
+    void saveOnlineStatus(false)
     setSession(null); setDriver(null); setOrders([]); setIsOnline(false); setUnreadMessageCount(0)
     router.replace("/")
   }

@@ -87,18 +87,20 @@ export async function GET(
     // ── Strip sensitive order fields ────────────────────────────────────────
     // Only expose fields the tracking page needs. Customer phone and email are
     // NOT included — anyone with the order number could see them otherwise.
+    // Address is hidden for delivered orders (no longer needed for tracking).
+    const isDelivered = rawOrder.status === "delivered"
     const safeOrder = {
       id:                  rawOrder.id,
       orderNumber:         rawOrder.orderNumber,
       status:              rawOrder.status,
       customerName:        rawOrder.customerName,
-      address:             rawOrder.address,
+      address:             isDelivered ? null : rawOrder.address,
       amount:              rawOrder.amount,
       assignedDriver:      rawOrder.assignedDriver,
       items:               rawOrder.items,
       distanceKm:          rawOrder.distanceKm,
-      lat:                 rawOrder.lat,
-      lng:                 rawOrder.lng,
+      lat:                 isDelivered ? null : rawOrder.lat,
+      lng:                 isDelivered ? null : rawOrder.lng,
       deliveryDate:        rawOrder.deliveryDate,
       deliveryTime:        rawOrder.deliveryTime,
       deliveryInstruction: rawOrder.deliveryInstruction,

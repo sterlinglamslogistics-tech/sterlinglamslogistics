@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 import { verifyAdmin } from "@/lib/server/auth"
 import { adminCreateDriver, adminDeleteDriver, adminUpdateDriver } from "@/lib/server/firestore-admin"
+import { hashPassword } from "@/lib/password"
 import { DRIVER_STATUS } from "@/lib/constants"
 import { createLogger } from "@/lib/logger"
+import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 import type { Driver } from "@/lib/data"
 
 const log = createLogger("api:admin:drivers")
@@ -10,6 +12,9 @@ const log = createLogger("api:admin:drivers")
 type Action = "create" | "update" | "delete" | "reset_password" | "set_offline"
 
 export async function POST(req: Request) {
+  const rl = await checkRateLimit(getRateLimitIdentifier(req))
+  if (rl) return rl
+
   const admin = await verifyAdmin(req)
   if (!admin) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
@@ -65,7 +70,8 @@ export async function POST(req: Request) {
       if (!password) {
         return NextResponse.json({ ok: false, error: "password is required" }, { status: 400 })
       }
-      await adminUpdateDriver(driverId, { password })
+      const hashed = await hashPassword(password)
+      await adminUpdateDriver(driverId, { password: hashed })
       return NextResponse.json({ ok: true })
     }
 

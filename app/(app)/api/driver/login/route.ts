@@ -34,27 +34,45 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Invalid credentials." }, { status: 401 })
     }
 
-    const snapshot = await adminDb.collection("drivers").get()
-    for (const driverDoc of snapshot.docs) {
-      const data = driverDoc.data() as {
-        name?: string
-        phone?: string
-        password?: string
-      }
+    // Try indexed query first (fast path — requires phoneNormalized field on driver docs)
+    let driverDocs: FirebaseFirestore.QueryDocumentSnapshot[] = []
+    const indexedSnap = await adminDb.collection("drivers")
+      .where("phoneNormalized", "==", normalizedInput)
+      .limit(5)
+      .get()
 
-      const normalizedStored = normalizeDriverPhoneForMatch(String(data.phone ?? ""))
-      if (normalizedStored !== normalizedInput) continue
+    if (!indexedSnap.empty) {
+      driverDocs = indexedSnap.docs
+    } else {
+      // Legacy fallback: full scan for drivers without phoneNormalized field.
+      // Each successful login via this path backfills the field, so the scan
+      // becomes increasingly rare over time and eventually unused.
+      const allSnap = await adminDb.collection("drivers").get()
+      driverDocs = allSnap.docs.filter((doc) => {
+        const stored = normalizeDriverPhoneForMatch(String(doc.data().phone ?? ""))
+        return stored === normalizedInput
+      })
+    }
+
+    for (const driverDoc of driverDocs) {
+      const data = driverDoc.data() as { name?: string; phone?: string; password?: string; phoneNormalized?: string }
 
       const storedPassword = data.password ?? ""
       const matches = await verifyPassword(password, storedPassword)
       if (!matches) continue
 
+      // Hash plaintext passwords on first login (migration path)
       if (!isHashed(storedPassword)) {
         try {
           await driverDoc.ref.update({ password: await hashPassword(password) })
         } catch {
           // best-effort migration only
         }
+      }
+
+      // Backfill phoneNormalized so future logins use the fast indexed path
+      if (!data.phoneNormalized) {
+        driverDoc.ref.update({ phoneNormalized: normalizedInput }).catch(() => {})
       }
 
       const token = createDriverToken(driverDoc.id)
@@ -66,8 +84,6 @@ export async function POST(req: Request) {
           name: data.name ?? "",
           phone: data.phone ?? "",
         },
-        // Returned in body so Capacitor WebView clients can stash it and send
-        // it back as the X-Driver-Token header on subsequent requests.
         token,
       })
       response.headers.append("Set-Cookie", buildSessionCookie(token, { secure: isHttps }))

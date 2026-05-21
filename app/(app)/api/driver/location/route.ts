@@ -31,6 +31,9 @@ export async function POST(req: Request) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return NextResponse.json({ ok: false, error: "Invalid coordinates." }, { status: 400 })
     }
+    if (lat < 4 || lat > 14 || lng < 3 || lng > 15) {
+      return NextResponse.json({ ok: false, error: "Coordinates out of range." }, { status: 400 })
+    }
 
     await adminUpdateDriverLocation(driverId, lat, lng)
     return NextResponse.json({ ok: true })

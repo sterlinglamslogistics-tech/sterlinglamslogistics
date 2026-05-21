@@ -4,17 +4,20 @@ import { adminFetchOrder, adminUpdateOrder, adminFetchDriverById } from "@/lib/s
 import { ORDER_STATUS } from "@/lib/constants"
 import { createLogger } from "@/lib/logger"
 import { notifyOrderEventServer } from "@/lib/server/notify-order-event"
+import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 
 const log = createLogger("api:admin:dispatch:assign")
 
 function buildTrackingUrl(req: Request, orderNumber: string, orderId: string): string {
   const origin = process.env.NEXT_PUBLIC_SITE_ORIGIN || new URL(req.url).origin
-  // Use orderNumber as tracking token; fall back to orderId if orderNumber is empty
   const token = orderNumber || orderId
   return `${origin}/track/${encodeURIComponent(token)}`
 }
 
 export async function POST(req: Request) {
+  const rl = await checkRateLimit(getRateLimitIdentifier(req))
+  if (rl) return rl
+
   const admin = await verifyAdmin(req)
   if (!admin) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })

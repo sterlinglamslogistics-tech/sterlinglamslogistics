@@ -14,7 +14,7 @@ const DRAWER_W = SCREEN_W * 0.78
 const GREEN = "#16a34a"
 
 export function DrawerMenu() {
-  const { drawerOpen, setDrawerOpen, session, driver, profilePhoto, goOffline } = useDriver()
+  const { drawerOpen, setDrawerOpen, session, driver, isOnline: online, profilePhoto, goOffline, logout } = useDriver()
   const insets = useSafeAreaInsets()
   const translateX = useRef(new Animated.Value(-DRAWER_W)).current
   const opacity = useRef(new Animated.Value(0)).current
@@ -38,9 +38,13 @@ export function DrawerMenu() {
     await goOffline()
   }
 
+  async function handleLogout() {
+    close()
+    await logout()
+  }
+
   const name = session?.name ?? "Driver"
   const rating = driver?.rating ?? 0
-  const online = driver?.status === "available" || driver?.status === "on-delivery"
 
   return (
     <>
@@ -77,12 +81,12 @@ export function DrawerMenu() {
                   <Text style={styles.ratingText}>{rating.toFixed(2)}</Text>
                 </View>
               )}
-              <View style={[styles.statusBadge, online ? styles.onlineBadge : styles.offlineBadge]}>
-                <View style={[styles.statusDot, online ? styles.onlineDot : styles.offlineDot]} />
-                <Text style={[styles.statusText, online ? styles.onlineText : styles.offlineText]}>
-                  {online ? "Online" : "Offline"}
-                </Text>
-              </View>
+              {online && (
+                <View style={[styles.statusBadge, styles.onlineBadge]}>
+                  <View style={[styles.statusDot, styles.onlineDot]} />
+                  <Text style={[styles.statusText, styles.onlineText]}>Online</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -107,11 +111,18 @@ export function DrawerMenu() {
           </TouchableOpacity>
         </ScrollView>
 
-        {/* Get Offline button */}
+        {/* Bottom action — Get Offline (online) or Log Out (offline) */}
         <View style={[styles.bottomSection, { paddingBottom: insets.bottom + 16 }]}>
-          <TouchableOpacity style={styles.offlineBtn} onPress={handleGoOffline} activeOpacity={0.85}>
-            <Text style={styles.offlineBtnText}>Get Offline</Text>
-          </TouchableOpacity>
+          {online ? (
+            <TouchableOpacity style={styles.offlineBtn} onPress={handleGoOffline} activeOpacity={0.85}>
+              <Text style={styles.offlineBtnText}>Get Offline</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.logoutRow} onPress={handleLogout} activeOpacity={0.7}>
+              <Feather name="log-out" size={20} color="#374151" />
+              <Text style={styles.logoutText}>Log Out</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </Animated.View>
     </>
@@ -169,4 +180,6 @@ const styles = StyleSheet.create({
   bottomSection: { paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: "#f3f4f6", paddingTop: 16 },
   offlineBtn: { backgroundColor: "#ef4444", borderRadius: 12, paddingVertical: 15, alignItems: "center" },
   offlineBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  logoutRow: { flexDirection: "row", alignItems: "center", gap: 16, paddingVertical: 12 },
+  logoutText: { fontSize: 16, color: "#111827", fontWeight: "400" },
 })

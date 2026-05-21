@@ -85,6 +85,9 @@ export async function POST(
     if (order.status !== "delivered") {
       return NextResponse.json({ ok: false, error: "Order is not delivered yet" }, { status: 409 })
     }
+    if (order.customerRatedAt) {
+      return NextResponse.json({ ok: false, error: "Order has already been rated" }, { status: 409 })
+    }
 
     await adminUpdateOrder(order.id, {
       customerRating,

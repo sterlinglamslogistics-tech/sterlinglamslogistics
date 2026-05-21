@@ -148,16 +148,10 @@ export async function POST(req: Request) {
   const rateLimitResponse = await checkRateLimit(getRateLimitIdentifier(req))
   if (rateLimitResponse) return rateLimitResponse
 
-  // WooCommerce sends a ping with topic "store.ping" on creation – ack it.
-  const topic = req.headers.get("x-wc-webhook-topic") ?? ""
-  if (topic === "store.ping" || topic === "action.wc_webhook_ping") {
-    return NextResponse.json({ ok: true, message: "pong" })
-  }
-
   const rawBody = await req.text()
 
-  // Verify HMAC signature. Fail closed in production if secret is not configured —
-  // an unset secret would otherwise allow anyone to POST forged orders.
+  // Verify HMAC signature before processing any request (including pings).
+  // Fail closed in production if secret is not configured.
   if (!WEBHOOK_SECRET) {
     if (process.env.NODE_ENV === "production") {
       log.error("WOOCOMMERCE_WEBHOOK_SECRET not configured — rejecting webhook")
@@ -175,6 +169,12 @@ export async function POST(req: Request) {
         { status: 401 }
       )
     }
+  }
+
+  // WooCommerce sends a ping with topic "store.ping" on creation – ack it after verifying signature.
+  const topic = req.headers.get("x-wc-webhook-topic") ?? ""
+  if (topic === "store.ping" || topic === "action.wc_webhook_ping") {
+    return NextResponse.json({ ok: true, message: "pong" })
   }
 
   let wc: WooOrder
