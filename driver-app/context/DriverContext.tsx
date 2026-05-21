@@ -238,13 +238,13 @@ export function DriverProvider({ children }: { children: ReactNode }) {
             setLiveGps(coords)
             setGpsError(false)
           } catch (e: any) {
-            curErr = String(e?.message ?? e ?? "throw").slice(0, 60)
+            curErr = String(e?.message ?? e ?? "throw").slice(0, 220)
           }
         } else {
           setGpsError(true)
         }
       } catch (e: any) {
-        curErr = `outer:${String(e?.message ?? e ?? "throw").slice(0, 60)}`
+        curErr = `outer:${String(e?.message ?? e ?? "throw").slice(0, 220)}`
       }
 
       const payload: { driverId: string; lat?: number; lng?: number; clientError?: string } = { driverId }
