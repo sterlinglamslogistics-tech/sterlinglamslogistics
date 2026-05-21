@@ -67,22 +67,39 @@ export async function GET(req: Request) {
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
+    // List all Firebase Auth users that have admin:true custom claim
+    // We use listUsers and filter, since there's no index on custom claims.
+    // For small teams (<1000) this is fine.
+    const allAuthUsers: import("firebase-admin/auth").UserRecord[] = []
+    let pageToken: string | undefined
+    do {
+      const result = await adminAuth.listUsers(1000, pageToken)
+      for (const u of result.users) {
+        const claims = (u.customClaims ?? {}) as Record<string, unknown>
+        if (claims.admin === true) allAuthUsers.push(u)
+      }
+      pageToken = result.pageToken
+    } while (pageToken)
+
+    // Load Firestore metadata for all admin users (for name/role fallback)
     const snap = await adminDb.collection("admins").get()
-    if (snap.empty) return NextResponse.json({ ok: true, users: [] })
-
-    const uids = snap.docs.map((d) => d.id)
-    const { users: authUsers } = await adminAuth.getUsers(uids.map((uid) => ({ uid })))
-
     const firestoreMeta = new Map(snap.docs.map((d) => [d.id, d.data()]))
 
-    const users = authUsers
+    const users = allAuthUsers
       .map((u) => {
+        const claims = (u.customClaims ?? {}) as Record<string, unknown>
         const meta = firestoreMeta.get(u.uid) ?? {}
+        // Resolve role: explicit claim → Firestore field → legacy admin=true → owner
+        const role = (
+          (claims.role as UserRole) ??
+          (meta.role as UserRole) ??
+          (claims.admin === true ? "owner" : "viewer")
+        ) as UserRole
         return {
           uid: u.uid,
           email: u.email ?? "",
           name: u.displayName ?? (meta.name as string) ?? "",
-          role: ((u.customClaims as Record<string, unknown>)?.role ?? meta.role ?? "viewer") as UserRole,
+          role,
           disabled: u.disabled,
           lastSignInTime: u.metadata.lastSignInTime ?? null,
           creationTime: u.metadata.creationTime ?? null,

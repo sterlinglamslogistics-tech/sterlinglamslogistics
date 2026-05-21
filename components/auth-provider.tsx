@@ -34,7 +34,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Force refresh so latest custom claims (role) are available
         const result = await firebaseUser.getIdTokenResult(true)
         const claims = result.claims as Record<string, unknown>
-        setRole((claims.role as UserRole) ?? null)
+        // If no role claim but user has admin:true (legacy accounts), default to owner
+        const resolvedRole =
+          (claims.role as UserRole) ??
+          (claims.admin === true ? "owner" : null)
+        setRole(resolvedRole)
       } else {
         setRole(null)
       }
