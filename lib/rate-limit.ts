@@ -6,6 +6,7 @@ import { createLogger } from "@/lib/logger"
 const log = createLogger("rate-limit")
 
 let ratelimit: Ratelimit | null = null
+let driverLocationRatelimit: Ratelimit | null = null
 
 function getRateLimiter() {
   if (ratelimit) return ratelimit
@@ -29,6 +30,27 @@ function getRateLimiter() {
   })
 
   return ratelimit
+}
+
+/**
+ * Separate limiter for driver location pings — 30 req/min per driver.
+ * GPS fires every 5 s = 12 req/min per driver. 30 gives comfortable headroom
+ * without sharing an IP bucket across multiple drivers on the same network.
+ */
+function getDriverLocationLimiter() {
+  if (driverLocationRatelimit) return driverLocationRatelimit
+
+  const url = process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+  if (!url || !token) return null
+
+  driverLocationRatelimit = new Ratelimit({
+    redis: new Redis({ url, token }),
+    limiter: Ratelimit.slidingWindow(30, "60 s"),
+    analytics: true,
+  })
+
+  return driverLocationRatelimit
 }
 
 /**
@@ -92,4 +114,30 @@ export function getRateLimitIdentifier(req: Request): string {
  */
 export function getDriverRateLimitIdentifier(driverId: string): string {
   return `driver:${driverId}`
+}
+
+/**
+ * Rate limit specifically for driver location pings.
+ * Uses a per-driver bucket (not IP) so multiple drivers on the same
+ * network don't block each other. 30 req/min allows GPS every 5 s
+ * with headroom for bursts on app resume.
+ */
+export async function checkDriverLocationRateLimit(driverId: string): Promise<NextResponse | null> {
+  const limiter = getDriverLocationLimiter()
+  if (!limiter) return null
+
+  try {
+    const result = await limiter.limit(`loc:${driverId}`)
+    if (!result.success) {
+      log.warn({ driverId, remaining: result.remaining }, "Driver location rate limit exceeded")
+      return NextResponse.json(
+        { ok: false, error: "Too many location updates." },
+        { status: 429 },
+      )
+    }
+    return null
+  } catch (err) {
+    log.error({ err }, "Driver location rate limit check failed — allowing")
+    return null
+  }
 }
