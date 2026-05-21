@@ -8,7 +8,7 @@ const log = createLogger("api:driver:location")
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { driverId?: string; lat?: number; lng?: number }
+    const body = (await req.json()) as { driverId?: string; lat?: number; lng?: number; clientError?: string }
     const lat = body.lat
     const lng = body.lng
 
@@ -23,7 +23,10 @@ export async function POST(req: Request) {
     if (rl) return rl
 
     if (typeof lat !== "number" || typeof lng !== "number") {
-      await adminRecordDriverPing(driverId, lat, lng, "missing-coords")
+      // If the client included a diagnostic string explaining why it has no
+      // coords, surface that on the admin page instead of the generic message.
+      const errMsg = body.clientError?.trim() ? body.clientError.trim() : "missing-coords"
+      await adminRecordDriverPing(driverId, lat, lng, errMsg)
       return NextResponse.json({ ok: false, error: "lat and lng are required." }, { status: 400 })
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {

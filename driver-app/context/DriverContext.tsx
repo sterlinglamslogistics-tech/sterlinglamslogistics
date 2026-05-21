@@ -210,29 +210,52 @@ export function DriverProvider({ children }: { children: ReactNode }) {
 
     async function tick() {
       let coords = liveGpsRef.current
+      const refState = coords ? "set" : "null"
+      let permState = "unknown"
+      let curErr = ""
+      let cacheState = "untried"
       try {
         const perm = await Location.getForegroundPermissionsAsync()
+        permState = perm.status
         if (perm.status === "granted") {
+          // Try cached first — instant, succeeds even during a slow cold-start
+          // GPS lock. Without this the first ping after a fresh APK install
+          // hangs on Accuracy.High and arrives with no coords.
+          const cached = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 }).catch(() => null)
+          if (cached) {
+            coords = { lat: cached.coords.latitude, lng: cached.coords.longitude }
+            cacheState = "hit"
+            setLiveGps(coords)
+            setGpsError(false)
+          } else {
+            cacheState = "miss"
+          }
+          // Then try a fresh fix at Lowest accuracy — uses cell/wifi, locks
+          // in seconds instead of the 30+s a satellite-only fix can take.
           try {
-            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest })
             coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
             setLiveGps(coords)
             setGpsError(false)
-          } catch {
-            // Fresh fix failed — try the OS-cached last-known position
-            const cached = await Location.getLastKnownPositionAsync().catch(() => null)
-            if (cached) {
-              coords = { lat: cached.coords.latitude, lng: cached.coords.longitude }
-              setLiveGps(coords)
-            }
+          } catch (e: any) {
+            curErr = String(e?.message ?? e ?? "throw").slice(0, 60)
           }
         } else {
           setGpsError(true)
         }
-      } catch { /* keep last-known coords as fallback */ }
+      } catch (e: any) {
+        curErr = `outer:${String(e?.message ?? e ?? "throw").slice(0, 60)}`
+      }
 
-      const payload: { driverId: string; lat?: number; lng?: number } = { driverId }
-      if (coords) { payload.lat = coords.lat; payload.lng = coords.lng }
+      const payload: { driverId: string; lat?: number; lng?: number; clientError?: string } = { driverId }
+      if (coords) {
+        payload.lat = coords.lat
+        payload.lng = coords.lng
+      } else {
+        // No coords this tick — send detailed diagnostic so admin can see WHY
+        // (permission state, GPS error, cache result, prior-ref state).
+        payload.clientError = `perm=${permState};cache=${cacheState};cur=${curErr || "ok"};ref=${refState}`
+      }
       driverFetch("/api/driver/location", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -440,6 +463,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     await clearSession()
     void saveOnlineStatus(false)
     setSession(null); setDriver(null); setOrders([]); setIsOnline(false); setUnreadMessageCount(0)
+    setLiveGps(null); liveGpsRef.current = null
     router.replace("/")
   }
 
