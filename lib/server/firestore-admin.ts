@@ -234,6 +234,18 @@ export async function adminUpdateDriverLocation(
   })
 }
 
+export async function adminRecordDriverPing(
+  driverId: string,
+  lat: unknown,
+  lng: unknown,
+  error: string | null
+): Promise<void> {
+  const update: Record<string, unknown> = { lastPingAt: new Date() }
+  if (error) update.lastPingError = `${error} (lat=${lat},lng=${lng})`
+  else update.lastPingError = null
+  await adminDb.collection("drivers").doc(driverId).update(update).catch(() => null)
+}
+
 // ── Route optimization ────────────────────────────────────────────────────────
 
 export async function adminSaveOptimizedRouteOrder(orderedIds: string[]): Promise<void> {

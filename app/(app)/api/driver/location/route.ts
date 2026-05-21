@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { checkDriverLocationRateLimit } from "@/lib/rate-limit"
-import { adminUpdateDriverLocation } from "@/lib/server/firestore-admin"
+import { adminUpdateDriverLocation, adminRecordDriverPing } from "@/lib/server/firestore-admin"
 import { createLogger } from "@/lib/logger"
 import { resolveDriverIdFromRequest } from "@/lib/server/driver-auth"
 
@@ -23,15 +23,20 @@ export async function POST(req: Request) {
     if (rl) return rl
 
     if (typeof lat !== "number" || typeof lng !== "number") {
+      await adminRecordDriverPing(driverId, lat, lng, "missing-coords")
       return NextResponse.json({ ok: false, error: "lat and lng are required." }, { status: 400 })
     }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      await adminRecordDriverPing(driverId, lat, lng, "nan-coords")
       return NextResponse.json({ ok: false, error: "Invalid coordinates." }, { status: 400 })
     }
-    if (lat < 4 || lat > 14 || lng < 3 || lng > 15) {
+    if (lat < 2 || lat > 15 || lng < 2 || lng > 16) {
+      log.warn({ driverId, lat, lng }, "Driver coordinates out of range")
+      await adminRecordDriverPing(driverId, lat, lng, `out-of-range:${lat},${lng}`)
       return NextResponse.json({ ok: false, error: "Coordinates out of range." }, { status: 400 })
     }
 
+    await adminRecordDriverPing(driverId, lat, lng, null)
     await adminUpdateDriverLocation(driverId, lat, lng)
     return NextResponse.json({ ok: true })
   } catch (error) {
