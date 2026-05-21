@@ -1,11 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Trash2, UserPlus, Shield, User } from "lucide-react"
+import {
+  Loader2, Trash2, UserPlus, Shield, User, MoreHorizontal,
+  KeyRound, UserCog, UserX, UserCheck, RefreshCw,
+} from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -14,132 +17,263 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { doc, getDoc, setDoc } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
+import { ROLES, INVITABLE_ROLES, type UserRole } from "@/lib/roles"
+import { useAuth } from "@/components/auth-provider"
+import { auth } from "@/lib/firebase"
 
-interface AdminUser {
+interface TeamUser {
+  uid: string
   email: string
   name: string
-  role: "owner" | "admin" | "viewer"
-  addedAt: string
+  role: UserRole
+  disabled: boolean
+  lastSignInTime: string | null
+  creationTime: string | null
 }
 
-interface UsersSettings {
-  users: AdminUser[]
+function RoleBadge({ role }: { role: UserRole }) {
+  const def = ROLES[role] ?? ROLES.viewer
+  return <Badge variant={def.badge}>{def.label}</Badge>
 }
 
-const DEFAULT: UsersSettings = { users: [] }
-const SETTINGS_DOC = "usersSettings"
-
-const ROLE_LABELS: Record<AdminUser["role"], string> = {
-  owner: "Owner",
-  admin: "Admin",
-  viewer: "Viewer",
+function formatDate(iso: string | null) {
+  if (!iso) return "Never"
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric", month: "short", year: "numeric",
+  })
 }
 
-const ROLE_BADGE_VARIANT: Record<AdminUser["role"], "default" | "secondary" | "outline"> = {
-  owner: "default",
-  admin: "secondary",
-  viewer: "outline",
+async function apiFetch(url: string, opts?: RequestInit) {
+  const token = await auth?.currentUser?.getIdToken()
+  return fetch(url, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...opts?.headers,
+    },
+  })
 }
 
 export function UsersSettingsPanel() {
-  const [settings, setSettings] = useState<UsersSettings>(DEFAULT)
+  const { user: currentUser } = useAuth()
+  const [users, setUsers] = useState<TeamUser[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
+  const [inviting, setInviting] = useState(false)
   const [inviteName, setInviteName] = useState("")
   const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteRole, setInviteRole] = useState<AdminUser["role"]>("admin")
+  const [inviteRole, setInviteRole] = useState<UserRole>("dispatcher")
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const snap = await getDoc(doc(db, "settings", SETTINGS_DOC))
-        if (snap.exists()) {
-          setSettings({ ...DEFAULT, ...snap.data() } as UsersSettings)
-        }
-      } catch (err) {
-        console.error("Failed to load users settings:", err)
-      } finally {
-        setLoading(false)
-      }
+  // Manage dialog state
+  const [managingUser, setManagingUser] = useState<TeamUser | null>(null)
+  const [showManage, setShowManage] = useState(false)
+  const [newRole, setNewRole] = useState<UserRole>("dispatcher")
+  const [actionLoading, setActionLoading] = useState(false)
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiFetch("/api/admin/users")
+      if (!res.ok) throw new Error("Failed")
+      const data = await res.json()
+      setUsers(data.users ?? [])
+    } catch {
+      toast({ title: "Error", description: "Could not load team members.", variant: "destructive" })
+    } finally {
+      setLoading(false)
     }
-    load()
   }, [])
 
-  async function save(updated: UsersSettings) {
-    setSaving(true)
-    try {
-      await setDoc(doc(db, "settings", SETTINGS_DOC), updated)
-      setSettings(updated)
-      toast({ title: "Saved", description: "Team settings updated." })
-    } catch (err) {
-      console.error("Failed to save users settings:", err)
-      toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" })
-    } finally {
-      setSaving(false)
-    }
-  }
+  useEffect(() => { loadUsers() }, [loadUsers])
 
-  function handleInvite() {
+  async function handleInvite() {
     const email = inviteEmail.trim().toLowerCase()
     const name = inviteName.trim()
     if (!email || !name) {
       toast({ title: "Missing fields", description: "Name and email are required.", variant: "destructive" })
       return
     }
-    if (settings.users.some((u) => u.email === email)) {
-      toast({ title: "Already exists", description: "A user with that email is already listed.", variant: "destructive" })
-      return
+    setInviting(true)
+    try {
+      const res = await apiFetch("/api/admin/users", {
+        method: "POST",
+        body: JSON.stringify({ email, name, role: inviteRole }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast({ title: "Failed to invite", description: data.error ?? "Unknown error", variant: "destructive" })
+        return
+      }
+      toast({ title: "Invited!", description: `${name} will receive an email to set their password.` })
+      setShowInvite(false)
+      setInviteName("")
+      setInviteEmail("")
+      setInviteRole("dispatcher")
+      loadUsers()
+    } catch {
+      toast({ title: "Error", description: "Failed to send invite.", variant: "destructive" })
+    } finally {
+      setInviting(false)
     }
-    const newUser: AdminUser = { email, name, role: inviteRole, addedAt: new Date().toISOString() }
-    const updated: UsersSettings = { users: [...settings.users, newUser] }
-    save(updated)
-    setInviteName("")
-    setInviteEmail("")
-    setInviteRole("admin")
-    setShowInvite(false)
   }
 
-  function handleRemove(email: string) {
-    const updated: UsersSettings = { users: settings.users.filter((u) => u.email !== email) }
-    save(updated)
+  function openManage(user: TeamUser) {
+    setManagingUser(user)
+    setNewRole(user.role)
+    setShowManage(true)
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
+  async function handleUpdateRole() {
+    if (!managingUser) return
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${managingUser.uid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action: "update_role", role: newRole }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        toast({ title: "Error", description: d.error, variant: "destructive" })
+        return
+      }
+      toast({ title: "Role updated", description: `${managingUser.name}'s role is now ${ROLES[newRole].label}.` })
+      setShowManage(false)
+      loadUsers()
+    } catch {
+      toast({ title: "Error", description: "Failed to update role.", variant: "destructive" })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleResetPassword(user: TeamUser) {
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${user.uid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action: "reset_password" }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        toast({ title: "Error", description: d.error, variant: "destructive" })
+        return
+      }
+      toast({ title: "Password reset sent", description: `A reset email has been sent to ${user.email}.` })
+    } catch {
+      toast({ title: "Error", description: "Failed to send reset email.", variant: "destructive" })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleToggleDisabled(user: TeamUser) {
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${user.uid}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action: "toggle_disabled" }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        toast({ title: "Error", description: d.error, variant: "destructive" })
+        return
+      }
+      const action = user.disabled ? "enabled" : "disabled"
+      toast({ title: `Account ${action}`, description: `${user.name}'s account has been ${action}.` })
+      loadUsers()
+    } catch {
+      toast({ title: "Error", description: "Failed to update account status.", variant: "destructive" })
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleDelete(user: TeamUser) {
+    if (!confirm(`Remove ${user.name} from the team? This cannot be undone.`)) return
+    setActionLoading(true)
+    try {
+      const res = await apiFetch(`/api/admin/users/${user.uid}`, { method: "DELETE" })
+      if (!res.ok) {
+        const d = await res.json()
+        toast({ title: "Error", description: d.error, variant: "destructive" })
+        return
+      }
+      toast({ title: "User removed", description: `${user.name} has been removed from the team.` })
+      setShowManage(false)
+      loadUsers()
+    } catch {
+      toast({ title: "Error", description: "Failed to remove user.", variant: "destructive" })
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   return (
     <div className="space-y-8 max-w-2xl">
+      {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold">Users &amp; team</h2>
           <p className="text-sm text-muted-foreground">
-            Manage admin access to the dashboard
+            Manage dashboard access. Invited users receive an email to set their password.
           </p>
         </div>
-        <Button onClick={() => setShowInvite(true)} size="sm">
-          <UserPlus className="mr-2 size-4" />
-          Invite user
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={loadUsers} disabled={loading} title="Refresh">
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          <Button onClick={() => setShowInvite(true)} size="sm">
+            <UserPlus className="mr-2 size-4" />
+            Invite user
+          </Button>
+        </div>
+      </div>
+
+      {/* Role legend */}
+      <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Available roles</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {(Object.entries(ROLES) as [UserRole, typeof ROLES[UserRole]][]).map(([key, def]) => (
+            <div key={key} className="flex items-start gap-2">
+              <Badge variant={def.badge} className="mt-0.5 shrink-0">{def.label}</Badge>
+              <p className="text-xs text-muted-foreground">{def.description}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* User list */}
-      {settings.users.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : users.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           No team members added yet. Invite someone to get started.
         </div>
       ) : (
         <ul className="divide-y rounded-lg border">
-          {settings.users.map((user) => (
-            <li key={user.email} className="flex items-center gap-4 px-4 py-3">
+          {users.map((user) => (
+            <li
+              key={user.uid}
+              className={`flex items-center gap-4 px-4 py-3 ${user.disabled ? "opacity-60" : ""}`}
+            >
               <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
                 {user.role === "owner" ? (
                   <Shield className="size-4 text-muted-foreground" />
@@ -148,21 +282,55 @@ export function UsersSettingsPanel() {
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{user.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium">{user.name}</p>
+                  {user.disabled && (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">Disabled</Badge>
+                  )}
+                  {user.uid === currentUser?.uid && (
+                    <Badge variant="outline" className="text-xs">You</Badge>
+                  )}
+                </div>
                 <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                <p className="text-xs text-muted-foreground">
+                  Last sign-in: {formatDate(user.lastSignInTime)}
+                </p>
               </div>
-              <Badge variant={ROLE_BADGE_VARIANT[user.role]}>{ROLE_LABELS[user.role]}</Badge>
-              {user.role !== "owner" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => handleRemove(user.email)}
-                  disabled={saving}
-                >
-                  <Trash2 className="size-4" />
-                  <span className="sr-only">Remove user</span>
-                </Button>
+              <RoleBadge role={user.role} />
+              {user.uid !== currentUser?.uid && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground">
+                      <MoreHorizontal className="size-4" />
+                      <span className="sr-only">Manage {user.name}</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openManage(user)}>
+                      <UserCog className="mr-2 size-4" />
+                      Change role
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleResetPassword(user)}>
+                      <KeyRound className="mr-2 size-4" />
+                      Send password reset
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleToggleDisabled(user)}>
+                      {user.disabled ? (
+                        <><UserCheck className="mr-2 size-4" />Enable account</>
+                      ) : (
+                        <><UserX className="mr-2 size-4" />Disable account</>
+                      )}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => handleDelete(user)}
+                    >
+                      <Trash2 className="mr-2 size-4" />
+                      Remove from team
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </li>
           ))}
@@ -175,10 +343,9 @@ export function UsersSettingsPanel() {
           <DialogHeader>
             <DialogTitle>Invite team member</DialogTitle>
             <DialogDescription>
-              Add a new admin user. They will need to sign in with the email below.
+              They will receive an email with a link to set their own password.
             </DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4 py-2">
             <div className="space-y-1">
               <Label htmlFor="invite-name">Full name</Label>
@@ -201,23 +368,64 @@ export function UsersSettingsPanel() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="invite-role">Role</Label>
-              <select
-                id="invite-role"
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value as AdminUser["role"])}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="admin">Admin — full access</option>
-                <option value="viewer">Viewer — read-only</option>
-              </select>
+              <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as UserRole)}>
+                <SelectTrigger id="invite-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {INVITABLE_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      <div>
+                        <p className="font-medium">{ROLES[role].label}</p>
+                        <p className="text-xs text-muted-foreground">{ROLES[role].description}</p>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
-
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowInvite(false)}>Cancel</Button>
-            <Button onClick={handleInvite} disabled={saving}>
-              {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <UserPlus className="mr-2 size-4" />}
-              Add user
+            <Button onClick={handleInvite} disabled={inviting}>
+              {inviting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <UserPlus className="mr-2 size-4" />}
+              Send invite
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Change role dialog */}
+      <Dialog open={showManage} onOpenChange={setShowManage}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change role — {managingUser?.name}</DialogTitle>
+            <DialogDescription>
+              Select a new role for this team member. Changes take effect on their next sign-in.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Select value={newRole} onValueChange={(v) => setNewRole(v as UserRole)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {INVITABLE_ROLES.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    <div>
+                      <p className="font-medium">{ROLES[role].label}</p>
+                      <p className="text-xs text-muted-foreground">{ROLES[role].description}</p>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowManage(false)}>Cancel</Button>
+            <Button onClick={handleUpdateRole} disabled={actionLoading || newRole === managingUser?.role}>
+              {actionLoading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              Update role
             </Button>
           </DialogFooter>
         </DialogContent>
