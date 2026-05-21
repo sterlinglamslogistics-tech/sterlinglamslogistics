@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Spinner } from "@/components/ui/spinner"
-import { Search } from "lucide-react"
+import { Search, Wifi, WifiOff } from "lucide-react"
 import { subscribeDriversRealtime, subscribeOrdersRealtime } from "@/lib/firestore"
 import { loadGoogleMaps } from "@/lib/google-maps"
 import { useAuth } from "@/components/auth-provider"
@@ -66,6 +66,12 @@ export default function RoutesPage() {
 
   const activeDrivers = useMemo(
     () => drivers.filter((d) => d.status !== "offline" && d.lastLocation),
+    [drivers]
+  )
+
+  // All non-offline drivers — shown in sidebar even if GPS hasn't landed yet
+  const onlineDrivers = useMemo(
+    () => drivers.filter((d) => d.status !== "offline"),
     [drivers]
   )
 
@@ -191,23 +197,24 @@ export default function RoutesPage() {
   const selectedDestination = selectedOrder ? orderCoords[selectedOrder.id] : null
 
   /**
-   * Dark circle driver marker — same style as the customer tracking page.
-   * Shows driver's first name initial for all drivers; full first name for
-   * the selected driver, which also gets a pulsing halo ring.
+   * Dark circle driver marker — identical style to the customer tracking page.
+   * IMPORTANT: must NOT use encodeURIComponent — Chrome disables SVG <animate>
+   * (SMIL) when the data URL is fully percent-encoded. Escape only '#' manually,
+   * exactly as the tracking page does.
    */
   function makeDriverMarkerIcon(name: string, size: number, selected: boolean): google.maps.Icon {
     const half = size / 2
     const r = half - 3
     const firstName = name.trim().split(" ")[0] ?? name
     const initial = (firstName[0] ?? "?").toUpperCase()
-    const label = selected ? firstName : initial
+    const label = (selected ? firstName : initial).replace(/[<>&"]/g, "")
     const fontSize = selected ? Math.max(9, Math.round(size * 0.28)) : Math.round(size * 0.42)
     const pulse = selected
-      ? `<circle cx="${half}" cy="${half}" r="${r}" fill="#1a1a2e" fill-opacity="0.18"><animate attributeName="r" values="${r};${half + 4};${r}" dur="2s" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.35;0;0.35" dur="2s" repeatCount="indefinite"/></circle>`
+      ? `<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" fill-opacity="0.12"><animate attributeName="r" values="${r - 2};${half + 4};${r - 2}" dur="2s" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.35;0;0.35" dur="2s" repeatCount="indefinite"/></circle>`
       : ""
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${pulse}<circle cx="${half}" cy="${half}" r="${r}" fill="#1a1a2e" stroke="white" stroke-width="3"/><text x="${half}" y="${half + 1}" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${label}</text></svg>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${pulse}<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" stroke="white" stroke-width="3"/><text x="${half}" y="${half + 1}" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${label}</text></svg>`
     return {
-      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      url: `data:image/svg+xml;charset=UTF-8,${svg}`,
       scaledSize: new google.maps.Size(size, size),
       anchor: new google.maps.Point(half, half),
     }
@@ -626,6 +633,30 @@ export default function RoutesPage() {
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+          {/* Online drivers panel */}
+          {onlineDrivers.length > 0 && (
+            <div>
+              <p className="mb-2 text-sm font-semibold text-foreground">Online drivers ({onlineDrivers.length})</p>
+              <div className="space-y-1">
+                {onlineDrivers.map((driver) => {
+                  const hasGps = Boolean(driver.lastLocation)
+                  return (
+                    <div key={driver.id} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#1a1a2e] text-xs font-bold text-white">
+                        {(driver.name.trim().split(" ")[0]?.[0] ?? "?").toUpperCase()}
+                      </div>
+                      <span className="flex-1 truncate text-sm font-medium text-foreground">{driver.name.split(" ")[0]}</span>
+                      {hasGps
+                        ? <Wifi className="size-3.5 shrink-0 text-emerald-500" title="GPS active" />
+                        : <WifiOff className="size-3.5 shrink-0 text-amber-500" title="Waiting for GPS…" />
+                      }
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Unassigned orders */}
           <div>
             <p className="mb-2 text-sm font-semibold text-foreground">Unassigned orders ({unassignedOrders.length})</p>
