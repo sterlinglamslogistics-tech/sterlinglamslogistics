@@ -33,6 +33,7 @@ export default function RoutesPage() {
   const mapRef = useRef<google.maps.Map | null>(null)
   const orderMarkersRef = useRef<google.maps.Marker[]>([])
   const driverMarkersMapRef = useRef<Map<string, google.maps.Marker>>(new Map())
+  const driverAnimFramesRef = useRef<Map<string, number>>(new Map())
   const hubMarkerRef = useRef<google.maps.Marker | null>(null)
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
   const orderInfoWindowRef = useRef<google.maps.InfoWindow | null>(null)
@@ -202,11 +203,11 @@ export default function RoutesPage() {
     const label = selected ? firstName : initial
     const fontSize = selected ? Math.max(9, Math.round(size * 0.28)) : Math.round(size * 0.42)
     const pulse = selected
-      ? `<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" fill-opacity="0.18"><animate attributeName="r" values="${r};${half + 4};${r}" dur="2s" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.35;0;0.35" dur="2s" repeatCount="indefinite"/></circle>`
+      ? `<circle cx="${half}" cy="${half}" r="${r}" fill="#1a1a2e" fill-opacity="0.18"><animate attributeName="r" values="${r};${half + 4};${r}" dur="2s" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.35;0;0.35" dur="2s" repeatCount="indefinite"/></circle>`
       : ""
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${pulse}<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" stroke="white" stroke-width="3"/><text x="${half}" y="${half + 1}" text-anchor="middle" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${label}</text></svg>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${pulse}<circle cx="${half}" cy="${half}" r="${r}" fill="#1a1a2e" stroke="white" stroke-width="3"/><text x="${half}" y="${half + 1}" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${label}</text></svg>`
     return {
-      url: `data:image/svg+xml;charset=UTF-8,${svg}`,
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
       scaledSize: new google.maps.Size(size, size),
       anchor: new google.maps.Point(half, half),
     }
@@ -341,6 +342,8 @@ export default function RoutesPage() {
       orderMarkersRef.current = []
       for (const [, m] of driverMarkersMapRef.current) m.setMap(null)
       driverMarkersMapRef.current.clear()
+      for (const frame of driverAnimFramesRef.current.values()) cancelAnimationFrame(frame)
+      driverAnimFramesRef.current.clear()
       if (hubMarkerRef.current) hubMarkerRef.current.setMap(null)
       if (directionsRendererRef.current) directionsRendererRef.current.setMap(null)
       mapRef.current = null
@@ -505,6 +508,8 @@ export default function RoutesPage() {
       if (!currentIds.has(id)) {
         marker.setMap(null)
         driverMarkersMapRef.current.delete(id)
+        const frame = driverAnimFramesRef.current.get(id)
+        if (frame) { cancelAnimationFrame(frame); driverAnimFramesRef.current.delete(id) }
       }
     }
 
@@ -513,31 +518,45 @@ export default function RoutesPage() {
       if (!driver.lastLocation) return
       const newPos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
       const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
+      // Drivers always overlay order markers (hub=1000, selected order=999)
       const icon = makeDriverMarkerIcon(driver.name, isSelectedDrv ? 48 : 36, isSelectedDrv)
-      const zIdx = isSelectedDrv ? 998 : 15
+      const zIdx = isSelectedDrv ? 2000 : 1500
 
       const existing = driverMarkersMapRef.current.get(driver.id)
 
       if (existing) {
-        // Smoothly animate to new position
-        const start = existing.getPosition()!
-        const end = new google.maps.LatLng(newPos.lat, newPos.lng)
-        const steps = 30
-        const duration = 1000
-        const stepMs = duration / steps
-        let step = 0
-        const animate = () => {
-          step++
-          const t = step / steps
-          existing.setPosition({
-            lat: start.lat() + (end.lat() - start.lat()) * t,
-            lng: start.lng() + (end.lng() - start.lng()) * t,
-          })
-          if (step < steps) setTimeout(animate, stepMs)
-        }
-        animate()
         existing.setIcon(icon)
         existing.setZIndex(zIdx)
+
+        // Cancel any in-progress animation for this driver
+        const prevFrame = driverAnimFramesRef.current.get(driver.id)
+        if (prevFrame) cancelAnimationFrame(prevFrame)
+
+        const startPos = existing.getPosition()!
+        const fromLat = startPos.lat()
+        const fromLng = startPos.lng()
+        const toLat = newPos.lat
+        const toLng = newPos.lng
+
+        // Skip animation if position hasn't meaningfully changed
+        if (Math.abs(fromLat - toLat) < 0.000005 && Math.abs(fromLng - toLng) < 0.000005) return
+
+        const startedAt = performance.now()
+        const durationMs = 900
+        const step = (now: number) => {
+          const progress = Math.min((now - startedAt) / durationMs, 1)
+          const eased = 1 - Math.pow(1 - progress, 3)
+          existing.setPosition({
+            lat: fromLat + (toLat - fromLat) * eased,
+            lng: fromLng + (toLng - fromLng) * eased,
+          })
+          if (progress < 1) {
+            driverAnimFramesRef.current.set(driver.id, requestAnimationFrame(step))
+          } else {
+            driverAnimFramesRef.current.delete(driver.id)
+          }
+        }
+        driverAnimFramesRef.current.set(driver.id, requestAnimationFrame(step))
       } else {
         const marker = new google.maps.Marker({
           map,
