@@ -189,7 +189,22 @@ export async function adminFetchDriverById(driverId: string): Promise<Driver | n
 export async function adminCreateDriver(driver: Omit<Driver, "id">): Promise<string> {
   const driverData = { ...driver }
   if (driverData.password) driverData.password = await hashPassword(driverData.password)
-  const ref = await adminDb.collection("drivers").add({ ...driverData, createdAt: new Date() })
+  // New drivers start offline — they become "available" only when they go online in the app
+  driverData.status = "offline"
+  // Pre-compute normalized phone for fast indexed login lookups
+  const rawPhone = String(driverData.phone ?? "")
+  const digits = rawPhone.replace(/\D/g, "")
+  let phoneNormalized: string | null = null
+  if (digits.length === 10) phoneNormalized = digits
+  else if (digits.length === 11 && digits.startsWith("0")) phoneNormalized = digits.slice(1)
+  else if (digits.length >= 13 && digits.startsWith("234")) phoneNormalized = digits.slice(-10)
+  else if (digits.length > 10) phoneNormalized = digits.slice(-10)
+
+  const ref = await adminDb.collection("drivers").add({
+    ...driverData,
+    ...(phoneNormalized ? { phoneNormalized } : {}),
+    createdAt: new Date(),
+  })
   return ref.id
 }
 
