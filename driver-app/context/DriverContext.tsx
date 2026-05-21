@@ -98,6 +98,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   })
   const lastGpsWrite = useRef(0)
   const locationSub = useRef<Location.LocationSubscription | null>(null)
+  const liveGpsRef = useRef<{ lat: number; lng: number } | null>(null)
   const unreadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const orderPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevOrderIds = useRef<Set<string>>(new Set())
@@ -193,6 +194,55 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     }
     void startGps()
     return () => { void stopGps() }
+  }, [session, isOnline])
+
+  // Keep ref in sync so the heartbeat closure always sees the latest fix
+  useEffect(() => { liveGpsRef.current = liveGps }, [liveGps])
+
+  // ── Heartbeat — fires every 25s while online so the admin always sees the
+  // driver app is alive. If initial GPS startup failed (permission denied,
+  // GPS off, indoors with no satellites) the existing watcher never produces
+  // an update and lastPingAt stays null forever. This retries the fix on a
+  // schedule and pings the server either way.
+  useEffect(() => {
+    if (!session || !isOnline) return
+    const driverId = session.id
+
+    async function tick() {
+      let coords = liveGpsRef.current
+      try {
+        const perm = await Location.getForegroundPermissionsAsync()
+        if (perm.status === "granted") {
+          try {
+            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+            coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+            setLiveGps(coords)
+            setGpsError(false)
+          } catch {
+            // Fresh fix failed — try the OS-cached last-known position
+            const cached = await Location.getLastKnownPositionAsync().catch(() => null)
+            if (cached) {
+              coords = { lat: cached.coords.latitude, lng: cached.coords.longitude }
+              setLiveGps(coords)
+            }
+          }
+        } else {
+          setGpsError(true)
+        }
+      } catch { /* keep last-known coords as fallback */ }
+
+      const payload: { driverId: string; lat?: number; lng?: number } = { driverId }
+      if (coords) { payload.lat = coords.lat; payload.lng = coords.lng }
+      driverFetch("/api/driver/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => {})
+    }
+
+    void tick()
+    const interval = setInterval(() => { void tick() }, 25_000)
+    return () => clearInterval(interval)
   }, [session, isOnline])
 
   // ── Unread message polling (every 30s when online) ────────────────────────
