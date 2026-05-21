@@ -5,11 +5,12 @@ import { useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { useAuth } from "@/components/auth-provider"
 import { Spinner } from "@/components/ui/spinner"
+import { canAccessRoute, ROLE_HOME } from "@/lib/roles"
 
 export function RootShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, loading } = useAuth()
+  const { user, role, loading } = useAuth()
 
   const isDriverRoute = pathname.startsWith("/driver/") || pathname === "/driver"
   const isPublicTrackingRoute = pathname.startsWith("/track/")
@@ -21,13 +22,23 @@ export function RootShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (loading) return
+
     if (!isPublicRoute && !user) {
       router.replace("/")
+      return
     }
+
     if (isLoginRoute && user) {
-      router.replace("/dashboard")
+      // Redirect to the role's home page after login
+      router.replace(role ? ROLE_HOME[role] : "/dashboard")
+      return
     }
-  }, [loading, user, isPublicRoute, isLoginRoute, router])
+
+    // Role-based route guard: redirect to role home if user lacks access
+    if (!isPublicRoute && user && role && !canAccessRoute(role, pathname)) {
+      router.replace(ROLE_HOME[role])
+    }
+  }, [loading, user, role, isPublicRoute, isLoginRoute, pathname, router])
 
   // Public routes: render immediately without auth check
   if (isDriverRoute || isPublicTrackingRoute || isLandingRoute) {
@@ -57,6 +68,11 @@ export function RootShell({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return null // will redirect via useEffect
+  }
+
+  // Block render if user is navigating to a route they can't access
+  if (role && !canAccessRoute(role, pathname)) {
+    return null // useEffect will redirect
   }
 
   const isMapRoute = pathname === "/dispatch" || pathname === "/routes"

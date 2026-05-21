@@ -11,20 +11,24 @@ import { RouteSettingsPanel } from "@/components/settings/route-settings"
 import { UsersSettingsPanel } from "@/components/settings/users-settings"
 import { LocationSettingsPanel } from "@/components/settings/location-settings"
 import { BrandSettingsPanel } from "@/components/settings/brand-settings"
+import { useAuth } from "@/components/auth-provider"
+import { canAccessSettingsTab } from "@/lib/roles"
 
 const settingsNav = [
-  { key: "business", label: "Business settings", icon: Building2 },
-  { key: "brand", label: "Brand customization", icon: Paintbrush },
-  { key: "dispatch", label: "Dispatch settings", icon: Settings2 },
-  { key: "driver", label: "Driver settings", icon: Truck },
-  { key: "notification", label: "Customer notification", icon: Bell },
-  { key: "route", label: "Route planning", icon: Route },
-  { key: "users", label: "Users", icon: Users },
-  { key: "location", label: "Location", icon: MapPin },
+  { key: "business",     label: "Business settings",      icon: Building2 },
+  { key: "brand",        label: "Brand customization",     icon: Paintbrush },
+  { key: "dispatch",     label: "Dispatch settings",       icon: Settings2 },
+  { key: "driver",       label: "Driver settings",         icon: Truck },
+  { key: "notification", label: "Customer notification",   icon: Bell },
+  { key: "route",        label: "Route planning",          icon: Route },
+  { key: "users",        label: "Users",                   icon: Users },
+  { key: "location",     label: "Location",                icon: MapPin },
 ]
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("business")
+  const { role } = useAuth()
+  const visibleNav = settingsNav.filter((item) => canAccessSettingsTab(role, item.key))
+  const [activeTab, setActiveTab] = useState(visibleNav[0]?.key ?? "business")
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,7 +45,7 @@ export default function SettingsPage() {
         {/* Settings sidebar */}
         <nav className="w-full shrink-0 lg:w-56">
           <ul className="flex flex-row gap-1 overflow-x-auto lg:flex-col">
-            {settingsNav.map((item) => {
+            {visibleNav.map((item) => {
               const Icon = item.icon
               return (
                 <li key={item.key}>
@@ -65,14 +69,14 @@ export default function SettingsPage() {
 
         {/* Settings content */}
         <div className="flex-1 min-w-0">
-          {activeTab === "business" && <BusinessSettingsPanel />}
+          {activeTab === "business"     && <BusinessSettingsPanel />}
           {activeTab === "notification" && <NotificationSettingsPanel />}
-          {activeTab === "driver" && <DriverSettingsPanel />}
-          {activeTab === "dispatch" && <DispatchSettingsPanel />}
-          {activeTab === "route" && <RouteSettingsPanel />}
-          {activeTab === "users" && <UsersSettingsPanel />}
-          {activeTab === "location" && <LocationSettingsPanel />}
-          {activeTab === "brand" && <BrandSettingsPanel />}
+          {activeTab === "driver"       && <DriverSettingsPanel />}
+          {activeTab === "dispatch"     && <DispatchSettingsPanel />}
+          {activeTab === "route"        && <RouteSettingsPanel />}
+          {activeTab === "users"        && <UsersSettingsPanel />}
+          {activeTab === "location"     && <LocationSettingsPanel />}
+          {activeTab === "brand"        && <BrandSettingsPanel />}
         </div>
       </div>
     </div>

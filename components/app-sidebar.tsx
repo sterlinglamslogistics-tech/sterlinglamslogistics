@@ -23,14 +23,15 @@ import { useState, useRef, useEffect } from "react"
 import { useAuth } from "@/components/auth-provider"
 import { ThemeToggle } from "@/components/theme-provider"
 import { useOrderAlert } from "@/components/order-alert-provider"
+import { canAccessRoute, ROLES, type UserRole } from "@/lib/roles"
 
 const navItems = [
   { label: "Dispatch", href: "/dispatch", icon: Send },
-  { label: "Orders", href: "/orders", icon: Package },
-  { label: "Drivers", href: "/drivers", icon: Users },
-  { label: "Routes", href: "/routes", icon: Route },
-  { label: "Reviews", href: "/reviews", icon: Star },
-  { label: "Reports", href: "/reports", icon: BarChart3 },
+  { label: "Orders",   href: "/orders",   icon: Package },
+  { label: "Drivers",  href: "/drivers",  icon: Users },
+  { label: "Routes",   href: "/routes",   icon: Route },
+  { label: "Reviews",  href: "/reviews",  icon: Star },
+  { label: "Reports",  href: "/reports",  icon: BarChart3 },
 ]
 
 export function AppSidebar() {
@@ -38,8 +39,12 @@ export function AppSidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const profileRef = useRef<HTMLDivElement>(null)
-  const { user, logout } = useAuth()
+  const { user, role, logout } = useAuth()
   const { muted, toggleMute } = useOrderAlert()
+
+  // Filter nav items to only those the current role can access
+  const visibleNav = navItems.filter((item) => canAccessRoute(role, item.href))
+  const canSeeSettings = canAccessRoute(role, "/settings")
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -78,7 +83,7 @@ export function AppSidebar() {
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-1 lg:flex">
-          {navItems.map((item) => {
+          {visibleNav.map((item) => {
             const isActive =
               pathname === item.href ||
               (item.href !== "/" && pathname.startsWith(item.href))
@@ -133,26 +138,33 @@ export function AppSidebar() {
               {user?.email ? user.email[0].toUpperCase() : "A"}
             </button>
             {profileOpen && (
-            <div className="absolute right-0 top-full z-[9999] mt-1 w-48 rounded-md border bg-popover p-1 shadow-lg">
-              <p className="truncate px-3 py-1.5 text-xs text-muted-foreground">
-                {user?.email ?? "Account"}
-              </p>
-              <Link
-                href="/settings"
-                onClick={() => setProfileOpen(false)}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-foreground hover:bg-accent"
-              >
-                <Settings className="size-3.5" />
-                Settings
-              </Link>
-              <button
-                onClick={() => { setProfileOpen(false); logout() }}
-                className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-destructive hover:bg-accent"
-              >
-                <LogOut className="size-3.5" />
-                Sign out
-              </button>
-            </div>
+              <div className="absolute right-0 top-full z-[9999] mt-1 w-56 rounded-md border bg-popover p-1 shadow-lg">
+                <p className="truncate px-3 py-1.5 text-xs text-muted-foreground">
+                  {user?.email ?? "Account"}
+                </p>
+                {role && (
+                  <p className="px-3 pb-1.5 text-xs font-medium text-primary">
+                    {ROLES[role as UserRole]?.label ?? role}
+                  </p>
+                )}
+                {canSeeSettings && (
+                  <Link
+                    href="/settings"
+                    onClick={() => setProfileOpen(false)}
+                    className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+                  >
+                    <Settings className="size-3.5" />
+                    Settings
+                  </Link>
+                )}
+                <button
+                  onClick={() => { setProfileOpen(false); logout() }}
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-destructive hover:bg-accent"
+                >
+                  <LogOut className="size-3.5" />
+                  Sign out
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -162,7 +174,7 @@ export function AppSidebar() {
       {mobileOpen && (
         <nav className="border-t bg-background px-4 py-3 lg:hidden">
           <div className="flex flex-wrap gap-2">
-            {navItems.map((item) => {
+            {visibleNav.map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/" && pathname.startsWith(item.href))
@@ -184,9 +196,25 @@ export function AppSidebar() {
                 </Link>
               )
             })}
+            {canSeeSettings && (
+              <Link
+                href="/settings"
+                onClick={() => setMobileOpen(false)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  pathname.startsWith("/settings")
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                )}
+              >
+                <Settings className="size-4" />
+                Settings
+              </Link>
+            )}
           </div>
         </nav>
       )}
     </header>
   )
 }
+
