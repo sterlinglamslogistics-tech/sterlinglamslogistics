@@ -189,42 +189,26 @@ export default function RoutesPage() {
   }, [drivers, selectedOrder])
   const selectedDestination = selectedOrder ? orderCoords[selectedOrder.id] : null
 
-  // ── Helper: native Google Maps "My Location" blue dot ──
-  function makeDriverArrowIcon(size: number = 40, color = "#4285F4"): google.maps.Icon {
+  /**
+   * Dark circle driver marker — same style as the customer tracking page.
+   * Shows driver's first name initial for all drivers; full first name for
+   * the selected driver, which also gets a pulsing halo ring.
+   */
+  function makeDriverMarkerIcon(name: string, size: number, selected: boolean): google.maps.Icon {
     const half = size / 2
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 40 40">
-      <circle cx="20" cy="20" r="18" fill="${color}" fill-opacity="0.15"/>
-      <circle cx="20" cy="20" r="10" fill="white"/>
-      <circle cx="20" cy="20" r="7"  fill="${color}"/>
-    </svg>`
+    const r = half - 3
+    const firstName = name.trim().split(" ")[0] ?? name
+    const initial = (firstName[0] ?? "?").toUpperCase()
+    const label = selected ? firstName : initial
+    const fontSize = selected ? Math.max(9, Math.round(size * 0.28)) : Math.round(size * 0.42)
+    const pulse = selected
+      ? `<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" fill-opacity="0.18"><animate attributeName="r" values="${r};${half + 4};${r}" dur="2s" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.35;0;0.35" dur="2s" repeatCount="indefinite"/></circle>`
+      : ""
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${pulse}<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" stroke="white" stroke-width="3"/><text x="${half}" y="${half + 1}" text-anchor="middle" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${label}</text></svg>`
     return {
-      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      url: `data:image/svg+xml;charset=UTF-8,${svg}`,
       scaledSize: new google.maps.Size(size, size),
       anchor: new google.maps.Point(half, half),
-    }
-  }
-
-  /** Labeled driver marker — name above a colored dot, used for the selected driver */
-  function makeNamedDriverIcon(name: string, size: number = 44): google.maps.Icon {
-    const half = size / 2
-    const short = name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size + 18}" viewBox="0 0 ${size} ${size + 18}">
-      <defs>
-        <filter id="sh" x="-30%" y="-30%" width="160%" height="160%">
-          <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.35"/>
-        </filter>
-      </defs>
-      <rect x="1" y="1" width="${size - 2}" height="16" rx="4" fill="#1d4ed8" filter="url(%23sh)"/>
-      <text x="${half}" y="12" text-anchor="middle" dominant-baseline="central"
-        font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="700" font-size="10" fill="white">${name.split(" ")[0]}</text>
-      <circle cx="${half}" cy="${size + 4}" r="${half - 2}" fill="#2563eb" stroke="white" stroke-width="3" filter="url(%23sh)"/>
-      <text x="${half}" y="${size + 5}" text-anchor="middle" dominant-baseline="central"
-        font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="800" font-size="${Math.round(size * 0.3)}" fill="white">${short}</text>
-    </svg>`
-    return {
-      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-      scaledSize: new google.maps.Size(size, size + 18),
-      anchor: new google.maps.Point(half, size + 18),
     }
   }
 
@@ -529,11 +513,7 @@ export default function RoutesPage() {
       if (!driver.lastLocation) return
       const newPos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
       const isSelectedDrv = Boolean(selectedDriver && selectedDriver.id === driver.id)
-
-      // Selected driver: large labeled blue marker; others: small dimmed gray dot
-      const icon = isSelectedDrv
-        ? makeNamedDriverIcon(driver.name, 44)
-        : makeDriverArrowIcon(28, "#9ca3af")
+      const icon = makeDriverMarkerIcon(driver.name, isSelectedDrv ? 48 : 36, isSelectedDrv)
       const zIdx = isSelectedDrv ? 998 : 15
 
       const existing = driverMarkersMapRef.current.get(driver.id)
