@@ -80,6 +80,8 @@ export interface Driver {
   password?: string
   lastLocation?: { lat: number; lng: number }
   locationUpdatedAt?: unknown
+  lastPingAt?: unknown
+  lastPingError?: string | null
 }
 
 export interface NotificationChannelResult {

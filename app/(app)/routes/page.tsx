@@ -640,12 +640,25 @@ export default function RoutesPage() {
               <div className="space-y-1">
                 {onlineDrivers.map((driver) => {
                   const hasGps = Boolean(driver.lastLocation)
+                  const pingDate = driver.lastPingAt ? (driver.lastPingAt instanceof Date ? driver.lastPingAt : new Date(driver.lastPingAt as string)) : null
+                  const pingAgo = pingDate ? Math.round((Date.now() - pingDate.getTime()) / 1000) : null
+                  const pingRecent = pingAgo !== null && pingAgo < 30
+                  const pingStatus = pingAgo === null
+                    ? "No ping yet — app may not be running"
+                    : driver.lastPingError
+                      ? `Error: ${driver.lastPingError}`
+                      : pingRecent ? `Last ping ${pingAgo}s ago` : `Last ping ${pingAgo}s ago`
                   return (
-                    <div key={driver.id} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+                    <div key={driver.id} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2" title={pingStatus}>
                       <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#1a1a2e] text-xs font-bold text-white">
                         {(driver.name.trim().split(" ")[0]?.[0] ?? "?").toUpperCase()}
                       </div>
-                      <span className="flex-1 truncate text-sm font-medium text-foreground">{driver.name.split(" ")[0]}</span>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-sm font-medium text-foreground">{driver.name.split(" ")[0]}</span>
+                        {!hasGps && (
+                          <span className="truncate text-[10px] text-amber-600">{pingStatus}</span>
+                        )}
+                      </div>
                       {hasGps
                         ? <Wifi className="size-3.5 shrink-0 text-emerald-500" aria-label="GPS active" />
                         : <WifiOff className="size-3.5 shrink-0 text-amber-500" aria-label="Waiting for GPS…" />
