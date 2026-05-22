@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { router } from "expo-router"
+import { router, useFocusEffect } from "expo-router"
 import { useDriver } from "@/context/DriverContext"
 import { driverFetch } from "@/lib/api"
 import { formatCurrency, type Order } from "@/lib/types"
@@ -9,41 +9,69 @@ import { Feather } from "@expo/vector-icons"
 
 const GREEN = "#16a34a"
 
+const TERMINAL_STATUSES = new Set(["delivered", "failed", "cancelled"])
+
 export default function CompletedScreen() {
-  const { session } = useDriver()
-  const [orders, setOrders] = useState<Order[]>([])
+  const { session, orders: contextOrders } = useDriver()
+  const [fetchedOrders, setFetchedOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  async function load() {
-    if (!session) return
+  const load = useCallback(async (showSpinner = true) => {
+    if (!session) { setLoading(false); return }
+    if (showSpinner) setLoading(true)
     try {
       const res = await driverFetch(`/api/driver/orders?driverId=${encodeURIComponent(session.id)}&history=true`)
       if (!res.ok) return
       const data = await res.json() as { orders?: Order[] }
-      const done = (data.orders ?? []).filter((o) => o.status === "delivered" || o.status === "failed" || o.status === "cancelled")
-      setOrders(done.reverse())
+      setFetchedOrders(data.orders ?? [])
     } catch { /* ignore */ } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }
+  }, [session])
 
-  useEffect(() => { load() }, [session])
+  // Initial load when session becomes available
+  useEffect(() => { void load() }, [load])
+
+  // Re-fetch every time the tab is focused — catches newly completed orders
+  // that the driver finished after opening this screen for the first time.
+  useFocusEffect(
+    useCallback(() => { void load(false) }, [load])
+  )
+
+  // Merge API results with context orders so an order the driver just
+  // completed (which is already in context via refreshOrders) shows up
+  // even if the API response is briefly stale.
+  const merged = new Map<string, Order>()
+  for (const o of fetchedOrders) if (TERMINAL_STATUSES.has(o.status)) merged.set(o.id, o)
+  for (const o of contextOrders) if (TERMINAL_STATUSES.has(o.status) && !merged.has(o.id)) merged.set(o.id, o)
+
+  const orders = [...merged.values()].sort((a, b) => {
+    const ta = parseTs((a as any).deliveredAt ?? (a as any).failedAt ?? a.createdAt)
+    const tb = parseTs((b as any).deliveredAt ?? (b as any).failedAt ?? b.createdAt)
+    return tb - ta
+  })
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={styles.header}><Text style={styles.headerTitle}>History</Text></View>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>History</Text>
+        {orders.length > 0 && (
+          <Text style={styles.headerCount}>{orders.length}</Text>
+        )}
+      </View>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load() }} tintColor={GREEN} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(false) }} tintColor={GREEN} />}
       >
         {loading ? (
           <ActivityIndicator color={GREEN} style={{ marginTop: 60 }} />
         ) : orders.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>≡ƒôï</Text>
+            <Text style={styles.emptyIcon}>📋</Text>
             <Text style={styles.emptyText}>No completed deliveries yet</Text>
+            <Text style={styles.emptyHint}>Pull down to refresh</Text>
           </View>
         ) : (
           orders.map((order) => (
@@ -75,13 +103,32 @@ export default function CompletedScreen() {
   )
 }
 
+// Parse a Firestore timestamp / number / string / Date into a millis number.
+// Returns 0 for unparseable input so sort puts those entries last.
+function parseTs(ts: unknown): number {
+  if (!ts) return 0
+  if (ts instanceof Date) return ts.getTime()
+  if (typeof ts === "number") return ts
+  if (typeof ts === "object" && ts !== null && ("seconds" in ts || "_seconds" in ts)) {
+    const secs = ("_seconds" in ts) ? (ts as any)._seconds : (ts as any).seconds
+    return typeof secs === "number" ? secs * 1000 : 0
+  }
+  if (typeof ts === "string") {
+    const d = new Date(ts).getTime()
+    return isNaN(d) ? 0 : d
+  }
+  return 0
+}
+
 const styles = StyleSheet.create({
-  header: { paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "#f3f4f6" },
   headerTitle: { fontSize: 18, fontWeight: "700", color: "#111827" },
+  headerCount: { fontSize: 13, fontWeight: "600", color: "#6b7280", backgroundColor: "#f3f4f6", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 100, overflow: "hidden" },
   content: { padding: 16, gap: 10, paddingBottom: 32 },
   empty: { alignItems: "center", paddingTop: 80 },
   emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyText: { fontSize: 15, color: "#9ca3af" },
+  emptyHint: { fontSize: 12, color: "#d1d5db", marginTop: 8 },
   card: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#fff", borderRadius: 14, borderWidth: 1, borderColor: "#e5e7eb", padding: 14 },
   cardLeft: { flexDirection: "row", gap: 10, alignItems: "flex-start", flex: 1 },
   cardRight: { alignItems: "flex-end", gap: 6, marginLeft: 8 },
