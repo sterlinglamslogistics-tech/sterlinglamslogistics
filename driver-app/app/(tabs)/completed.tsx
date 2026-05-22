@@ -68,11 +68,24 @@ export default function CompletedScreen() {
         {loading ? (
           <ActivityIndicator color={GREEN} style={{ marginTop: 60 }} />
         ) : orders.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>📋</Text>
-            <Text style={styles.emptyText}>No completed deliveries yet</Text>
-            <Text style={styles.emptyHint}>Pull down to refresh</Text>
-          </View>
+          <>
+            <View style={styles.empty}>
+              <Text style={styles.emptyIcon}>📋</Text>
+              <Text style={styles.emptyText}>No completed deliveries yet</Text>
+              <Text style={styles.emptyHint}>Pull down to refresh</Text>
+            </View>
+            {/* Temporary diagnostic — remove once completed orders are showing.
+                Tells us exactly what the API + context have so we know whether
+                the issue is upstream (API not returning orders) or in the filter. */}
+            <View style={styles.debugBox}>
+              <Text style={styles.debugTitle}>Diagnostic</Text>
+              <Text style={styles.debugLine}>Driver id: {session?.id ?? "(no session)"}</Text>
+              <Text style={styles.debugLine}>API returned: {fetchedOrders.length} order(s)</Text>
+              <Text style={styles.debugLine}>Context has: {contextOrders.length} order(s)</Text>
+              <Text style={styles.debugLine}>API statuses: {fetchedOrders.map(o => `${o.orderNumber}:${o.status}`).join(", ") || "(none)"}</Text>
+              <Text style={styles.debugLine}>Context statuses: {contextOrders.map(o => `${o.orderNumber}:${o.status}`).join(", ") || "(none)"}</Text>
+            </View>
+          </>
         ) : (
           orders.map((order) => (
             <TouchableOpacity key={order.id} style={styles.card} onPress={() => router.push(`/order/${order.id}` as never)} activeOpacity={0.7}>
@@ -138,4 +151,7 @@ const styles = StyleSheet.create({
   amount: { fontSize: 14, fontWeight: "700", color: "#111827" },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100 },
   badgeText: { fontSize: 10, fontWeight: "600" },
+  debugBox: { marginTop: 24, padding: 12, borderRadius: 8, backgroundColor: "#fef3c7", borderWidth: 1, borderColor: "#fde68a", gap: 4 },
+  debugTitle: { fontSize: 12, fontWeight: "700", color: "#92400e", marginBottom: 4 },
+  debugLine: { fontSize: 11, color: "#78350f", fontFamily: "monospace" },
 })
