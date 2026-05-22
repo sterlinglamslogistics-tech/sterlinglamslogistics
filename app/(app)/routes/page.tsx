@@ -649,14 +649,14 @@ export default function RoutesPage() {
                       ? `Error: ${driver.lastPingError}`
                       : pingRecent ? `Last ping ${pingAgo}s ago` : `Last ping ${pingAgo}s ago`
                   return (
-                    <div key={driver.id} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2" title={pingStatus}>
-                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#1a1a2e] text-xs font-bold text-white">
+                    <div key={driver.id} className="flex items-start gap-2 rounded-md border bg-background px-3 py-2" title={pingStatus}>
+                      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-[#1a1a2e] text-xs font-bold text-white">
                         {(driver.name.trim().split(" ")[0]?.[0] ?? "?").toUpperCase()}
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-sm font-medium text-foreground">{driver.name.split(" ")[0]}</span>
                         {!hasGps && (
-                          <span className="truncate text-[10px] text-amber-600">{pingStatus}</span>
+                          <span className="text-[10px] text-amber-600 break-all leading-snug">{pingStatus}</span>
                         )}
                       </div>
                       {hasGps
