@@ -203,21 +203,28 @@ export default function RoutesPage() {
    * exactly as the tracking page does.
    */
   function makeDriverMarkerIcon(name: string, size: number, selected: boolean): google.maps.Icon {
-    const half = size / 2
-    const r = half - 3
+    // Canvas is 2× the marker size so the radar pulse can extend well past
+    // the marker edge without being clipped. The dark marker stays at its
+    // original size, centered inside the larger canvas.
+    const canvas = size * 2
+    const center = canvas / 2
+    const r = size / 2 - 3
     const firstName = name.trim().split(" ")[0] ?? name
     const initial = (firstName[0] ?? "?").toUpperCase()
     const label = (selected ? firstName : initial).replace(/[<>&"]/g, "")
     const fontSize = selected ? Math.max(9, Math.round(size * 0.28)) : Math.round(size * 0.42)
     // Radar pulse on every driver — selected drivers pulse faster so they
-    // remain visually distinguishable from idle ones.
+    // remain visually distinguishable from idle ones. Green (#16a34a) is
+    // encoded as %2316a34a — Chrome disables SVG <animate> if the data URL
+    // is fully percent-encoded, so only the '#' is escaped manually.
     const pulseDur = selected ? "1s" : "2s"
-    const pulse = `<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" fill-opacity="0.12"><animate attributeName="r" values="${r - 2};${half + 4};${r - 2}" dur="${pulseDur}" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.35;0;0.35" dur="${pulseDur}" repeatCount="indefinite"/></circle>`
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${pulse}<circle cx="${half}" cy="${half}" r="${r}" fill="%231a1a2e" stroke="white" stroke-width="3"/><text x="${half}" y="${half + 1}" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${label}</text></svg>`
+    const pulseMax = center - 4
+    const pulse = `<circle cx="${center}" cy="${center}" r="${r}" fill="%2316a34a" fill-opacity="0.18"><animate attributeName="r" values="${r - 2};${pulseMax};${r - 2}" dur="${pulseDur}" repeatCount="indefinite"/><animate attributeName="fill-opacity" values="0.5;0;0.5" dur="${pulseDur}" repeatCount="indefinite"/></circle>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas}" height="${canvas}" viewBox="0 0 ${canvas} ${canvas}">${pulse}<circle cx="${center}" cy="${center}" r="${r}" fill="%231a1a2e" stroke="white" stroke-width="3"/><text x="${center}" y="${center + 1}" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif" font-weight="700" font-size="${fontSize}" fill="white">${label}</text></svg>`
     return {
       url: `data:image/svg+xml;charset=UTF-8,${svg}`,
-      scaledSize: new google.maps.Size(size, size),
-      anchor: new google.maps.Point(half, half),
+      scaledSize: new google.maps.Size(canvas, canvas),
+      anchor: new google.maps.Point(center, center),
     }
   }
 
