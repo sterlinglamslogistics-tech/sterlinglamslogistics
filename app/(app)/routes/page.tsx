@@ -228,6 +228,34 @@ export default function RoutesPage() {
     }
   }
 
+  // ── Hub marker: orange circle background, white peaked-roof shop icon,
+  // dark order-count badge in the top-right corner.
+  function makeHubMarkerIcon(orderCount: number, size: number = 56): google.maps.Icon {
+    const half = size / 2
+    const r = half - 6
+    const countStr = String(orderCount)
+    const badgeFontSize = countStr.length > 2 ? 8 : 10
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <defs>
+        <filter id="hs" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="0" dy="1" stdDeviation="2" flood-opacity="0.3"/>
+        </filter>
+      </defs>
+      <circle cx="${half}" cy="${half}" r="${r}" fill="#f59e0b" stroke="white" stroke-width="3" filter="url(#hs)"/>
+      <g stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M${half - 12} ${half} L${half} ${half - 10} L${half + 12} ${half} L${half + 12} ${half + 12} L${half - 12} ${half + 12} Z"/>
+        <path d="M${half - 3} ${half + 12} L${half - 3} ${half + 6} L${half + 3} ${half + 6} L${half + 3} ${half + 12}"/>
+      </g>
+      <circle cx="${size - 12}" cy="14" r="9" fill="#1f2937" stroke="white" stroke-width="1.5"/>
+      <text x="${size - 12}" y="14" text-anchor="middle" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-weight="700" font-size="${badgeFontSize}" fill="white">${countStr}</text>
+    </svg>`
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      scaledSize: new google.maps.Size(size, size),
+      anchor: new google.maps.Point(half, half),
+    }
+  }
+
   // ── Helper: build filled‑circle SVG marker with single-line label ──
   function makeLabeledMarkerIcon(
     bgColor: string,
@@ -392,12 +420,12 @@ export default function RoutesPage() {
     const bounds = new google.maps.LatLngBounds()
     let hasPoints = false
 
-    // ── Hub marker with order count ──
+    // ── Hub marker: shop icon with order-count badge ──
     hubMarkerRef.current = new google.maps.Marker({
       map,
       position: HUB,
       title: `Store Hub (${visibleOrders.length} orders)`,
-      icon: makeLabeledMarkerIcon("#f59e0b", String(visibleOrders.length), 48, 16),
+      icon: makeHubMarkerIcon(visibleOrders.length),
       zIndex: 1000,
     })
     bounds.extend(HUB)
