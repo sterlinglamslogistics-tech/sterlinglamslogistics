@@ -209,42 +209,38 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     const driverId = session.id
 
     async function tick() {
+      // The heartbeat must NOT call getCurrentPositionAsync — startGps already
+      // owns that call, and on Expo SDK 54 a second concurrent call gets
+      // rejected by the native bridge ("The 1st argument cannot be cast to
+      // type LocationOptions"). The watcher inside startGps keeps liveGps
+      // fresh; this tick just relays whatever's available + falls back to
+      // the OS-cached position.
       let coords = liveGpsRef.current
       const refState = coords ? "set" : "null"
       let permState = "unknown"
-      let curErr = ""
       let cacheState = "untried"
       try {
         const perm = await Location.getForegroundPermissionsAsync()
         permState = perm.status
         if (perm.status === "granted") {
-          // Try cached first — instant, succeeds even during a slow cold-start
-          // GPS lock. Without this the first ping after a fresh APK install
-          // hangs on Accuracy.High and arrives with no coords.
-          const cached = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 }).catch(() => null)
-          if (cached) {
-            coords = { lat: cached.coords.latitude, lng: cached.coords.longitude }
-            cacheState = "hit"
-            setLiveGps(coords)
-            setGpsError(false)
+          if (!coords) {
+            const cached = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 }).catch(() => null)
+            if (cached) {
+              coords = { lat: cached.coords.latitude, lng: cached.coords.longitude }
+              cacheState = "hit"
+              setLiveGps(coords)
+              setGpsError(false)
+            } else {
+              cacheState = "miss"
+            }
           } else {
-            cacheState = "miss"
-          }
-          // Then try a fresh fix at Lowest accuracy — uses cell/wifi, locks
-          // in seconds instead of the 30+s a satellite-only fix can take.
-          try {
-            const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest })
-            coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-            setLiveGps(coords)
-            setGpsError(false)
-          } catch (e: any) {
-            curErr = String(e?.message ?? e ?? "throw").slice(0, 220)
+            cacheState = "skip-have-ref"
           }
         } else {
           setGpsError(true)
         }
       } catch (e: any) {
-        curErr = `outer:${String(e?.message ?? e ?? "throw").slice(0, 220)}`
+        cacheState = `outer:${String(e?.message ?? e ?? "throw").slice(0, 220)}`
       }
 
       const payload: { driverId: string; lat?: number; lng?: number; clientError?: string } = { driverId }
@@ -252,9 +248,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
         payload.lat = coords.lat
         payload.lng = coords.lng
       } else {
-        // No coords this tick — send detailed diagnostic so admin can see WHY
-        // (permission state, GPS error, cache result, prior-ref state).
-        payload.clientError = `perm=${permState};cache=${cacheState};cur=${curErr || "ok"};ref=${refState}`
+        payload.clientError = `perm=${permState};cache=${cacheState};ref=${refState}`
       }
       driverFetch("/api/driver/location", {
         method: "POST",
