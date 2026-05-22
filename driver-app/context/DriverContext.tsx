@@ -289,24 +289,31 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     const { status } = await Location.requestForegroundPermissionsAsync()
     if (status !== "granted") { setGpsError(true); return }
     try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+      // Balanced uses WiFi/cell network in addition to satellites — produces
+      // fixes indoors in seconds where Accuracy.High can hang for minutes.
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
       const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
       setLiveGps(coords)
       sendLocation(coords)
     } catch { /* ignore */ }
     setGpsError(false)
-    locationSub.current = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 10 },
-      (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        setLiveGps(coords)
-        setGpsError(false)
-        const now = Date.now()
-        if (now - lastGpsWrite.current < 5000) return
-        lastGpsWrite.current = now
-        sendLocation(coords)
-      }
-    )
+    try {
+      // Wrap watcher setup in try/catch — if it rejects (eg. expo-location
+      // SDK 54 LocationOptions bridge cast issue), the rest of startGps
+      // (background permissions / task) still runs.
+      locationSub.current = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
+        (pos) => {
+          const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          setLiveGps(coords)
+          setGpsError(false)
+          const now = Date.now()
+          if (now - lastGpsWrite.current < 5000) return
+          lastGpsWrite.current = now
+          sendLocation(coords)
+        }
+      )
+    } catch { /* watcher unavailable — BG task + heartbeat carry the load */ }
     const bgStatus = await Location.requestBackgroundPermissionsAsync()
     if (bgStatus.status === "granted") {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false)
