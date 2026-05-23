@@ -178,13 +178,26 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
 
     async function poll() {
       try {
-        // cache: "no-store" so the browser doesn't serve a previous response
-        // when polling. The route is also force-dynamic on the server side
-        // to bypass Next.js / Vercel edge caching.
-        const res = await fetch(`/api/track/${encodeURIComponent(tracking)}`, { cache: "no-store" })
+        // Cache-busting query param + cache:"no-store" + force-dynamic on
+        // the route handler — defence-in-depth against browser cache,
+        // service workers, Vercel edge cache, and any CDN in between. Each
+        // request has a unique URL so nothing can serve a stale response.
+        const res = await fetch(
+          `/api/track/${encodeURIComponent(tracking)}?_=${Date.now()}`,
+          { cache: "no-store" }
+        )
         if (!res.ok || cancelled) return
         const data = await res.json() as { ok: boolean; order: Order | null; driver: Driver | null }
         if (cancelled) return
+        if (typeof console !== "undefined" && data.driver?.lastLocation) {
+          // eslint-disable-next-line no-console
+          console.log(
+            "[track] poll",
+            new Date().toLocaleTimeString(),
+            data.driver.lastLocation.lat.toFixed(6),
+            data.driver.lastLocation.lng.toFixed(6),
+          )
+        }
         setOrder(data.order)
         setDriver(data.driver)
       } catch {
