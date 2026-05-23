@@ -166,6 +166,9 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
   const driverAnimFrameRef = useRef<number | null>(null)
   const ratingSyncRef = useRef<string | null>(null)
+  // Track whether we've already fit-bounded the initial view so we don't
+  // reset the user's zoom/pan on every 5s poll.
+  const initialFitDoneRef = useRef(false)
 
   const requestedRating = useMemo(() => parseRating(searchParams.get("rating")), [searchParams])
 
@@ -175,7 +178,10 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
 
     async function poll() {
       try {
-        const res = await fetch(`/api/track/${encodeURIComponent(tracking)}`)
+        // cache: "no-store" so the browser doesn't serve a previous response
+        // when polling. The route is also force-dynamic on the server side
+        // to bypass Next.js / Vercel edge caching.
+        const res = await fetch(`/api/track/${encodeURIComponent(tracking)}`, { cache: "no-store" })
         if (!res.ok || cancelled) return
         const data = await res.json() as { ok: boolean; order: Order | null; driver: Driver | null }
         if (cancelled) return
@@ -397,10 +403,13 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         destinationMarkerRef.current = null
       }
 
-      // Fit bounds
-      if (hasPoints) {
+      // Fit bounds only on the FIRST render with points. Doing it on every
+      // poll constantly re-zooms the map, which both annoys the user and
+      // hides the marker movement we're animating into view.
+      if (hasPoints && !initialFitDoneRef.current) {
         map.fitBounds(bounds, 24)
-      } else {
+        initialFitDoneRef.current = true
+      } else if (!hasPoints) {
         map.setCenter({ lat: HUB.lat, lng: HUB.lng })
         map.setZoom(13)
       }

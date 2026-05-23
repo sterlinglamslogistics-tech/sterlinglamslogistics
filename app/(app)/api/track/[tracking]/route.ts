@@ -4,6 +4,12 @@ import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 import { createLogger } from "@/lib/logger"
 import type { DriverStatus } from "@/lib/data"
 
+// Opt out of Next.js / Vercel response caching. Without this the edge can
+// cache the GET response for tens of seconds, so the tracking page polls
+// every 5s but keeps getting the same stale driver.lastLocation back.
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 const log = createLogger("api:track")
 
 /**
