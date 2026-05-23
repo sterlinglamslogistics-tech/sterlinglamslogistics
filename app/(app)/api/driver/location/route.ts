@@ -33,10 +33,13 @@ export async function POST(req: Request) {
       await adminRecordDriverPing(driverId, lat, lng, "nan-coords")
       return NextResponse.json({ ok: false, error: "Invalid coordinates." }, { status: 400 })
     }
-    if (lat < 2 || lat > 15 || lng < 2 || lng > 16) {
-      log.warn({ driverId, lat, lng }, "Driver coordinates out of range")
+    
+    // Valid coordinate ranges: lat [-90, 90], lng [-180, 180]
+    // Accept any valid GPS coordinates (not just Nigeria bounds)
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      log.warn({ driverId, lat, lng }, "Driver coordinates out of valid GPS range")
       await adminRecordDriverPing(driverId, lat, lng, `out-of-range:${lat},${lng}`)
-      return NextResponse.json({ ok: false, error: "Coordinates out of range." }, { status: 400 })
+      return NextResponse.json({ ok: false, error: "Coordinates out of valid range." }, { status: 400 })
     }
 
     await adminRecordDriverPing(driverId, lat, lng, null)
