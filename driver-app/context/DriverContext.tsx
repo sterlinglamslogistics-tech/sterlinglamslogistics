@@ -199,30 +199,30 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   // Keep ref in sync so the heartbeat closure always sees the latest fix
   useEffect(() => { liveGpsRef.current = liveGps }, [liveGps])
 
-  // ── Heartbeat — fires every 25s while online so the admin always sees the
-  // driver app is alive. If initial GPS startup failed (permission denied,
-  // GPS off, indoors with no satellites) the existing watcher never produces
-  // an update and lastPingAt stays null forever. This retries the fix on a
-  // schedule and pings the server either way.
+  // ── Heartbeat / live location pinger — fires every 10s while online.
+  // Doubles as the "app is alive" signal (lastPingAt) and as the live
+  // location updater the customer tracking page depends on. The watcher
+  // inside startGps is the primary source of fresh fixes, but if the
+  // driver keeps the app in the foreground and isn't moving fast enough
+  // for distanceInterval to trigger — or the watcher silently failed on
+  // SDK 54 — this tick gets a fresh fix on a regular cadence so the
+  // tracking marker keeps moving.
   useEffect(() => {
     if (!session || !isOnline) return
     const driverId = session.id
+    let isFirstTick = true
 
     async function tick() {
-      // The heartbeat must NOT call getCurrentPositionAsync — startGps already
-      // owns that call, and on Expo SDK 54 a second concurrent call gets
-      // rejected by the native bridge ("The 1st argument cannot be cast to
-      // type LocationOptions"). The watcher inside startGps keeps liveGps
-      // fresh; this tick just relays whatever's available + falls back to
-      // the OS-cached position.
       let coords = liveGpsRef.current
       const refState = coords ? "set" : "null"
       let permState = "unknown"
       let cacheState = "untried"
+      let curStatus = "skipped"
       try {
         const perm = await Location.getForegroundPermissionsAsync()
         permState = perm.status
         if (perm.status === "granted") {
+          // Fall back to OS-cached position if liveGps is empty
           if (!coords) {
             const cached = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 }).catch(() => null)
             if (cached) {
@@ -236,19 +236,35 @@ export function DriverProvider({ children }: { children: ReactNode }) {
           } else {
             cacheState = "skip-have-ref"
           }
+          // Get a fresh fix on every tick AFTER the first one. Skipping the
+          // first tick avoids racing startGps's initial getCurrentPositionAsync
+          // call — concurrent calls on SDK 54 can hit a native bridge cast
+          // bug ("The 1st argument cannot be cast to type LocationOptions").
+          if (!isFirstTick) {
+            try {
+              const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+              coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+              curStatus = "ok"
+              setLiveGps(coords)
+              setGpsError(false)
+            } catch (e: any) {
+              curStatus = `err:${String(e?.message ?? e ?? "throw").slice(0, 120)}`
+            }
+          }
         } else {
           setGpsError(true)
         }
       } catch (e: any) {
         cacheState = `outer:${String(e?.message ?? e ?? "throw").slice(0, 220)}`
       }
+      isFirstTick = false
 
       const payload: { driverId: string; lat?: number; lng?: number; clientError?: string } = { driverId }
       if (coords) {
         payload.lat = coords.lat
         payload.lng = coords.lng
       } else {
-        payload.clientError = `perm=${permState};cache=${cacheState};ref=${refState}`
+        payload.clientError = `perm=${permState};cache=${cacheState};ref=${refState};cur=${curStatus}`
       }
       driverFetch("/api/driver/location", {
         method: "POST",
@@ -258,7 +274,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     }
 
     void tick()
-    const interval = setInterval(() => { void tick() }, 25_000)
+    const interval = setInterval(() => { void tick() }, 10_000)
     return () => clearInterval(interval)
   }, [session, isOnline])
 
