@@ -99,6 +99,9 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const lastGpsWrite = useRef(0)
   const locationSub = useRef<Location.LocationSubscription | null>(null)
   const liveGpsRef = useRef<{ lat: number; lng: number } | null>(null)
+  // True while watchPositionAsync is active — used to avoid concurrent
+  // getCurrentPositionAsync calls that trigger the SDK 54 bridge cast bug.
+  const watcherActiveRef = useRef(false)
   const unreadPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const orderPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevOrderIds = useRef<Set<string>>(new Set())
@@ -200,76 +203,49 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   useEffect(() => { liveGpsRef.current = liveGps }, [liveGps])
 
   // ── Heartbeat / live location pinger — fires every 10s while online.
-  // Doubles as the "app is alive" signal (lastPingAt) and as the live
-  // location updater the customer tracking page depends on. The watcher
-  // inside startGps is the primary source of fresh fixes, but if the
-  // driver keeps the app in the foreground and isn't moving fast enough
-  // for distanceInterval to trigger — or the watcher silently failed on
-  // SDK 54 — this tick gets a fresh fix on a regular cadence so the
-  // tracking marker keeps moving.
+  // The watcher inside startGps is the primary source of fresh fixes.
+  // The heartbeat forwards whatever the watcher last set. If the watcher
+  // failed (watcherActiveRef is false), we fall back to getCurrentPositionAsync —
+  // calling it concurrently with an active watcher triggers the SDK 54
+  // native bridge cast bug, so we only do it when the watcher is down.
   useEffect(() => {
     if (!session || !isOnline) return
     const driverId = session.id
-    let isFirstTick = true
 
     async function tick() {
       let coords = liveGpsRef.current
-      const refState = coords ? "set" : "null"
-      let permState = "unknown"
-      let cacheState = "untried"
-      let curStatus = "skipped"
       try {
         const perm = await Location.getForegroundPermissionsAsync()
-        permState = perm.status
         if (perm.status === "granted") {
-          // Fall back to OS-cached position if liveGps is empty
           if (!coords) {
+            // Try OS cache first — no native call required
             const cached = await Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 }).catch(() => null)
             if (cached) {
               coords = { lat: cached.coords.latitude, lng: cached.coords.longitude }
-              cacheState = "hit"
               setLiveGps(coords)
               setGpsError(false)
-            } else {
-              cacheState = "miss"
             }
-          } else {
-            cacheState = "skip-have-ref"
           }
-          // Get a fresh fix on every tick AFTER the first one. Skipping the
-          // first tick avoids racing startGps's initial getCurrentPositionAsync
-          // call — concurrent calls on SDK 54 can hit a native bridge cast
-          // bug ("The 1st argument cannot be cast to type LocationOptions").
-          if (!isFirstTick) {
+          // Only request a fresh fix when the watcher isn't active — avoids
+          // the SDK 54 concurrent-call cast bug that breaks both calls.
+          if (!watcherActiveRef.current) {
             try {
               const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
               coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-              curStatus = "ok"
               setLiveGps(coords)
               setGpsError(false)
-            } catch (e: any) {
-              curStatus = `err:${String(e?.message ?? e ?? "throw").slice(0, 120)}`
-            }
+            } catch { /* ignore — watcher will restart on next goOnline */ }
           }
         } else {
           setGpsError(true)
         }
-      } catch (e: any) {
-        cacheState = `outer:${String(e?.message ?? e ?? "throw").slice(0, 220)}`
-      }
-      isFirstTick = false
+      } catch { /* ignore transient errors */ }
 
-      const payload: { driverId: string; lat?: number; lng?: number; clientError?: string } = { driverId }
-      if (coords) {
-        payload.lat = coords.lat
-        payload.lng = coords.lng
-      } else {
-        payload.clientError = `perm=${permState};cache=${cacheState};ref=${refState};cur=${curStatus}`
-      }
+      if (!coords) return
       driverFetch("/api/driver/location", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ driverId, lat: coords.lat, lng: coords.lng }),
       }).catch(() => {})
     }
 
@@ -329,7 +305,11 @@ export function DriverProvider({ children }: { children: ReactNode }) {
           sendLocation(coords)
         }
       )
-    } catch { /* watcher unavailable — BG task + heartbeat carry the load */ }
+      watcherActiveRef.current = true
+    } catch {
+      watcherActiveRef.current = false
+      // watcher unavailable — BG task + heartbeat carry the load
+    }
     const bgStatus = await Location.requestBackgroundPermissionsAsync()
     if (bgStatus.status === "granted") {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false)
@@ -347,6 +327,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   async function stopGps() {
     locationSub.current?.remove()
     locationSub.current = null
+    watcherActiveRef.current = false
     const running = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false)
     if (running) await Location.stopLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => { })
   }
