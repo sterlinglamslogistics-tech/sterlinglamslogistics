@@ -242,7 +242,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
           // bug ("The 1st argument cannot be cast to type LocationOptions").
           if (!isFirstTick) {
             try {
-              const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+              const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
               coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
               curStatus = "ok"
               setLiveGps(coords)
@@ -318,7 +318,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       // SDK 54 LocationOptions bridge cast issue), the rest of startGps
       // (background permissions / task) still runs.
       locationSub.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
+        { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 10 },
         (pos) => {
           const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
           setLiveGps(coords)
