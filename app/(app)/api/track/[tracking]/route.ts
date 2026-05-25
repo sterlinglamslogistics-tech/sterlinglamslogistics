@@ -148,6 +148,17 @@ export async function GET(
           rating:       (d.rating as number) ?? 0,
           lastLocation: d.lastLocation as { lat: number; lng: number } | undefined,
         }
+
+        // Seed the public driverLocations doc so the client-side Firestore
+        // real-time subscription can connect immediately, even before the
+        // driver app sends its first heartbeat through the new server code.
+        const loc = d.lastLocation as { lat: number; lng: number } | undefined
+        if (loc?.lat && loc?.lng) {
+          adminDb.collection("driverLocations").doc(assignedDriver).set(
+            { lat: loc.lat, lng: loc.lng, updatedAt: d.locationUpdatedAt ?? new Date() },
+            { merge: true }
+          ).catch(() => {}) // best-effort — don't block the response
+        }
       }
     }
 
