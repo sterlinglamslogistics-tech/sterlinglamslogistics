@@ -175,6 +175,8 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   // Real-time driver location from Firestore (separate from HTTP-polled driver
   // metadata so we get instant marker movement without caching concerns).
   const [driverLiveLocation, setDriverLiveLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [dbgFirestore, setDbgFirestore] = useState("connecting…")
+  const [dbgPoll, setDbgPoll] = useState("—")
 
   // Subscribe to driverLocations/{driverId} — public Firestore collection that
   // only contains lat/lng/updatedAt. Reacts instantly when the driver moves
@@ -183,19 +185,29 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     const driverId = order?.assignedDriver as string | null | undefined
     if (!driverId) {
       setDriverLiveLocation(null)
+      setDbgFirestore("no driver assigned")
       return
     }
+
+    setDbgFirestore(`connecting to driverLocations/${driverId}…`)
 
     const unsub = onSnapshot(
       doc(db, "driverLocations", driverId),
       (snap) => {
-        if (!snap.exists()) return
+        if (!snap.exists()) {
+          setDbgFirestore(`doc driverLocations/${driverId} does NOT exist — driver hasn't pinged since deploy`)
+          return
+        }
         const data = snap.data() as { lat?: unknown; lng?: unknown }
         if (typeof data.lat === "number" && typeof data.lng === "number") {
           setDriverLiveLocation({ lat: data.lat, lng: data.lng })
+          setDbgFirestore(`✓ ${data.lat.toFixed(5)}, ${data.lng.toFixed(5)} @ ${new Date().toLocaleTimeString()}`)
+        } else {
+          setDbgFirestore(`doc exists but lat/lng missing: ${JSON.stringify(data)}`)
         }
       },
       (err) => {
+        setDbgFirestore(`ERROR: ${err.code} — ${err.message}`)
         console.error("[track] driverLocations subscription error:", err)
       }
     )
@@ -222,14 +234,11 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         if (!res.ok || cancelled) return
         const data = await res.json() as { ok: boolean; order: Order | null; driver: Driver | null }
         if (cancelled) return
-        if (typeof console !== "undefined" && data.driver?.lastLocation) {
-          // eslint-disable-next-line no-console
-          console.log(
-            "[track] poll",
-            new Date().toLocaleTimeString(),
-            data.driver.lastLocation.lat.toFixed(6),
-            data.driver.lastLocation.lng.toFixed(6),
-          )
+        if (data.driver?.lastLocation) {
+          const { lat, lng } = data.driver.lastLocation
+          setDbgPoll(`${lat.toFixed(5)}, ${lng.toFixed(5)} @ ${new Date().toLocaleTimeString()}`)
+        } else {
+          setDbgPoll(`no lastLocation @ ${new Date().toLocaleTimeString()}`)
         }
         setOrder(data.order)
         setDriver(data.driver)
@@ -885,6 +894,13 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
               </div>
             </div>
           )}
+        </div>
+
+        {/* ── Temporary location diagnostic — share this with support ── */}
+        <div className="border-t px-4 py-3 bg-amber-50 text-[10px] font-mono text-amber-900 space-y-1">
+          <p className="font-bold text-[11px]">Location diagnostic (temp)</p>
+          <p><span className="font-semibold">Firestore:</span> {dbgFirestore}</p>
+          <p><span className="font-semibold">HTTP poll:</span> {dbgPoll}</p>
         </div>
       </aside>
     </div>
