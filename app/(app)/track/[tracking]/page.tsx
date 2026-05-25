@@ -198,10 +198,21 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
           setDbgFirestore(`doc driverLocations/${driverId} does NOT exist — driver hasn't pinged since deploy`)
           return
         }
-        const data = snap.data() as { lat?: unknown; lng?: unknown }
+        const data = snap.data() as { lat?: unknown; lng?: unknown; updatedAt?: unknown }
         if (typeof data.lat === "number" && typeof data.lng === "number") {
           setDriverLiveLocation({ lat: data.lat, lng: data.lng })
-          setDbgFirestore(`✓ ${data.lat.toFixed(5)}, ${data.lng.toFixed(5)} @ ${new Date().toLocaleTimeString()}`)
+          // Show server-side updatedAt so we can see when driver ACTUALLY last pinged
+          const srv = data.updatedAt
+          let srvStr = "?"
+          if (srv && typeof (srv as { toDate?: unknown }).toDate === "function") {
+            srvStr = (srv as { toDate: () => Date }).toDate().toLocaleTimeString()
+          } else if (srv instanceof Date) {
+            srvStr = srv.toLocaleTimeString()
+          }
+          const secsAgo = srv && typeof (srv as { toDate?: unknown }).toDate === "function"
+            ? Math.round((Date.now() - (srv as { toDate: () => Date }).toDate().getTime()) / 1000)
+            : null
+          setDbgFirestore(`✓ ${data.lat.toFixed(5)}, ${data.lng.toFixed(5)} — driver pinged @ ${srvStr}${secsAgo !== null ? ` (${secsAgo}s ago)` : ""}`)
         } else {
           setDbgFirestore(`doc exists but lat/lng missing: ${JSON.stringify(data)}`)
         }
