@@ -228,10 +228,21 @@ export async function adminUpdateDriverLocation(
   lat: number,
   lng: number
 ): Promise<void> {
-  await adminDb.collection("drivers").doc(driverId).update({
-    lastLocation: { lat, lng },
-    locationUpdatedAt: new Date(),
-  })
+  const now = new Date()
+  await Promise.all([
+    adminDb.collection("drivers").doc(driverId).update({
+      lastLocation: { lat, lng },
+      locationUpdatedAt: now,
+    }),
+    // Mirror to public driverLocations collection so the customer tracking
+    // page can subscribe via Firestore real-time without reading driver docs
+    // (which contain sensitive fields like password hashes).
+    adminDb.collection("driverLocations").doc(driverId).set({
+      lat,
+      lng,
+      updatedAt: now,
+    }),
+  ])
 }
 
 export async function adminRecordDriverPing(

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState, use } from "react"
 import { Phone, MessageSquare, ChevronDown, ChevronUp, MapPin, Package, Star } from "lucide-react"
 import { useSearchParams } from "next/navigation"
+import { doc, onSnapshot } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 import { Spinner } from "@/components/ui/spinner"
 
 import { formatCurrency } from "@/lib/data"
@@ -169,6 +171,37 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   // Track whether we've already fit-bounded the initial view so we don't
   // reset the user's zoom/pan on every 5s poll.
   const initialFitDoneRef = useRef(false)
+
+  // Real-time driver location from Firestore (separate from HTTP-polled driver
+  // metadata so we get instant marker movement without caching concerns).
+  const [driverLiveLocation, setDriverLiveLocation] = useState<{ lat: number; lng: number } | null>(null)
+
+  // Subscribe to driverLocations/{driverId} — public Firestore collection that
+  // only contains lat/lng/updatedAt. Reacts instantly when the driver moves
+  // (no HTTP round-trip or CDN caching in the way).
+  useEffect(() => {
+    const driverId = order?.assignedDriver as string | null | undefined
+    if (!driverId) {
+      setDriverLiveLocation(null)
+      return
+    }
+
+    const unsub = onSnapshot(
+      doc(db, "driverLocations", driverId),
+      (snap) => {
+        if (!snap.exists()) return
+        const data = snap.data() as { lat?: unknown; lng?: unknown }
+        if (typeof data.lat === "number" && typeof data.lng === "number") {
+          setDriverLiveLocation({ lat: data.lat, lng: data.lng })
+        }
+      },
+      (err) => {
+        console.error("[track] driverLocations subscription error:", err)
+      }
+    )
+
+    return () => unsub()
+  }, [order?.assignedDriver])
 
   const requestedRating = useMemo(() => parseRating(searchParams.get("rating")), [searchParams])
 
@@ -361,9 +394,12 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
       const bounds = new google.maps.LatLngBounds()
       let hasPoints = false
 
+      // Prefer real-time Firestore location; fall back to last HTTP-polled value
+      const markerLocation = driverLiveLocation ?? driver?.lastLocation
+
       // Driver marker
-      if (driver?.lastLocation) {
-        const pos = { lat: driver.lastLocation.lat, lng: driver.lastLocation.lng }
+      if (markerLocation) {
+        const pos = { lat: markerLocation.lat, lng: markerLocation.lng }
         bounds.extend(pos)
         hasPoints = true
 
@@ -372,7 +408,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
           driverMarkerRef.current = new google.maps.Marker({
             map,
             position: pos,
-            title: driver.name,
+            title: driver?.name,
             icon: {
               url: `data:image/svg+xml;charset=UTF-8,${driverSvg}`,
               scaledSize: new google.maps.Size(32, 32),
@@ -433,7 +469,7 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     return () => {
       cancelled = true
     }
-  }, [destinationCoord, driver])
+  }, [destinationCoord, driver, driverLiveLocation])
 
   if (loading) {
     return (

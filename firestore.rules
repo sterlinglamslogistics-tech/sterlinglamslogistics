@@ -78,6 +78,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ── Driver live locations (public tracking) ───────────────────────────────
+    // Only exposes lat/lng/updatedAt — no name, phone, email, or password.
+    // Written server-side only (admin SDK bypasses these rules).
+    match /driverLocations/{driverId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // ── Default deny ──────────────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
