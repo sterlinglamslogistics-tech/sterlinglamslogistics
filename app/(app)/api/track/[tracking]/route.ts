@@ -12,6 +12,11 @@ export const revalidate = 0
 
 const log = createLogger("api:track")
 
+// Per-instance cache: skip seeding driverLocations for drivers we've already
+// seeded this function lifetime. Prevents every 5-second poll from writing
+// stale coordinates that could overwrite a fresh heartbeat.
+const _seededDriverIds = new Set<string>()
+
 /**
  * Convert a Firestore Admin Timestamp (or any timestamp-like value) to an ISO
  * string so the client-side parseDate() helper can reliably parse it.
@@ -149,15 +154,19 @@ export async function GET(
           lastLocation: d.lastLocation as { lat: number; lng: number } | undefined,
         }
 
-        // Seed the public driverLocations doc so the client-side Firestore
-        // real-time subscription can connect immediately, even before the
-        // driver app sends its first heartbeat through the new server code.
+        // Seed the public driverLocations doc ONCE per server instance so
+        // the Firestore subscription on the tracking page connects immediately
+        // after a deploy, before the driver's next heartbeat fires.
+        // We skip this on subsequent polls to avoid overwriting a fresh
+        // heartbeat write with stale coordinates from the driver doc.
         const loc = d.lastLocation as { lat: number; lng: number } | undefined
-        if (loc?.lat && loc?.lng) {
+        if (loc?.lat && loc?.lng && !_seededDriverIds.has(assignedDriver)) {
           adminDb.collection("driverLocations").doc(assignedDriver).set(
             { lat: loc.lat, lng: loc.lng, updatedAt: d.locationUpdatedAt ?? new Date() },
             { merge: true }
-          ).catch(() => {}) // best-effort — don't block the response
+          ).then(() => {
+            _seededDriverIds.add(assignedDriver)
+          }).catch(() => {}) // best-effort — don't block the response
         }
       }
     }
