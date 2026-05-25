@@ -14,6 +14,8 @@ import {
   RefreshCw,
   AlertTriangle,
   X,
+  MessageSquare,
+  MessageCircle,
 } from "lucide-react"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
@@ -21,7 +23,7 @@ import { toast } from "@/hooks/use-toast"
 import { useDriver } from "@/components/driver-context"
 import { driverFetch } from "@/lib/driver-client"
 import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
-import Image from "next/image"
+import { HUB_ADDRESS, HUB_PHONE } from "@/lib/hub"
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -73,6 +75,9 @@ export default function DriverDashboard() {
   const [declineReason, setDeclineReason] = useState("")
   const [reportOrder, setReportOrder] = useState<Order | null>(null)
   const [reportReason, setReportReason] = useState("")
+  // Bottom-sheet pickers, mirroring driver-app's UX
+  const [navSheet, setNavSheet] = useState<Order | null>(null)
+  const [contactSheet, setContactSheet] = useState<Order | null>(null)
   const [actionPending, setActionPending] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
@@ -133,14 +138,6 @@ export default function DriverDashboard() {
       setPullDistance(0)
     }
   }, [pullDistance, handlePullRefresh])
-
-  function handleNavigate(address: string) {
-    window.open(buildNavUrl(address, getNavApp()), "_blank", "noopener")
-  }
-
-  function handleCall(phone: string) {
-    window.location.href = `tel:${phone}`
-  }
 
   function setPending(id: string | null) {
     if (pendingTimeoutRef.current) clearTimeout(pendingTimeoutRef.current)
@@ -366,15 +363,17 @@ export default function DriverDashboard() {
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => handleNavigate(order.address)}
+                      onClick={() => setNavSheet(order)}
                       className="rounded-lg p-1.5 hover:bg-muted"
+                      title="Navigate"
                     >
                       <Navigation className="h-4 w-4 text-blue-600" />
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleCall(order.phone)}
+                      onClick={() => setContactSheet(order)}
                       className="rounded-lg p-1.5 hover:bg-muted"
+                      title="Contact"
                     >
                       <Phone className="h-4 w-4 text-green-600" />
                     </button>
@@ -387,58 +386,60 @@ export default function DriverDashboard() {
                 <span>{order.address}</span>
               </div>
 
-              {/* Action button */}
+              {/* Action button — pill-shaped to match driver-app */}
               {order.status === "started" && (
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     disabled={pendingOrderId === order.id}
                     onClick={() => handleMarkPickedUp(order)}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white hover:bg-orange-600 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-full bg-orange-500 py-3.5 text-sm font-bold text-white hover:bg-orange-600 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
                   >
-                    {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Picked Up →</>}
+                    {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Mark as Picked Up  →</>}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setDeclineOrder(order); setDeclineReason("") }}
-                    className="flex items-center justify-center gap-1 rounded-xl border border-red-200 px-4 py-3 text-sm font-semibold text-red-500 hover:bg-red-50 active:scale-[0.98] transition-transform"
+                    className="flex items-center justify-center rounded-full border border-red-200 px-4 py-3.5 text-sm font-semibold text-red-500 hover:bg-red-50 active:scale-[0.98] transition-transform"
                   >
                     Decline
                   </button>
                 </div>
               )}
               {order.status === "picked-up" && (
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     disabled={pendingOrderId === order.id}
                     onClick={() => handleMarkOnTheWay(order)}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-full bg-green-500 py-3.5 text-sm font-bold text-white hover:bg-green-600 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
                   >
-                    {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>On the Way →</>}
+                    {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Mark as On the way  →</>}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setReportOrder(order); setReportReason("") }}
-                    className="flex items-center justify-center rounded-xl border border-red-200 px-3 py-3 text-red-500 hover:bg-red-50"
+                    className="flex items-center justify-center rounded-full border border-red-200 p-3 text-red-500 hover:bg-red-50"
+                    title="Report issue"
                   >
                     <AlertTriangle className="h-4 w-4" />
                   </button>
                 </div>
               )}
               {order.status === "in-transit" && (
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => router.push(`/driver/delivery/${order.id}`)}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-green-600 py-3 text-sm font-semibold text-white hover:bg-green-700 active:scale-[0.98] transition-transform"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-700 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 active:scale-[0.98] transition-transform"
                   >
-                    Complete Delivery →
+                    Mark as Complete  →
                   </button>
                   <button
                     type="button"
                     onClick={() => { setReportOrder(order); setReportReason("") }}
-                    className="flex items-center justify-center rounded-xl border border-red-200 px-3 py-3 text-red-500 hover:bg-red-50"
+                    className="flex items-center justify-center rounded-full border border-red-200 p-3 text-red-500 hover:bg-red-50"
+                    title="Report issue"
                   >
                     <AlertTriangle className="h-4 w-4" />
                   </button>
@@ -742,6 +743,108 @@ export default function DriverDashboard() {
               }}
             >
               OK
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Navigate action sheet ─────────────────────────────────────────
+          Lets the driver choose Customer vs Pickup destination and opens
+          the chosen route in their preferred map app (Google/Waze/Apple),
+          matching the driver-app native flow. */}
+      {navSheet && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setNavSheet(null)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4">
+            <div
+              className="rounded-t-2xl bg-background px-2 pt-3"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.5rem)" }}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/30" />
+              <button
+                type="button"
+                className="flex w-full items-center gap-4 px-4 py-4 text-left hover:bg-muted"
+                onClick={() => {
+                  const o = navSheet
+                  setNavSheet(null)
+                  setTimeout(() => window.open(buildNavUrl(o.address, getNavApp()), "_blank", "noopener"), 200)
+                }}
+              >
+                <Navigation className="h-5 w-5 text-foreground" />
+                <span className="text-base font-semibold">Navigate to Customer</span>
+              </button>
+              <div className="h-px bg-border" />
+              <button
+                type="button"
+                className="flex w-full items-center gap-4 px-4 py-4 text-left hover:bg-muted"
+                onClick={() => {
+                  setNavSheet(null)
+                  setTimeout(() => window.open(buildNavUrl(HUB_ADDRESS, getNavApp()), "_blank", "noopener"), 200)
+                }}
+              >
+                <Navigation className="h-5 w-5 text-foreground" />
+                <span className="text-base font-semibold">Navigate to Pick Up Location</span>
+              </button>
+            </div>
+            <button
+              type="button"
+              className="mt-2 w-[calc(100%-1rem)] mx-2 rounded-2xl bg-background py-4 text-center text-base font-bold shadow"
+              onClick={() => setNavSheet(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Contact action sheet ──────────────────────────────────────────
+          Pickup phone, customer phone, SMS, WhatsApp — the same set
+          driver-app shows, so a driver switching between apps doesn't
+          have to relearn anything. */}
+      {contactSheet && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setContactSheet(null)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4">
+            <div
+              className="rounded-t-2xl bg-background px-2 pt-3"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.5rem)" }}
+            >
+              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-muted-foreground/30" />
+              <p className="mb-2 text-center text-base font-bold">Contact</p>
+              {[
+                { icon: Phone,         label: "Call pickup",     value: HUB_PHONE,                  action: () => { window.location.href = `tel:${HUB_PHONE}` } },
+                { icon: Phone,         label: "Call customer",   value: contactSheet.phone ?? "",   action: () => { if (contactSheet.phone) window.location.href = `tel:${contactSheet.phone}` } },
+                { icon: MessageSquare, label: "Text Customer",   value: contactSheet.phone ?? "",   action: () => { if (contactSheet.phone) window.location.href = `sms:${contactSheet.phone}` } },
+                { icon: MessageCircle, label: "WhatsApp customer", value: contactSheet.phone ?? "", action: () => {
+                  if (!contactSheet.phone) return
+                  const cleaned = contactSheet.phone.replace(/\D/g, "")
+                  setTimeout(() => window.open(`https://wa.me/${cleaned}`, "_blank", "noopener"), 200)
+                } },
+              ].map((item, i) => (
+                <div key={i}>
+                  {i > 0 && <div className="h-px bg-border" />}
+                  <button
+                    type="button"
+                    onClick={() => { const a = item.action; setContactSheet(null); setTimeout(a, 150) }}
+                    className="flex w-full items-center gap-4 px-4 py-4 text-left hover:bg-muted"
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+                      <item.icon className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">{item.label}</p>
+                      <p className="text-xs text-muted-foreground">{item.value}</p>
+                    </div>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="mt-2 w-[calc(100%-1rem)] mx-2 rounded-2xl bg-background py-4 text-center text-base font-bold shadow"
+              onClick={() => setContactSheet(null)}
+            >
+              Cancel
             </button>
           </div>
         </>
