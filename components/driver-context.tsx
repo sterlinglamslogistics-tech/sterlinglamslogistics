@@ -30,6 +30,7 @@ interface DriverContextValue {
   goOffline: () => Promise<void>
   refreshOrders: () => Promise<void>
   optimizeRoute: (lastStopId?: string | null) => Promise<boolean>
+  login: (session: DriverSession) => void
   logout: () => void
   /** Latest GPS position from the device (updated locally before Firestore round-trip) */
   liveGps: { lat: number; lng: number } | null
@@ -392,6 +393,23 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Call this from the login form after a successful API response.
+   * It writes localStorage *and* updates the context state in the same
+   * synchronous frame, so the dashboard's session-presence check sees
+   * the new session immediately on navigation. Without this, dashboard
+   * sees session=null (context state hasn't refreshed from localStorage)
+   * and bounces back to /driver — creating an infinite login loop in
+   * Capacitor where the provider stays mounted across navigations.
+   */
+  function login(newSession: DriverSession) {
+    try {
+      localStorage.setItem("driverSession", JSON.stringify(newSession))
+    } catch { /* storage disabled — context still works in-memory */ }
+    setSession(newSession)
+    setLoadingSession(false)
+  }
+
   function logout() {
     localStorage.removeItem("driverSession")
     clearDriverToken()
@@ -417,6 +435,7 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     goOffline,
     refreshOrders,
     optimizeRoute,
+    login,
     logout,
     liveGps,
     gpsError,

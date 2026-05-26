@@ -8,9 +8,11 @@ import { Loader2 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import Image from "next/image"
 import { setDriverToken } from "@/lib/driver-client"
+import { useDriver } from "@/components/driver-context"
 
 export default function DriverLoginPage() {
   const router = useRouter()
+  const { login } = useDriver()
   const [phone, setPhone] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -60,9 +62,13 @@ export default function DriverLoginPage() {
         setLoading(false)
         return
       }
-      // store driver session in localStorage
-      localStorage.setItem("driverSession", JSON.stringify({ id: data.driver.id, name: data.driver.name, phone: data.driver.phone }))
+      // Update both localStorage AND the in-memory DriverContext in the
+      // same frame so the dashboard's session check sees the new session
+      // immediately on navigation — otherwise we'd bounce login↔dashboard
+      // in a loop (the provider stays mounted across navigations in the
+      // Capacitor APK).
       if (data.token) setDriverToken(data.token)
+      login({ id: data.driver.id, name: data.driver.name, phone: data.driver.phone })
       router.push("/driver/dashboard")
     } catch {
       toast({ title: "Error", description: "Something went wrong. Try again.", variant: "destructive" })
