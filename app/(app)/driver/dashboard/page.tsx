@@ -25,6 +25,7 @@ import { driverFetch } from "@/lib/driver-client"
 import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
 import { HUB_ADDRESS, HUB_PHONE } from "@/lib/hub"
 import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-bridge"
+import { queueStatusUpdate } from "@/lib/status-queue"
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -160,9 +161,23 @@ export default function DriverDashboard() {
       await refreshOrders()
       void hapticSuccess()
       toast({ title: "Picked up", description: `${order.orderNumber} marked as picked up.` })
-    } catch {
-      void hapticError()
-      toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
+    } catch (err) {
+      const isNetworkError = !navigator.onLine || err instanceof TypeError
+      if (isNetworkError) {
+        queueStatusUpdate({
+          id: `${order.id}_${Date.now()}`,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          driverId: session.id,
+          status: "picked-up",
+          queuedAt: Date.now(),
+        })
+        void hapticSuccess()
+        toast({ title: "Saved offline", description: `${order.orderNumber} will sync when you reconnect.` })
+      } else {
+        void hapticError()
+        toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
+      }
     } finally {
       setPending(null)
     }
@@ -184,9 +199,23 @@ export default function DriverDashboard() {
       // Customer WhatsApp + SMS + email are dispatched server-side from the
       // /api/driver/orders/[orderId]/status route after the in-transit update.
       toast({ title: "In transit", description: `${order.orderNumber} is now on the way.` })
-    } catch {
-      void hapticError()
-      toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
+    } catch (err) {
+      const isNetworkError = !navigator.onLine || err instanceof TypeError
+      if (isNetworkError) {
+        queueStatusUpdate({
+          id: `${order.id}_${Date.now()}`,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          driverId: session.id,
+          status: "in-transit",
+          queuedAt: Date.now(),
+        })
+        void hapticSuccess()
+        toast({ title: "Saved offline", description: `${order.orderNumber} will sync when you reconnect.` })
+      } else {
+        void hapticError()
+        toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
+      }
     } finally {
       setPending(null)
     }

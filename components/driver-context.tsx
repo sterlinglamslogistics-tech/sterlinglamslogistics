@@ -7,6 +7,7 @@ import type { Driver, Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 import { driverFetch, clearDriverToken } from "@/lib/driver-client"
 import { getPendingDeliveries, removePendingDelivery, pendingDeliveryCount as getPendingCount } from "@/lib/delivery-queue"
+import { getPendingStatusUpdates, removeStatusUpdate, pendingStatusCount } from "@/lib/status-queue"
 
 interface DriverSession {
   id: string
@@ -182,10 +183,13 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     }
   }, [session, isOnline])
 
-  // Offline delivery queue — sync count and retry on reconnect
+  // Offline write queues — POD submissions + status updates. Both flush
+  // on the same "online" event and on mount if the device is already up.
   useEffect(() => {
     function updateCount() {
-      setPendingDeliveryCount(getPendingCount())
+      // Banner shows combined count so the driver sees the total pending
+      // writes — POD submissions (with photo/signature) and status updates.
+      setPendingDeliveryCount(getPendingCount() + pendingStatusCount())
     }
     updateCount()
 
@@ -193,8 +197,8 @@ export function DriverProvider({ children }: { children: ReactNode }) {
       if (isRetryingRef.current) return
       isRetryingRef.current = true
       try {
+        // 1) POD submissions
         const pending = getPendingDeliveries()
-        if (pending.length === 0) return
         for (const item of pending) {
           try {
             const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(item.orderId)}/status`, {
@@ -211,6 +215,25 @@ export function DriverProvider({ children }: { children: ReactNode }) {
             if (res.ok) {
               removePendingDelivery(item.orderId)
               toast({ title: "Delivery synced", description: `${item.orderNumber} confirmed while offline.` })
+            }
+          } catch { /* retry next time */ }
+        }
+        // 2) Status updates (Mark as Picked Up / On the way / revert)
+        const pendingStatus = getPendingStatusUpdates()
+        for (const item of pendingStatus) {
+          try {
+            const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(item.orderId)}/status`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                driverId: item.driverId,
+                status: item.status,
+                ...(item.failedReason ? { failedReason: item.failedReason } : {}),
+              }),
+            })
+            if (res.ok) {
+              removeStatusUpdate(item.orderId)
+              toast({ title: "Synced", description: `${item.orderNumber} → ${item.status}` })
             }
           } catch { /* retry next time */ }
         }
