@@ -19,6 +19,7 @@ import { toast } from "@/hooks/use-toast"
 import { useDriver } from "@/components/driver-context"
 import { driverFetch } from "@/lib/driver-client"
 import { queueDelivery } from "@/lib/delivery-queue"
+import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-bridge"
 
 const MAX_PHOTO_PX = 800
 const PHOTO_QUALITY = 0.6
@@ -159,6 +160,7 @@ export default function DeliveryCompletionPage({
 
   async function handleCompleteDelivery() {
     if (!order || !session) return
+    void hapticTap("medium")
     setSubmitting(true)
 
     const payload = {
@@ -183,6 +185,7 @@ export default function DeliveryCompletionPage({
         throw new Error((data as { error?: string }).error ?? "Failed to complete delivery")
       }
 
+      void hapticSuccess()
       toast({ title: "Delivery completed!", description: `${order.orderNumber} marked as delivered.` })
       router.push("/driver/dashboard")
     } catch (err) {
@@ -200,12 +203,14 @@ export default function DeliveryCompletionPage({
           deliveryNotes: notes.trim(), // PendingDelivery interface uses deliveryNotes
           capturedAt: Date.now(),
         })
+        void hapticSuccess()
         toast({
           title: "Saved offline",
           description: `${order.orderNumber} will be submitted automatically when you reconnect.`,
         })
         router.push("/driver/dashboard")
       } else {
+        void hapticError()
         toast({
           title: "Error",
           description: err instanceof Error ? err.message : "Failed to complete delivery.",

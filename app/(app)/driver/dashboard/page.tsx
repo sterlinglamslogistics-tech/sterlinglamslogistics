@@ -24,6 +24,7 @@ import { useDriver } from "@/components/driver-context"
 import { driverFetch } from "@/lib/driver-client"
 import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
 import { HUB_ADDRESS, HUB_PHONE } from "@/lib/hub"
+import { hapticTap, hapticSuccess, hapticError } from "@/lib/native-bridge"
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -147,6 +148,7 @@ export default function DriverDashboard() {
 
   async function handleMarkPickedUp(order: Order) {
     if (!session || pendingOrderId) return
+    void hapticTap("medium")
     setPending(order.id)
     try {
       const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
@@ -156,8 +158,10 @@ export default function DriverDashboard() {
       })
       if (!res.ok) throw new Error("Failed to mark picked-up")
       await refreshOrders()
+      void hapticSuccess()
       toast({ title: "Picked up", description: `${order.orderNumber} marked as picked up.` })
     } catch {
+      void hapticError()
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
     } finally {
       setPending(null)
@@ -166,6 +170,7 @@ export default function DriverDashboard() {
 
   async function handleMarkOnTheWay(order: Order) {
     if (!session || pendingOrderId) return
+    void hapticTap("medium")
     setPending(order.id)
     try {
       const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
@@ -175,10 +180,12 @@ export default function DriverDashboard() {
       })
       if (!res.ok) throw new Error("Failed to mark in-transit")
       await refreshOrders()
+      void hapticSuccess()
       // Customer WhatsApp + SMS + email are dispatched server-side from the
       // /api/driver/orders/[orderId]/status route after the in-transit update.
       toast({ title: "In transit", description: `${order.orderNumber} is now on the way.` })
     } catch {
+      void hapticError()
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" })
     } finally {
       setPending(null)
@@ -196,6 +203,7 @@ export default function DriverDashboard() {
       order.status === "in-transit" ? "picked-up" :
       null
     if (!prevStatus) return
+    void hapticTap("light")
     setPending(order.id)
     try {
       const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
@@ -206,6 +214,7 @@ export default function DriverDashboard() {
       if (!res.ok) throw new Error("Failed to revert status")
       await refreshOrders()
     } catch {
+      void hapticError()
       toast({ title: "Error", description: "Could not undo last step.", variant: "destructive" })
     } finally {
       setPending(null)
@@ -449,7 +458,7 @@ export default function DriverDashboard() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => router.push(`/driver/delivery/${order.id}`)}
+                    onClick={() => { void hapticTap("medium"); router.push(`/driver/delivery/${order.id}`) }}
                     className="flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-700 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 active:scale-[0.98] transition-transform"
                   >
                     Mark as Complete  →
