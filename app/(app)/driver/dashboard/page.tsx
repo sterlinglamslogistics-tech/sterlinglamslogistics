@@ -13,6 +13,7 @@ import {
   Truck,
   RefreshCw,
   AlertTriangle,
+  ArrowLeft,
   X,
   MessageSquare,
   MessageCircle,
@@ -71,8 +72,6 @@ export default function DriverDashboard() {
   } = useDriver()
   const [showOnlineToast, setShowOnlineToast] = useState(false)
   const [routeModalOpen, setRouteModalOpen] = useState(false)
-  const [declineOrder, setDeclineOrder] = useState<Order | null>(null)
-  const [declineReason, setDeclineReason] = useState("")
   const [reportOrder, setReportOrder] = useState<Order | null>(null)
   const [reportReason, setReportReason] = useState("")
   // Bottom-sheet pickers, mirroring driver-app's UX
@@ -187,23 +186,30 @@ export default function DriverDashboard() {
     }
   }
 
-  async function handleDeclineOrder() {
-    if (!declineOrder || !session || !declineReason) return
-    setActionPending(true)
+  // Driver tapped the small back-arrow on a picked-up / in-transit card —
+  // revert one step so they can re-press the previous action. The server
+  // status route already supports picked-up → started and in-transit →
+  // picked-up reverts (see the txn in app/(app)/api/driver/orders/[orderId]/status/route.ts).
+  async function handleRevertStatus(order: Order) {
+    if (!session || pendingOrderId) return
+    const prevStatus =
+      order.status === "picked-up" ? "started" :
+      order.status === "in-transit" ? "picked-up" :
+      null
+    if (!prevStatus) return
+    setPending(order.id)
     try {
-      const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(declineOrder.id)}/decline`, {
+      const res = await driverFetch(`/api/driver/orders/${encodeURIComponent(order.id)}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ driverId: session.id, reason: declineReason }),
+        body: JSON.stringify({ driverId: session.id, status: prevStatus }),
       })
-      if (!res.ok) throw new Error("Failed")
-      toast({ title: "Order declined", description: `${declineOrder.orderNumber} has been returned to dispatch.` })
-      setDeclineOrder(null)
-      setDeclineReason("")
+      if (!res.ok) throw new Error("Failed to revert status")
+      await refreshOrders()
     } catch {
-      toast({ title: "Error", description: "Failed to decline order.", variant: "destructive" })
+      toast({ title: "Error", description: "Could not undo last step.", variant: "destructive" })
     } finally {
-      setActionPending(false)
+      setPending(null)
     }
   }
 
@@ -386,28 +392,32 @@ export default function DriverDashboard() {
                 <span>{order.address}</span>
               </div>
 
-              {/* Action button — pill-shaped to match driver-app */}
+              {/* Action button — pill-shaped to match driver-app.
+                  Started has just the orange action button (no back arrow:
+                  nothing to revert to). Picked-up and in-transit show a
+                  small back arrow that reverts one step via handleRevertStatus. */}
               {order.status === "started" && (
+                <button
+                  type="button"
+                  disabled={pendingOrderId === order.id}
+                  onClick={() => handleMarkPickedUp(order)}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-orange-500 py-3.5 text-sm font-bold text-white hover:bg-orange-600 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                >
+                  {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Mark as Picked Up  →</>}
+                </button>
+              )}
+              {order.status === "picked-up" && (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     disabled={pendingOrderId === order.id}
-                    onClick={() => handleMarkPickedUp(order)}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-full bg-orange-500 py-3.5 text-sm font-bold text-white hover:bg-orange-600 active:scale-[0.98] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                    onClick={() => handleRevertStatus(order)}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-white text-foreground hover:bg-muted disabled:opacity-60"
+                    title="Back to Started"
+                    aria-label="Back to Started"
                   >
-                    {pendingOrderId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Mark as Picked Up  →</>}
+                    <ArrowLeft className="h-4 w-4" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => { setDeclineOrder(order); setDeclineReason("") }}
-                    className="flex items-center justify-center rounded-full border border-red-200 px-4 py-3.5 text-sm font-semibold text-red-500 hover:bg-red-50 active:scale-[0.98] transition-transform"
-                  >
-                    Decline
-                  </button>
-                </div>
-              )}
-              {order.status === "picked-up" && (
-                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     disabled={pendingOrderId === order.id}
@@ -419,7 +429,7 @@ export default function DriverDashboard() {
                   <button
                     type="button"
                     onClick={() => { setReportOrder(order); setReportReason("") }}
-                    className="flex items-center justify-center rounded-full border border-red-200 p-3 text-red-500 hover:bg-red-50"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-red-200 text-red-500 hover:bg-red-50"
                     title="Report issue"
                   >
                     <AlertTriangle className="h-4 w-4" />
@@ -430,6 +440,16 @@ export default function DriverDashboard() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    disabled={pendingOrderId === order.id}
+                    onClick={() => handleRevertStatus(order)}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-white text-foreground hover:bg-muted disabled:opacity-60"
+                    title="Back to Picked Up"
+                    aria-label="Back to Picked Up"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => router.push(`/driver/delivery/${order.id}`)}
                     className="flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-700 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 active:scale-[0.98] transition-transform"
                   >
@@ -438,7 +458,7 @@ export default function DriverDashboard() {
                   <button
                     type="button"
                     onClick={() => { setReportOrder(order); setReportReason("") }}
-                    className="flex items-center justify-center rounded-full border border-red-200 p-3 text-red-500 hover:bg-red-50"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-red-200 text-red-500 hover:bg-red-50"
                     title="Report issue"
                   >
                     <AlertTriangle className="h-4 w-4" />
@@ -646,44 +666,6 @@ export default function DriverDashboard() {
               <p className="text-center text-base font-semibold">
                 Optimizing your route...
               </p>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── Decline Order Modal ── */}
-      {declineOrder && (
-        <>
-          <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setDeclineOrder(null)} />
-          <div className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md animate-in slide-in-from-bottom-4">
-            <div className="rounded-t-2xl bg-background px-5 pb-8 pt-4 shadow-2xl">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-base font-bold">Decline Order</h3>
-                <button type="button" onClick={() => setDeclineOrder(null)} className="rounded-lg p-1.5 hover:bg-muted">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <p className="mb-4 text-sm text-muted-foreground">Select a reason for declining <span className="font-semibold text-foreground">{declineOrder.orderNumber}</span>. It will be returned to dispatch.</p>
-              <div className="mb-4 space-y-2">
-                {["Cannot reach location", "Order unclear / wrong details", "Too far from my current location", "Customer cancelled", "Other"].map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setDeclineReason(r)}
-                    className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-medium transition-colors ${declineReason === r ? "border-red-400 bg-red-50 text-red-700" : "hover:bg-muted"}`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                disabled={!declineReason || actionPending}
-                onClick={handleDeclineOrder}
-                className="w-full rounded-xl bg-red-500 py-3.5 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-50"
-              >
-                {actionPending ? "Declining..." : "Confirm Decline"}
-              </button>
             </div>
           </div>
         </>
