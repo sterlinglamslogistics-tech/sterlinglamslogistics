@@ -168,15 +168,16 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
   const driverAnimFrameRef = useRef<number | null>(null)
   const ratingSyncRef = useRef<string | null>(null)
-  // Track whether we've already fit-bounded the initial view so we don't
-  // reset the user's zoom/pan on every 5s poll.
-  const initialFitDoneRef = useRef(false)
+  // Records WHICH set of points was last fit-bounded ("driver+dest", "dest",
+  // "driver", or ""). We refit whenever that set changes — so the map auto-
+  // zooms to show both pins as soon as both exist, and again if one drops
+  // out — but never on per-poll position updates of the same set, so the
+  // driver marker animates smoothly within the user's current view.
+  const lastFitKeyRef = useRef<string>("")
 
   // Real-time driver location from Firestore (separate from HTTP-polled driver
   // metadata so we get instant marker movement without caching concerns).
   const [driverLiveLocation, setDriverLiveLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [dbgFirestore, setDbgFirestore] = useState("connecting…")
-  const [dbgPoll, setDbgPoll] = useState("—")
 
   // Subscribe to driverLocations/{driverId} — public Firestore collection that
   // only contains lat/lng/updatedAt. Reacts instantly when the driver moves
@@ -185,42 +186,19 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
     const driverId = order?.assignedDriver as string | null | undefined
     if (!driverId) {
       setDriverLiveLocation(null)
-      setDbgFirestore("no driver assigned")
       return
     }
-
-    setDbgFirestore(`connecting to driverLocations/${driverId}…`)
 
     const unsub = onSnapshot(
       doc(db, "driverLocations", driverId),
       (snap) => {
-        if (!snap.exists()) {
-          setDbgFirestore(`doc driverLocations/${driverId} does NOT exist — driver hasn't pinged since deploy`)
-          return
-        }
-        const data = snap.data() as { lat?: unknown; lng?: unknown; updatedAt?: unknown }
+        if (!snap.exists()) return
+        const data = snap.data() as { lat?: unknown; lng?: unknown }
         if (typeof data.lat === "number" && typeof data.lng === "number") {
           setDriverLiveLocation({ lat: data.lat, lng: data.lng })
-          // Show server-side updatedAt so we can see when driver ACTUALLY last pinged
-          const srv = data.updatedAt
-          let srvStr = "?"
-          if (srv && typeof (srv as { toDate?: unknown }).toDate === "function") {
-            srvStr = (srv as { toDate: () => Date }).toDate().toLocaleTimeString()
-          } else if (srv instanceof Date) {
-            srvStr = srv.toLocaleTimeString()
-          }
-          const secsAgo = srv && typeof (srv as { toDate?: unknown }).toDate === "function"
-            ? Math.round((Date.now() - (srv as { toDate: () => Date }).toDate().getTime()) / 1000)
-            : null
-          setDbgFirestore(`✓ ${data.lat.toFixed(5)}, ${data.lng.toFixed(5)} — driver pinged @ ${srvStr}${secsAgo !== null ? ` (${secsAgo}s ago)` : ""}`)
-        } else {
-          setDbgFirestore(`doc exists but lat/lng missing: ${JSON.stringify(data)}`)
         }
       },
-      (err) => {
-        setDbgFirestore(`ERROR: ${err.code} — ${err.message}`)
-        console.error("[track] driverLocations subscription error:", err)
-      }
+      () => { /* silent — fall back to HTTP-polled driver.lastLocation */ }
     )
 
     return () => unsub()
@@ -245,12 +223,6 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         if (!res.ok || cancelled) return
         const data = await res.json() as { ok: boolean; order: Order | null; driver: Driver | null }
         if (cancelled) return
-        if (data.driver?.lastLocation) {
-          const { lat, lng } = data.driver.lastLocation
-          setDbgPoll(`${lat.toFixed(5)}, ${lng.toFixed(5)} @ ${new Date().toLocaleTimeString()}`)
-        } else {
-          setDbgPoll(`no lastLocation @ ${new Date().toLocaleTimeString()}`)
-        }
         setOrder(data.order)
         setDriver(data.driver)
       } catch {
@@ -472,15 +444,18 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
         destinationMarkerRef.current = null
       }
 
-      // Fit bounds only on the FIRST render with points. Doing it on every
-      // poll constantly re-zooms the map, which both annoys the user and
-      // hides the marker movement we're animating into view.
-      if (hasPoints && !initialFitDoneRef.current) {
-        map.fitBounds(bounds, 24)
-        initialFitDoneRef.current = true
-      } else if (!hasPoints) {
+      // Refit only when the *set* of visible points changes (driver appears
+      // or disappears, destination geocodes for the first time). Per-poll
+      // position updates within the same set don't trigger a refit, so the
+      // driver marker animates smoothly inside the existing view.
+      const fitKey = `${markerLocation ? "d" : ""}${destinationCoord ? "x" : ""}`
+      if (!hasPoints) {
         map.setCenter({ lat: HUB.lat, lng: HUB.lng })
         map.setZoom(13)
+        lastFitKeyRef.current = ""
+      } else if (fitKey !== lastFitKeyRef.current) {
+        map.fitBounds(bounds, 48)
+        lastFitKeyRef.current = fitKey
       }
     }
 
@@ -907,12 +882,6 @@ export default function TrackingPage({ params }: { params: Promise<{ tracking: s
           )}
         </div>
 
-        {/* ── Temporary location diagnostic — share this with support ── */}
-        <div className="border-t px-4 py-3 bg-amber-50 text-[10px] font-mono text-amber-900 space-y-1">
-          <p className="font-bold text-[11px]">Location diagnostic (temp)</p>
-          <p><span className="font-semibold">Firestore:</span> {dbgFirestore}</p>
-          <p><span className="font-semibold">HTTP poll:</span> {dbgPoll}</p>
-        </div>
       </aside>
     </div>
   )
