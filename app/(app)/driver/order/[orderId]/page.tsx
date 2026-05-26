@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Navigation,
   Phone,
-  MapPin,
   Clock,
   Loader2,
   Star,
@@ -18,6 +17,7 @@ import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { useDriver } from "@/components/driver-context"
 import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
+import { HUB_NAME, HUB_ADDRESS, HUB_PHONE } from "@/lib/hub"
 
 function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const toRad = (v: number) => (v * Math.PI) / 180
@@ -54,7 +54,7 @@ export default function OrderDetailPage({
 }) {
   const { orderId } = use(params)
   const router = useRouter()
-  const { isOnline, liveGps, driver } = useDriver()
+  const { liveGps, driver } = useDriver()
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -122,10 +122,14 @@ export default function OrderDetailPage({
     return sum + qty * price
   }, 0) ?? 0
 
+  const paymentLabel = (order.paymentMethod ?? "Online").toUpperCase()
+  const pickupTimestamp = order.startedAt ?? order.createdAt
+  const deliveryTimestamp = order.deliveredAt ?? order.inTransitAt ?? order.startedAt ?? order.createdAt
+
   return (
     <div className="mx-auto max-w-md px-4 pb-8">
       {/* Header */}
-      <div className="sticky top-0 z-40 flex items-center gap-3 bg-background py-3">
+      <div className="sticky top-0 z-40 flex items-center gap-3 border-b bg-background py-3">
         <button
           type="button"
           onClick={() => router.back()}
@@ -133,137 +137,174 @@ export default function OrderDetailPage({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="flex-1 text-lg font-bold">Order Details</h1>
-        {isOnline && (
-          <span className="rounded-full bg-green-100 px-3 py-0.5 text-xs font-semibold text-green-700">
-            ONLINE
-          </span>
-        )}
+        <h1 className="flex-1 text-center text-base font-bold">Order Details</h1>
+        <div className="w-9" />
       </div>
 
-      {/* Order header */}
-      <div className="mb-4 flex items-center justify-between">
+      {/* Payment type */}
+      <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {paymentLabel}
+      </p>
+
+      {/* Order # + status + nav */}
+      <div className="mt-2 flex items-start justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <p className="text-lg font-bold">{order.orderNumber}</p>
-            <Badge variant="outline" className="bg-blue-500/15 text-blue-600 border-blue-500/20 text-xs">
-              {statusLabel}
-            </Badge>
-          </div>
-          <p className="text-lg font-bold text-green-600">{formatCurrency(order.amount)}</p>
-          {etaMs !== null && (
-            <div className="mt-1 flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-sm font-medium text-muted-foreground">ETA: </span>
-              <span className="text-sm font-semibold text-green-600">{formatEta(etaMs)}</span>
-            </div>
-          )}
+          <p className="text-sm text-foreground">
+            Order #: <span className="font-bold">{order.orderNumber}</span>
+          </p>
+          <p className="mt-0.5 text-sm text-foreground">({formatCurrency(order.amount)})</p>
         </div>
-        <button
-          type="button"
-          onClick={() => window.open(buildNavUrl(order.address, getNavApp()), "_blank", "noopener")}
-          className="rounded-lg p-2 hover:bg-muted"
-        >
-          <Navigation className="h-5 w-5 text-blue-600" />
-        </button>
+        <div className="flex items-center gap-2.5">
+          <Badge variant="outline" className="bg-gray-800 text-white border-gray-800 text-xs">
+            {statusLabel}
+          </Badge>
+          <button
+            type="button"
+            onClick={() => window.open(buildNavUrl(order.address, getNavApp()), "_blank", "noopener")}
+            className="rounded-lg p-1 hover:bg-muted"
+            title="Navigate"
+          >
+            <Navigation className="h-5 w-5 text-foreground" />
+          </button>
+        </div>
       </div>
 
       {/* Placement time */}
       {!!order.createdAt && (
-        <div className="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
-          <Clock className="h-4 w-4" />
-          <span>Placed {formatDate(order.createdAt)}</span>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Placement time: {formatDate(order.createdAt)}
+        </p>
+      )}
+
+      {/* ETA (only while active) */}
+      {etaMs !== null && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium text-muted-foreground">ETA:</span>
+          <span className="text-sm font-semibold text-green-600">{formatEta(etaMs)}</span>
         </div>
       )}
 
-      {/* Pick up section */}
-      <div className="mb-4 rounded-xl border bg-card p-4">
-        <div className="mb-3 flex items-start gap-3">
-          <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600">
-            <div className="h-2 w-2 rounded-full bg-white" />
+      <div className="my-4 h-px bg-border" />
+
+      {/* Timeline — pickup + delivery */}
+      <div className="space-y-1">
+        {/* Pick up */}
+        <div className="flex gap-4">
+          <div className="flex w-4 flex-col items-center">
+            <div className="mt-1 h-3 w-3 rounded-full bg-gray-400" />
+            <div className="my-1 w-0.5 flex-1 bg-border" />
           </div>
-          <div className="flex-1">
-            <p className="text-xs text-muted-foreground">PICK UP</p>
-            {!!order.startedAt && (
-              <p className="text-sm text-muted-foreground">{formatDate(order.startedAt)}</p>
-            )}
-            <p className="mt-1 font-semibold">Sterlin Glams</p>
-            <p className="text-sm text-muted-foreground">Store pickup location</p>
+          <div className="flex-1 pb-5">
+            <p className="text-sm text-muted-foreground">
+              Pick up&nbsp;&nbsp;<span className="font-bold text-foreground">{formatDate(pickupTimestamp)}</span>
+            </p>
+            <p className="mt-1 text-base font-bold">{HUB_NAME}</p>
+            <p className="text-sm text-muted-foreground">{HUB_ADDRESS}</p>
+            <a
+              href={`tel:${HUB_PHONE}`}
+              className="mt-1 inline-block text-sm font-medium text-teal-600"
+            >
+              {HUB_PHONE}
+            </a>
           </div>
         </div>
 
-        <div className="ml-3 border-l-2 border-dashed border-muted-foreground/30 pl-6 py-2" />
-
-        {/* Delivery section */}
-        <div className="flex items-start gap-3">
-          <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-600">
-            <MapPin className="h-3 w-3 text-white" />
+        {/* Delivery */}
+        <div className="flex gap-4">
+          <div className="flex w-4 flex-col items-center">
+            <div className="mt-1 h-3 w-3 rounded-full bg-gray-400" />
           </div>
-          <div className="flex-1">
-            <p className="text-xs text-muted-foreground">DELIVERY</p>
-            {!!order.deliveredAt && (
-              <p className="text-sm text-muted-foreground">{formatDate(order.deliveredAt)}</p>
-            )}
-            <p className="mt-1 font-semibold">{order.customerName}</p>
+          <div className="flex-1 pb-1">
+            <p className="text-sm text-muted-foreground">
+              Delivery&nbsp;&nbsp;<span className="font-bold text-foreground">{formatDate(deliveryTimestamp)}</span>
+            </p>
+            <p className="mt-1 text-base font-bold">{order.customerName}</p>
             <p className="text-sm text-muted-foreground">{order.address}</p>
-            <button
-              type="button"
-              onClick={() => { window.location.href = `tel:${order.phone}` }}
-              className="mt-1 flex items-center gap-1 text-sm text-green-600"
-            >
-              <Phone className="h-3.5 w-3.5" />
-              {order.phone}
-            </button>
+            {order.phone && (
+              <a
+                href={`tel:${order.phone}`}
+                className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-teal-600"
+              >
+                <Phone className="h-3.5 w-3.5" />
+                {order.phone}
+              </a>
+            )}
           </div>
         </div>
       </div>
 
+      <div className="my-4 h-px bg-border" />
+
+      {/* Customer note (only when present) */}
+      {order.deliveryInstruction && (
+        <>
+          <h3 className="mb-3 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Customer Note
+          </h3>
+          <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-foreground">
+            {order.deliveryInstruction}
+          </div>
+          <div className="my-4 h-px bg-border" />
+        </>
+      )}
+
       {/* Order Items */}
       {order.items && order.items.length > 0 && (
-        <div className="mb-4 rounded-xl border bg-card p-4">
-          <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        <>
+          <h3 className="mb-3 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Order Items
           </h3>
           <div className="space-y-2">
             {order.items.map((item, idx) => (
-              <div key={idx} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded bg-green-100 text-xs font-bold text-green-700">
-                    {item.qty ?? 1}
-                  </span>
-                  <span className="text-sm">{item.name}</span>
+              <div key={idx} className="flex items-start gap-3 py-1.5">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-400 text-xs font-bold text-white">
+                  {item.qty ?? 1}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-foreground">{item.name}</p>
                 </div>
                 {item.price != null && (
-                  <span className="text-sm font-medium">{formatCurrency(item.price)}</span>
+                  <span className="text-sm font-semibold">{formatCurrency(item.price)}</span>
                 )}
               </div>
             ))}
           </div>
 
-          {/* Pricing breakdown */}
-          <div className="mt-4 space-y-2 border-t pt-3">
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Items Total</span>
-              <span>{formatCurrency(itemsTotal)}</span>
+          {/* Items Total */}
+          <div className="mt-2 flex justify-between border-t pt-3 text-sm font-bold">
+            <span>Items Total:</span>
+            <span>{formatCurrency(itemsTotal || order.amount)}</span>
+          </div>
+
+          <div className="my-4 h-px bg-border" />
+
+          {/* Financial breakdown */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-foreground">Tax:</span>
+              <span>{formatCurrency(order.tax ?? 0)}</span>
             </div>
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Tax</span>
-              <span>{formatCurrency(0)}</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-foreground">Delivery Fee:</span>
+              <span>{formatCurrency(order.deliveryFees ?? 0)}</span>
             </div>
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Delivery Fee</span>
-              <span>{formatCurrency(0)}</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-foreground">Delivery Tips:</span>
+              <span>{formatCurrency(order.deliveryTips ?? 0)}</span>
             </div>
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Delivery Tips</span>
-              <span>{formatCurrency(0)}</span>
-            </div>
-            <div className="flex justify-between border-t pt-2 text-sm font-bold">
-              <span>Total</span>
-              <span>{formatCurrency(order.amount)}</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-red-500">Discount:</span>
+              <span>{formatCurrency(order.discount ?? 0)}</span>
             </div>
           </div>
-        </div>
+
+          {/* Grand total */}
+          <div className="my-2 flex justify-between border-y py-4">
+            <span className="text-base font-bold">Total</span>
+            <span className="text-base font-bold">{formatCurrency(order.amount)}</span>
+          </div>
+        </>
       )}
 
       {/* Customer Rating */}

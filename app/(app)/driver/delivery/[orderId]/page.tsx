@@ -7,22 +7,18 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   ArrowLeft,
   Camera,
-  CheckCircle2,
+  CheckCircle,
+  ImageIcon,
   Loader2,
-  MapPin,
   Pen,
-  Phone,
   Trash2,
-  Navigation,
   X,
 } from "lucide-react"
-import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 import { useDriver } from "@/components/driver-context"
 import { driverFetch } from "@/lib/driver-client"
 import { queueDelivery } from "@/lib/delivery-queue"
-import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
 
 const MAX_PHOTO_PX = 800
 const PHOTO_QUALITY = 0.6
@@ -51,6 +47,7 @@ export default function DeliveryCompletionPage({
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [notes, setNotes] = useState("")
+  const [signerName, setSignerName] = useState("")
   const [photoData, setPhotoData] = useState<string | null>(null)
   const [signatureData, setSignatureData] = useState<string | null>(null)
   const [isDrawing, setIsDrawing] = useState(false)
@@ -170,6 +167,7 @@ export default function DeliveryCompletionPage({
       ...(photoData ? { photoData } : {}),
       ...(signatureData ? { signatureData } : {}),
       ...(notes.trim() ? { deliveryNote: notes.trim() } : {}),
+      ...(signerName.trim() ? { signerName: signerName.trim() } : {}),
       ...(liveGps ? { deliveryLat: liveGps.lat, deliveryLng: liveGps.lng } : {}),
     }
 
@@ -239,123 +237,117 @@ export default function DeliveryCompletionPage({
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 pb-8">
+    <div className="mx-auto flex min-h-screen max-w-md flex-col bg-white">
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 bg-background py-4">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/driver/dashboard")}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <h1 className="text-lg font-bold">Complete Delivery</h1>
+      <div className="flex items-center gap-2 border-b px-4 py-3">
+        <button
+          type="button"
+          onClick={() => router.push("/driver/dashboard")}
+          className="rounded-lg p-1.5 hover:bg-muted"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <h1 className="flex-1 text-center text-base font-bold">Proof of Delivery (POD)</h1>
+        <div className="w-9" />
       </div>
 
-      {/* Order Summary */}
-      <div className="mb-6 rounded-xl border bg-card p-4">
-        <div className="mb-3 flex items-start justify-between">
-          <div>
-            <p className="font-semibold">{order.orderNumber}</p>
-            <p className="text-sm text-muted-foreground">{order.customerName}</p>
-          </div>
-          <p className="font-medium">{formatCurrency(order.amount)}</p>
-        </div>
-        <div className="space-y-1 text-sm">
-          <div className="flex items-start gap-2">
-            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <span>{order.address}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Phone className="h-4 w-4 text-muted-foreground" />
-            <span>{order.phone}</span>
-          </div>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1"
-            onClick={() => window.open(buildNavUrl(order.address, getNavApp()), "_blank", "noopener")}
-          >
-            <Navigation className="mr-1 h-3 w-3" /> Navigate
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="flex-1"
-            onClick={() => { window.location.href = `tel:${order.phone}` }}
-          >
-            <Phone className="mr-1 h-3 w-3" /> Call
-          </Button>
-        </div>
-      </div>
+      {/* Scrollable body — leaves room for the fixed-bottom Complete button */}
+      <div className="flex-1 overflow-y-auto px-4 pb-32 pt-4">
+        {/* Photo preview / tap-to-take-photo placeholder */}
+        <button
+          type="button"
+          onClick={openCamera}
+          className="mb-4 block h-56 w-full overflow-hidden rounded-xl border border-border bg-muted/30 transition-opacity hover:opacity-90 active:opacity-80"
+        >
+          {photoData ? (
+            <img src={photoData} alt="Delivery proof" className="h-full w-full object-cover" />
+          ) : (
+            <div className="relative flex h-full w-full items-center justify-center bg-gray-50">
+              <ImageIcon className="h-16 w-16 text-gray-300" />
+              <span className="absolute right-7 top-3 text-2xl font-light text-gray-300">+</span>
+            </div>
+          )}
+        </button>
 
-      {/* Photo Proof */}
-      <div className="mb-4">
-        <h3 className="mb-2 font-semibold">Photo Proof</h3>
-        {photoData ? (
-          <div className="relative">
-            <img src={photoData} alt="Delivery proof" className="w-full rounded-lg border" />
-            <Button
-              variant="destructive"
-              size="sm"
-              className="absolute right-2 top-2"
-              onClick={() => setPhotoData(null)}
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
+        {/* Signature preview (only when captured) */}
+        {signatureData && (
+          <div className="mb-3 overflow-hidden rounded-xl border border-green-200 bg-green-50">
+            <img src={signatureData} alt="Customer signature" className="h-20 w-full object-contain bg-white" />
+            <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+              <div className="flex items-center gap-1.5">
+                <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+                <span className="text-xs font-semibold text-green-600">Signature captured</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSignatureData(null)}
+                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-red-500"
+                title="Clear signature"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
-        ) : (
-          <Button variant="outline" className="w-full" onClick={openCamera}>
-            <Camera className="mr-2 h-4 w-4" /> Take Photo
-          </Button>
         )}
-      </div>
 
-      {/* Signature */}
-      <div className="mb-4">
-        <h3 className="mb-2 font-semibold">Customer Signature</h3>
-        {signatureData ? (
-          <div className="relative">
-            <img src={signatureData} alt="Signature" className="w-full rounded-lg border bg-white" />
-            <Button
-              variant="destructive"
-              size="sm"
-              className="absolute right-2 top-2"
-              onClick={() => setSignatureData(null)}
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </div>
-        ) : (
-          <Button variant="outline" className="w-full" onClick={() => setShowSignaturePad(true)}>
-            <Pen className="mr-2 h-4 w-4" /> Collect Signature
-          </Button>
-        )}
-      </div>
+        {/* Add image + Add signature outline buttons */}
+        <div className="mb-6 flex gap-3">
+          <button
+            type="button"
+            onClick={openCamera}
+            className="flex flex-1 items-center justify-center gap-2 rounded-full border border-border bg-white py-3 text-sm font-medium text-foreground hover:bg-muted"
+          >
+            <Camera className="h-4 w-4" />
+            {photoData ? "Retake Photo" : "Add Image"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSignaturePad(true)}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-full border py-3 text-sm font-medium ${
+              signatureData
+                ? "border-green-600 text-green-600 hover:bg-green-50"
+                : "border-border text-foreground hover:bg-muted"
+            }`}
+          >
+            <Pen className="h-4 w-4" />
+            {signatureData ? "✓ Signature" : "Add Signature"}
+          </button>
+        </div>
 
-      {/* Notes */}
-      <div className="mb-6">
-        <h3 className="mb-2 font-semibold">Delivery Notes</h3>
+        {/* Note section */}
+        <h3 className="mb-2.5 text-base font-bold">Write a Note for Future Reference</h3>
+        <input
+          type="text"
+          placeholder="Name of the person signed (Required)"
+          value={signerName}
+          onChange={(e) => setSignerName(e.target.value)}
+          className="mb-3 w-full rounded-xl border bg-muted/40 px-4 py-3.5 text-sm placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-green-500/30"
+        />
         <Textarea
-          placeholder="Any notes about the delivery..."
+          placeholder="Enter Your Note"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          rows={3}
+          rows={4}
+          className="rounded-xl border bg-muted/40 px-4 py-3 text-sm placeholder:text-muted-foreground focus:bg-background"
         />
       </div>
 
-      {/* Complete Button */}
-      <Button
-        className="w-full bg-green-600 hover:bg-green-700"
-        size="lg"
-        onClick={handleCompleteDelivery}
-        disabled={submitting}
+      {/* Bottom-anchored Complete button */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 border-t bg-background px-4 pt-3"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.75rem)" }}
       >
-        {submitting ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : (
-          <CheckCircle2 className="mr-2 h-4 w-4" />
-        )}
-        Mark as Delivered
-      </Button>
+        <div className="mx-auto max-w-md">
+          <button
+            type="button"
+            onClick={handleCompleteDelivery}
+            disabled={submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-teal-600 py-4 text-base font-bold text-white hover:bg-teal-700 disabled:opacity-60"
+          >
+            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : "Complete the Order"}
+          </button>
+        </div>
+      </div>
 
       {/* Camera Modal */}
       {showCamera && (
