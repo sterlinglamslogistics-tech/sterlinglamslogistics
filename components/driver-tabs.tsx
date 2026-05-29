@@ -26,7 +26,7 @@ export function DriverTabs({ unreadMessages = 0 }: DriverTabsProps) {
   const pathname = usePathname()
 
   // Hide on login + delivery-confirmation pages (same as driver-app)
-  if (pathname === "/driver" || pathname.startsWith("/driver/delivery/")) {
+  if (pathname === "/driver" || pathname === "/driver/delivery" || pathname.startsWith("/driver/delivery/")) {
     return null
   }
 

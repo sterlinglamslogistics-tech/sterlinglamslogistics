@@ -271,7 +271,7 @@ export default function DriverDashboard() {
   }
 
   function handleViewOrder(order: Order) {
-    router.push(`/driver/order/${order.id}`)
+    router.push(`/driver/order?id=${encodeURIComponent(order.id)}`)
   }
 
   const activeOrders = orders.filter(
@@ -487,7 +487,7 @@ export default function DriverDashboard() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { void hapticTap("medium"); router.push(`/driver/delivery/${order.id}`) }}
+                    onClick={() => { void hapticTap("medium"); router.push(`/driver/delivery?id=${encodeURIComponent(order.id)}`) }}
                     className="flex flex-1 items-center justify-center gap-2 rounded-full bg-emerald-700 py-3.5 text-sm font-bold text-white hover:bg-emerald-800 active:scale-[0.98] transition-transform"
                   >
                     Mark as Complete  →

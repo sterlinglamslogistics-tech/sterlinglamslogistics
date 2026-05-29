@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useRef, use } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -35,12 +35,12 @@ function compressPhoto(video: HTMLVideoElement): string {
   return canvas.toDataURL("image/jpeg", PHOTO_QUALITY)
 }
 
-export default function DeliveryCompletionPage({
-  params,
-}: {
-  params: Promise<{ orderId: string }>
-}) {
-  const { orderId } = use(params)
+export default function DeliveryCompletionPage() {
+  // Read the id from ?id=… (works in both the dynamic /delivery/[id]
+  // web route and the static-export driver-mobile-2 build where
+  // dynamic segments can't be pre-rendered).
+  const searchParams = useSearchParams()
+  const orderId = searchParams.get("id") ?? ""
   const router = useRouter()
   const { session, liveGps } = useDriver()
   const canvasRef = useRef<HTMLCanvasElement>(null)

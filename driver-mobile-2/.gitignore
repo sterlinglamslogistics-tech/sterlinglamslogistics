@@ -10,3 +10,19 @@ android/local.properties
 *.aab
 .idea/
 .vscode/
+
+# Build-script-populated trees inside source/
+source/app/dashboard/
+source/app/map/
+source/app/messages/
+source/app/performance/
+source/app/completed-orders/
+source/app/order/
+source/app/delivery/
+source/app/settings/
+source/app/language/
+source/app/page.tsx
+source/components/
+source/hooks/
+source/lib/
+source/public/

@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useMemo, use } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useMemo } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   Navigation,
@@ -47,12 +47,12 @@ function formatDate(date: unknown): string {
   })
 }
 
-export default function OrderDetailPage({
-  params,
-}: {
-  params: Promise<{ orderId: string }>
-}) {
-  const { orderId } = use(params)
+export default function OrderDetailPage() {
+  // Read the id from ?id=… (works in both the dynamic /order/[id] web
+  // route and the static-export driver-mobile-2 build where dynamic
+  // segments can't be pre-rendered).
+  const searchParams = useSearchParams()
+  const orderId = searchParams.get("id") ?? ""
   const router = useRouter()
   const { liveGps, driver } = useDriver()
   const [order, setOrder] = useState<Order | null>(null)
