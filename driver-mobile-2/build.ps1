@@ -84,14 +84,61 @@ Get-ChildItem $appDir -Directory -ErrorAction SilentlyContinue | Where-Object {
 } | Remove-Item -Recurse -Force
 
 $driverSrc = Join-Path $mainRoot "app/(app)/driver"
+# layout.tsx is owned by the static-export sub-project (it has the
+# required <html><body> + drops DriverSWRegister), so DON'T overwrite
+# it from the main project's driver layout.
+$skipNames = @(".idea", "layout.tsx")
 if (Test-Path $driverSrc) {
-    # Copy every child of driver/ into source/app/ at the root level
     Get-ChildItem $driverSrc -Force | ForEach-Object {
+        if ($skipNames -contains $_.Name) { return }
         $dest = Join-Path $appDir $_.Name
-        # Skip the IDE noise
-        if ($_.Name -eq ".idea") { return }
         Copy-Item -Recurse -Force $_.FullName $dest
     }
+}
+
+# 2.5. Strip the "/driver" URL prefix from the copied source. The live web
+#      build serves the driver app at /driver/* (router.push("/driver/dashboard"),
+#      Link href="/driver/order?id=...", etc.), but the static-export bundle
+#      sits at the WebView root with no prefix — so every navigation call
+#      needs to be rewritten before next build runs.
+#
+# Rules
+#  - "/driver/X"  ->  "/X"   (router URLs, Link hrefs)
+#  - "/driver"    ->  "/"    (login URL, exact-match path comparisons)
+#  - /api/driver/* is LEFT ALONE because /api/driver/orders etc. are API
+#    paths, not router routes (the lookbehind keeps them intact).
+#  - root-shell.tsx is skipped because it's marketing/admin chrome that's
+#    dead code in the APK bundle but still has /driver/ literals.
+Write-Host "[2.5/5] Stripping /driver URL prefix from copied source..." -ForegroundColor Yellow
+$filesToTransform = Get-ChildItem -Path $srcRoot -Recurse -Include "*.ts","*.tsx" -Force | Where-Object {
+    $_.FullName -notlike "*\node_modules\*" -and
+    $_.FullName -notlike "*\out\*" -and
+    $_.FullName -notlike "*\.next\*" -and
+    $_.Name -ne "root-shell.tsx"
+}
+foreach ($file in $filesToTransform) {
+    $content = [System.IO.File]::ReadAllText($file.FullName)
+    $original = $content
+    # "/driver/..." -> "/..." but NOT "/api/driver/..."
+    $content = [regex]::Replace($content, '(?<!/api)/driver/', '/')
+    # /driver" -> /"   (closing the string, exact-match cases)
+    $content = $content.Replace('/driver"', '/"')
+    # /driver' -> /'
+    $content = $content.Replace("/driver'", "/'")
+    # /driver` -> /`  (template literal ending right at /driver)
+    $content = $content.Replace('/driver`', '/`')
+    if ($content -ne $original) {
+        [System.IO.File]::WriteAllText($file.FullName, $content)
+    }
+}
+
+# 2.6. Drop the /driver service worker + manifest from public/ — those
+#      are for the live web build (where the WebView loads the remote
+#      URL through the SW). In the bundled APK the assets are local;
+#      keeping the SW around just confuses the WebView.
+$srcPublicDriver = Join-Path $srcRoot "public\driver"
+if (Test-Path $srcPublicDriver) {
+    Remove-Item -Recurse -Force $srcPublicDriver
 }
 
 # 3. Build the static export with API base baked in
