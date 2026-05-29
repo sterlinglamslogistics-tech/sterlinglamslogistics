@@ -38,6 +38,7 @@
   "exclude": [
     "node_modules",
     "driver-mobile",
+    "driver-mobile-2",
     "driver-app"
   ]
 }
