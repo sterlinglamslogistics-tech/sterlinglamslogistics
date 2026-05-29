@@ -1,28 +1,59 @@
 // Service worker for the /driver web app.
 //
 // Goal: the driver mobile shell (Capacitor APK wrapping /driver) keeps
-// working when the device has no signal at cold launch. We do that by
-// caching the Next.js static bundle aggressively and storing each
-// /driver page we successfully render so it's available offline next time.
+// working when the device has no signal at cold launch. Strategy:
+//   1. On install, pre-cache the Next.js static bundle layout AND the
+//      main /driver routes so a cold offline launch has something to
+//      serve immediately.
+//   2. Cache each /driver page on every successful render so the cache
+//      always holds the latest version of what the driver has visited.
+//   3. Cache Next.js static assets (cache-first — they're content-hashed
+//      and immutable).
 //
 // What we DON'T cache:
 //   - /api/* — API responses must always hit the network (writes are
-//     queued separately by Phase 2 of the offline plan).
+//     queued separately by the IndexedDB queue inside the app).
 //   - Cross-origin requests — pass through.
 //   - Non-GET requests — pass through.
 //
-// Scope: registered at "/driver/" so it only governs the driver app.
+// If even the SW can't serve the navigation (very first launch with no
+// signal, no cached pages), Capacitor's errorPath kicks in and shows
+// www/offline.html instead of the Android ERR_FAILED screen.
 
-const CACHE_VERSION = 'driver-sw-v1'
+const CACHE_VERSION = 'driver-sw-v2'
 const STATIC_CACHE = `${CACHE_VERSION}-static`
 const PAGES_CACHE  = `${CACHE_VERSION}-pages`
 
-// New service worker installs immediately, doesn't wait for old tabs to close.
-self.addEventListener('install', () => {
+// Pre-cache list. We can't request these on install (they're rendered
+// pages, not static files) — instead, we warm them up here so they end
+// up in the cache the moment the user first lands on /driver.
+const PRECACHE_ROUTES = [
+  '/driver',
+  '/driver/dashboard',
+  '/driver/map',
+  '/driver/messages',
+  '/driver/performance',
+  '/driver/completed-orders',
+]
+
+self.addEventListener('install', (event) => {
+  // Best-effort warm-up of the main driver routes. Failures (offline at
+  // install time) don't block activation.
+  event.waitUntil(
+    caches.open(PAGES_CACHE).then(async (cache) => {
+      await Promise.allSettled(
+        PRECACHE_ROUTES.map((url) =>
+          fetch(url, { credentials: 'same-origin' })
+            .then((res) => res.ok ? cache.put(url, res.clone()) : null)
+            .catch(() => null)
+        )
+      )
+    })
+  )
+  // New SW activates immediately — don't wait for old tabs to close.
   self.skipWaiting()
 })
 
-// On activate, clear caches from older SW versions.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -45,8 +76,9 @@ self.addEventListener('fetch', (event) => {
   // Only act on same-origin requests.
   if (url.origin !== self.location.origin) return
 
-  // Never cache API requests. Phase 2's IndexedDB write queue handles
-  // offline writes; offline reads should fail cleanly.
+  // Never cache API requests. The in-app IndexedDB queue handles offline
+  // writes; offline reads should fail cleanly so the app can show its
+  // "saved offline" UX rather than stale data.
   if (url.pathname.startsWith('/api/')) return
 
   // ── Cache-first: Next.js static bundle ─────────────────────────────
@@ -92,7 +124,7 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() =>
           caches.match(request).then(
-            (cached) => cached || caches.match('/driver')
+            (cached) => cached || caches.match('/driver/dashboard') || caches.match('/driver')
           )
         )
     )
@@ -100,4 +132,24 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Everything else passes through to the network with no caching.
+})
+
+// Allow the app to trigger an on-demand re-warm of the page cache, e.g.
+// after the driver logs in — at that point we know the dashboard is the
+// most important page to have cached. Use:
+//   navigator.serviceWorker.controller?.postMessage({ type: 'precache' })
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'precache') {
+    event.waitUntil(
+      caches.open(PAGES_CACHE).then((cache) =>
+        Promise.allSettled(
+          PRECACHE_ROUTES.map((url) =>
+            fetch(url, { credentials: 'same-origin' })
+              .then((res) => res.ok ? cache.put(url, res.clone()) : null)
+              .catch(() => null)
+          )
+        )
+      )
+    )
+  }
 })
