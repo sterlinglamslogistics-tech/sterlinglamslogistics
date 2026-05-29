@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Loader2 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import Image from "next/image"
-import { setDriverToken } from "@/lib/driver-client"
+import { driverFetch, setDriverToken } from "@/lib/driver-client"
 import { useDriver } from "@/components/driver-context"
 
 export default function DriverLoginPage() {
@@ -39,7 +39,11 @@ export default function DriverLoginPage() {
     }
     setLoading(true)
     try {
-      const res = await fetch("/api/driver/login", {
+      // driverFetch (not raw fetch) so the request honours the
+      // NEXT_PUBLIC_API_BASE_URL the static-export build bakes in.
+      // Without that, the static APK fetches /api/driver/login from
+      // its own https://localhost origin and the call 404s.
+      const res = await driverFetch("/api/driver/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

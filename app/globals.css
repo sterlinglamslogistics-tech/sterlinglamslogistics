@@ -1,5 +1,16 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+
+/* Explicit @source paths so the static-export build under
+   driver-mobile-2/source/ — which copies these directories from the
+   main project into a sibling location — still picks them up via
+   Tailwind v4's source-scanning. Paths are relative to *this file*,
+   so they resolve to ../components etc. in either build location. */
+@source "../components";
+@source "../hooks";
+@source "../lib";
+@source "../app";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
