@@ -1,0 +1,12 @@
+node_modules/
+source/node_modules/
+source/.next/
+source/out/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+.idea/
+.vscode/
