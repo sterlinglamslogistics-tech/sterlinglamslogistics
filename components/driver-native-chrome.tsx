@@ -21,9 +21,10 @@ export function DriverNativeChrome() {
   const router = useRouter()
   const { drawerOpen, setDrawerOpen } = useDriver()
 
-  // Status bar — apply once on mount.
+  // Status bar — white background with dark icons so the bar disappears
+  // into the app background instead of standing out as a green stripe.
   useEffect(() => {
-    void applyStatusBar({ backgroundColor: "#16a34a", dark: false })
+    void applyStatusBar({ backgroundColor: "#ffffff", dark: true })
   }, [])
 
   // Android hardware back button. Re-register when drawerOpen flips so the
