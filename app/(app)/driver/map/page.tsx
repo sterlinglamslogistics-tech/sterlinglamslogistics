@@ -9,7 +9,7 @@ import type { Order } from "@/lib/data"
 import { cn } from "@/lib/utils"
 import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps"
 import { parseFirestoreDate } from "@/lib/order-utils"
-import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
+import { buildNavUrl, getNavApp } from "@/lib/nav"
 
 export default function DriverMapPage() {
   const router = useRouter()

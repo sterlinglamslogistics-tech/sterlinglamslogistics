@@ -4,31 +4,18 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { NAV_APP_KEY, type NavApp, buildNavUrl, getNavApp } from "@/lib/nav"
 
-export const NAV_APP_KEY = "driverNavApp"
-
-export type NavApp = "google" | "waze" | "apple"
+// Re-exports keep callers that historically imported from this page
+// path working without churn. New code should import from "@/lib/nav".
+export { NAV_APP_KEY, buildNavUrl, getNavApp }
+export type { NavApp }
 
 const navOptions: { value: NavApp; label: string; description: string }[] = [
   { value: "google", label: "Google Maps", description: "Opens in Google Maps app or web" },
   { value: "waze", label: "Waze", description: "Opens in Waze for live traffic routing" },
   { value: "apple", label: "Apple Maps", description: "Opens in Apple Maps (iOS only)" },
 ]
-
-export function buildNavUrl(address: string, app: NavApp = "google"): string {
-  const encoded = encodeURIComponent(address)
-  if (app === "waze") return `https://waze.com/ul?q=${encoded}&navigate=yes`
-  if (app === "apple") return `maps://maps.apple.com/?daddr=${encoded}`
-  return `https://www.google.com/maps/dir/?api=1&destination=${encoded}`
-}
-
-export function getNavApp(): NavApp {
-  try {
-    const saved = localStorage.getItem(NAV_APP_KEY)
-    if (saved === "google" || saved === "waze" || saved === "apple") return saved
-  } catch { /* ignore */ }
-  return "google"
-}
 
 export default function DriverNavigationsSettingsPage() {
   const router = useRouter()

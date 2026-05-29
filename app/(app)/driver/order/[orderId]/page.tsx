@@ -16,7 +16,7 @@ import { parseFirestoreDate } from "@/lib/order-utils"
 import { formatCurrency } from "@/lib/data"
 import type { Order } from "@/lib/data"
 import { useDriver } from "@/components/driver-context"
-import { buildNavUrl, getNavApp } from "@/app/(app)/driver/settings/navigations/page"
+import { buildNavUrl, getNavApp } from "@/lib/nav"
 import { HUB_NAME, HUB_ADDRESS, HUB_PHONE } from "@/lib/hub"
 
 function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {

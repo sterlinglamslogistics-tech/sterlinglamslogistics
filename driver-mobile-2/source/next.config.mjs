@@ -1,3 +1,6 @@
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
 /**
  * Static export config for the driver-mobile-2 APK build.
  *
@@ -5,26 +8,31 @@
  * (no Node server needed). That output goes into out/, which the parent
  * build script then copies into ../www/ for Capacitor to bundle.
  *
- * Notes:
- * - No basePath: the WebView loads from local files at the root of the
- *   APK's assets/public/ directory, so the bundled URLs match.
- * - trailingSlash: true generates dashboard/index.html instead of
- *   dashboard.html, which the WebView resolves more reliably from a
- *   file:// origin.
- * - images.unoptimized: required when exporting (no image optimizer
- *   server to call out to). The driver UI uses next/image only for
- *   the login logo, so this is a trivial loss.
+ * turbopack.root pins the build's workspace root to THIS folder, so a
+ * stray lockfile in the user's home directory (or elsewhere up the
+ * filesystem) doesn't get auto-picked as the workspace root and break
+ * module resolution.
+ *
+ * No basePath: the WebView loads from the root of the APK assets, so
+ * the bundled URLs match. trailingSlash: true generates `dashboard/
+ * index.html` instead of `dashboard.html` — file:// resolves the
+ * former more reliably.
+ *
+ * images.unoptimized is required when exporting (no image optimizer
+ * server to call out to). The driver UI uses next/image only for the
+ * login logo, so this is a trivial loss.
  */
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "export",
   trailingSlash: true,
   images: { unoptimized: true },
-  // Skip lint/type errors during the APK build — the main project's CI
-  // is the source of truth for code quality; here we just want a build.
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
+  turbopack: {
+    root: __dirname,
+  },
 }
 
 export default nextConfig
