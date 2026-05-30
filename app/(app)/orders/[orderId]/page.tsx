@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import type { Order, Driver } from "@/lib/data"
 import { fetchDrivers, fetchOrder, deleteOrder } from "@/lib/firestore"
+import { logActivity } from "@/lib/activity-client"
 import { formatCurrency } from "@/lib/data"
 import { Button } from "@/components/ui/button"
 import {
@@ -72,6 +73,7 @@ export default function OrderDetailPage() {
     if (!order) return
     try {
       await deleteOrder(order.id)
+      logActivity({ action: "order.deleted", resourceId: order.orderNumber || order.id })
       toast({ title: "Order deleted" })
       router.push("/orders")
     } catch (e) {

@@ -5,6 +5,7 @@ import { ORDER_STATUS } from "@/lib/constants"
 import { createLogger } from "@/lib/logger"
 import { notifyOrderEventServer } from "@/lib/server/notify-order-event"
 import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
+import { audit } from "@/lib/audit"
 
 const log = createLogger("api:admin:dispatch:assign")
 
@@ -42,6 +43,13 @@ export async function POST(req: Request) {
         status: ORDER_STATUS.UNASSIGNED,
         startedAt: null,
       })
+      await audit({
+        action: "order.assigned",
+        actor: admin.email ?? admin.uid,
+        resourceType: "order",
+        resourceId: order.orderNumber || order.id,
+        details: { unassigned: true },
+      })
     } else {
       await adminUpdateOrder(orderId, {
         assignedDriver: driverId,
@@ -51,6 +59,14 @@ export async function POST(req: Request) {
 
       // Fire order_accepted notification server-side (best-effort — never blocks response)
       const driver = await adminFetchDriverById(driverId).catch(() => null)
+
+      await audit({
+        action: "order.assigned",
+        actor: admin.email ?? admin.uid,
+        resourceType: "order",
+        resourceId: order.orderNumber || order.id,
+        details: { target: driver?.name ?? driverId },
+      })
       notifyOrderEventServer("order_accepted", {
         orderId: order.id,
         orderNumber: order.orderNumber,
