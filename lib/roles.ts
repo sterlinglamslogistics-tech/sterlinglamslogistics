@@ -72,7 +72,7 @@ export const SETTINGS_TAB_PERMISSIONS: Record<string, UserRole[]> = {
   notification:  ["owner", "admin"],
   route:         ["owner", "admin"],
   location:      ["owner", "admin"],
-  users:         ["owner"],          // Only owner can manage team members
+  users:         ["owner", "admin"],  // Owner and admin can manage team members
 }
 
 /** The first route a role can access — used for redirecting after login. */

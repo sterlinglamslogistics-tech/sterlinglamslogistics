@@ -15,8 +15,15 @@ export type AuditAction =
   | "driver.password_changed"
   | "driver.status_changed"
   | "settings.updated"
+  | "user.invited"
+  | "user.role_changed"
+  | "user.password_reset"
+  | "user.enabled"
+  | "user.disabled"
+  | "user.deleted"
   | "admin.login"
   | "admin.clean_orders"
+  | "audit.pruned"
 
 interface AuditEntry {
   action: AuditAction

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { adminAuth, adminDb } from "@/lib/server/firebase-admin"
-import { verifyAdmin } from "@/lib/server/auth"
+import { verifyManager } from "@/lib/server/auth"
 import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 import { INVITABLE_ROLES, ROLES, type UserRole } from "@/lib/roles"
+import { audit } from "@/lib/audit"
 import { createLogger } from "@/lib/logger"
 
 const log = createLogger("api:admin:users:[uid]")
@@ -61,7 +62,7 @@ export async function PATCH(req: Request, { params }: Params) {
   const rl = await checkRateLimit(getRateLimitIdentifier(req))
   if (rl) return rl
 
-  const admin = await verifyAdmin(req)
+  const admin = await verifyManager(req)
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { uid } = await params
@@ -87,6 +88,13 @@ export async function PATCH(req: Request, { params }: Params) {
       }
       await adminAuth.setCustomUserClaims(uid, { admin: true, role })
       await adminDb.collection("admins").doc(uid).set({ role }, { merge: true })
+      await audit({
+        action: "user.role_changed",
+        actor: admin.email ?? admin.uid,
+        resourceType: "user",
+        resourceId: uid,
+        details: { target: userName, role },
+      })
       log.info({ uid, role }, "User role updated")
       return NextResponse.json({ ok: true })
     }
@@ -99,6 +107,13 @@ export async function PATCH(req: Request, { params }: Params) {
       await sendPasswordResetEmail(userRecord.email, userName, resetLink).catch((err) =>
         log.error({ err }, "Failed to send password reset email")
       )
+      await audit({
+        action: "user.password_reset",
+        actor: admin.email ?? admin.uid,
+        resourceType: "user",
+        resourceId: uid,
+        details: { target: userName },
+      })
       log.info({ uid }, "Password reset email sent")
       return NextResponse.json({ ok: true })
     }
@@ -114,6 +129,13 @@ export async function PATCH(req: Request, { params }: Params) {
     if (body.action === "toggle_disabled") {
       const newDisabled = !userRecord.disabled
       await adminAuth.updateUser(uid, { disabled: newDisabled })
+      await audit({
+        action: newDisabled ? "user.disabled" : "user.enabled",
+        actor: admin.email ?? admin.uid,
+        resourceType: "user",
+        resourceId: uid,
+        details: { target: userName },
+      })
       return NextResponse.json({ ok: true, disabled: newDisabled })
     }
 
@@ -133,7 +155,7 @@ export async function DELETE(req: Request, { params }: Params) {
   const rl = await checkRateLimit(getRateLimitIdentifier(req))
   if (rl) return rl
 
-  const admin = await verifyAdmin(req)
+  const admin = await verifyManager(req)
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { uid } = await params
@@ -144,9 +166,18 @@ export async function DELETE(req: Request, { params }: Params) {
     return NextResponse.json({ error: "You cannot remove your own account" }, { status: 400 })
   }
 
+  const target = new URL(req.url).searchParams.get("target") || uid
+
   try {
     await adminAuth.deleteUser(uid)
     await adminDb.collection("admins").doc(uid).delete()
+    await audit({
+      action: "user.deleted",
+      actor: admin.email ?? admin.uid,
+      resourceType: "user",
+      resourceId: uid,
+      details: { target },
+    })
     log.info({ uid, deletedBy: admin.uid }, "Admin user deleted")
     return NextResponse.json({ ok: true })
   } catch (error) {

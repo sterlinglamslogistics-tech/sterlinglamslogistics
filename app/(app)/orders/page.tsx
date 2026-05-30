@@ -54,6 +54,7 @@ import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { toast } from "@/hooks/use-toast"
 import { notifyOrderEvent } from "@/lib/notify-client"
+import { logActivity } from "@/lib/activity-client"
 import { loadGoogleMaps } from "@/lib/google-maps"
 import { StatusBadge } from "@/components/orders/status-badge"
 import { OrderDetailDialog } from "@/components/orders/order-detail-dialog"
@@ -268,8 +269,14 @@ export default function OrdersPage() {
         )
       )
 
+      const assignedDriverObj = allDrivers.find((d) => d.id === driverId)
+      logActivity({
+        action: "order.assigned",
+        resourceId: targetOrder?.orderNumber ?? orderId,
+        details: { target: assignedDriverObj?.name ?? driverId },
+      })
+
       if (targetOrder) {
-        const assignedDriverObj = allDrivers.find((d) => d.id === driverId)
         notifyOrderEvent("order_accepted", {
           orderId: targetOrder.id,
           orderNumber: targetOrder.orderNumber,
@@ -354,7 +361,9 @@ export default function OrdersPage() {
 
   async function handleDeleteOrder(orderId: string) {
     try {
+      const orderNumber = orderList.find((o) => o.id === orderId)?.orderNumber ?? orderId
       await deleteOrder(orderId)
+      logActivity({ action: "order.deleted", resourceId: orderNumber })
       setOrderList((prev) => prev.filter((o) => o.id !== orderId))
       setSelectedOrderIds((prev) => prev.filter((id) => id !== orderId))
       if (selectedOrder?.id === orderId) {
@@ -450,6 +459,11 @@ export default function OrdersPage() {
               : order
           )
         )
+        logActivity({
+          action: "order.updated",
+          resourceId: data.orderNumber || editingOrder.id,
+          details: { customer: data.customerName },
+        })
         toast({ title: "Order updated" })
       } else {
         const normalizedCustomerEmail = data.customerEmail?.trim() ? data.customerEmail.trim() : null
@@ -494,6 +508,11 @@ export default function OrdersPage() {
           paymentMethod: data.paymentMethod ?? "",
           status: initialStatus,
           assignedDriver: assignedDriverValue,
+        })
+        logActivity({
+          action: "order.created",
+          resourceId: data.orderNumber || orderId,
+          details: { customer: data.customerName },
         })
         toast({ title: "Order created" })
 
@@ -694,6 +713,11 @@ export default function OrdersPage() {
         })
       }
 
+      logActivity({
+        action: "order.assigned",
+        details: { bulk: true, count: selectedOrderIds.length, target: bulkDriverObj?.name ?? bulkDriverId },
+      })
+
       setIsBulkAssignOpen(false)
       toast({ title: "Orders assigned", description: `${selectedOrderIds.length} orders updated.` })
     } catch {
@@ -716,6 +740,11 @@ export default function OrdersPage() {
     try {
       setIsSaving(true)
       await updateOrder(order.id, { status: "cancelled", assignedDriver: null })
+      logActivity({
+        action: "order.status_changed",
+        resourceId: order.orderNumber || order.id,
+        details: { status: "cancelled" },
+      })
       setOrderList((prev) =>
         prev.map((o) => o.id === order.id ? { ...o, status: "cancelled", assignedDriver: null } : o)
       )
@@ -731,6 +760,11 @@ export default function OrdersPage() {
     try {
       setIsSaving(true)
       await updateOrder(orderId, { assignedDriver: null, status: "unassigned", startedAt: null })
+      logActivity({
+        action: "order.assigned",
+        resourceId: orderList.find((o) => o.id === orderId)?.orderNumber ?? orderId,
+        details: { unassigned: true },
+      })
       setOrderList((prev) =>
         prev.map((o) => o.id === orderId ? { ...o, assignedDriver: null, status: "unassigned", startedAt: null } : o)
       )
@@ -759,7 +793,9 @@ export default function OrdersPage() {
 
     try {
       setIsSaving(true)
+      const count = selectedOrderIds.length
       await Promise.all(selectedOrderIds.map((id) => deleteOrder(id)))
+      logActivity({ action: "order.deleted", details: { bulk: true, count } })
       setOrderList((prev) => prev.filter((order) => !selectedOrderIds.includes(order.id)))
       setSelectedOrderIds([])
       toast({ title: "Orders deleted", description: "Selected orders were removed." })

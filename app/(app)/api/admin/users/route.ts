@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { adminAuth, adminDb } from "@/lib/server/firebase-admin"
-import { verifyAdmin } from "@/lib/server/auth"
+import { verifyManager } from "@/lib/server/auth"
 import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 import { INVITABLE_ROLES, ROLES, type UserRole } from "@/lib/roles"
+import { audit } from "@/lib/audit"
 import { createLogger } from "@/lib/logger"
 
 const log = createLogger("api:admin:users")
@@ -63,7 +64,7 @@ export async function GET(req: Request) {
   const rl = await checkRateLimit(getRateLimitIdentifier(req))
   if (rl) return rl
 
-  const admin = await verifyAdmin(req)
+  const admin = await verifyManager(req)
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
   const rl = await checkRateLimit(getRateLimitIdentifier(req))
   if (rl) return rl
 
-  const admin = await verifyAdmin(req)
+  const admin = await verifyManager(req)
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   let body: { email?: string; name?: string; role?: UserRole }
@@ -162,6 +163,14 @@ export async function POST(req: Request) {
     await sendInviteEmail({ to: email, name, role, resetLink }).catch((err) =>
       log.error({ err }, "Failed to send invite email")
     )
+
+    await audit({
+      action: "user.invited",
+      actor: admin.email ?? admin.uid,
+      resourceType: "user",
+      resourceId: email,
+      details: { target: name, role },
+    })
 
     log.info({ uid: userRecord.uid, email, role }, "Admin user created")
     return NextResponse.json({ ok: true, uid: userRecord.uid })

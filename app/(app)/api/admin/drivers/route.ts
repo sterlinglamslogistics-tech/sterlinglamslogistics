@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { verifyAdmin } from "@/lib/server/auth"
-import { adminCreateDriver, adminDeleteDriver, adminUpdateDriver } from "@/lib/server/firestore-admin"
+import { adminCreateDriver, adminDeleteDriver, adminUpdateDriver, adminFetchDriverById } from "@/lib/server/firestore-admin"
 import { hashPassword } from "@/lib/password"
 import { DRIVER_STATUS } from "@/lib/constants"
+import { audit } from "@/lib/audit"
 import { createLogger } from "@/lib/logger"
 import { checkRateLimit, getRateLimitIdentifier } from "@/lib/rate-limit"
 import type { Driver } from "@/lib/data"
@@ -47,6 +48,13 @@ export async function POST(req: Request) {
         password: String(payload.password),
         note: String(payload.note ?? ""),
       })
+      await audit({
+        action: "driver.created",
+        actor: admin.email ?? admin.uid,
+        resourceType: "driver",
+        resourceId: id,
+        details: { target: String(payload.name) },
+      })
       return NextResponse.json({ ok: true, id })
     }
 
@@ -55,13 +63,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "driverId is required" }, { status: 400 })
     }
 
+    // Resolve the driver name for readable audit entries (best-effort).
+    const existing = await adminFetchDriverById(driverId).catch(() => null)
+    const driverName = existing?.name ?? driverId
+
     if (action === "delete") {
       await adminDeleteDriver(driverId)
+      await audit({
+        action: "driver.deleted",
+        actor: admin.email ?? admin.uid,
+        resourceType: "driver",
+        resourceId: driverId,
+        details: { target: driverName },
+      })
       return NextResponse.json({ ok: true })
     }
 
     if (action === "set_offline") {
       await adminUpdateDriver(driverId, { status: DRIVER_STATUS.OFFLINE })
+      await audit({
+        action: "driver.status_changed",
+        actor: admin.email ?? admin.uid,
+        resourceType: "driver",
+        resourceId: driverId,
+        details: { target: driverName, status: DRIVER_STATUS.OFFLINE },
+      })
       return NextResponse.json({ ok: true })
     }
 
@@ -72,11 +98,25 @@ export async function POST(req: Request) {
       }
       const hashed = await hashPassword(password)
       await adminUpdateDriver(driverId, { password: hashed })
+      await audit({
+        action: "driver.password_changed",
+        actor: admin.email ?? admin.uid,
+        resourceType: "driver",
+        resourceId: driverId,
+        details: { target: driverName },
+      })
       return NextResponse.json({ ok: true })
     }
 
     if (action === "update") {
       await adminUpdateDriver(driverId, (body.payload ?? {}) as Partial<Driver>)
+      await audit({
+        action: "driver.updated",
+        actor: admin.email ?? admin.uid,
+        resourceType: "driver",
+        resourceId: driverId,
+        details: { target: (body.payload as Partial<Driver>)?.name ?? driverName },
+      })
       return NextResponse.json({ ok: true })
     }
 

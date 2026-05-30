@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
   Loader2, Trash2, UserPlus, Shield, User, MoreHorizontal,
-  KeyRound, UserCog, UserX, UserCheck, RefreshCw,
+  KeyRound, UserCog, UserX, UserCheck, RefreshCw, Activity,
 } from "lucide-react"
 import {
   Dialog,
@@ -46,15 +46,79 @@ interface TeamUser {
   creationTime: string | null
 }
 
+interface ActivityEntry {
+  id: string
+  action: string
+  actor: string | null
+  resourceType: string | null
+  resourceId: string | null
+  details: Record<string, unknown> | null
+  timestamp: string | null
+}
+
+/** Turn a raw audit entry into a readable sentence. */
+function describeActivity(e: ActivityEntry): string {
+  const d = e.details ?? {}
+  const target = (d.target as string) || e.resourceId || "a user"
+  const role = d.role ? (ROLES[d.role as UserRole]?.label ?? d.role) : ""
+  switch (e.action) {
+    case "user.invited":
+      return `Invited ${target}${role ? ` as ${role}` : ""}`
+    case "user.role_changed":
+      return `Changed ${target}'s role${role ? ` to ${role}` : ""}`
+    case "user.password_reset":
+      return `Sent a password reset to ${target}`
+    case "user.disabled":
+      return `Disabled ${target}'s account`
+    case "user.enabled":
+      return `Enabled ${target}'s account`
+    case "user.deleted":
+      return `Removed ${target} from the team`
+    case "order.created":
+      return `Created order ${e.resourceId ?? ""}`.trim()
+    case "order.updated":
+      return `Updated order ${e.resourceId ?? ""}`.trim()
+    case "order.deleted":
+      return `Deleted order ${e.resourceId ?? ""}`.trim()
+    case "order.assigned":
+      return `Assigned order ${e.resourceId ?? ""}`.trim()
+    case "order.status_changed":
+      return `Changed status of order ${e.resourceId ?? ""}`.trim()
+    case "driver.created":
+      return `Added driver ${e.resourceId ?? ""}`.trim()
+    case "driver.updated":
+      return `Updated driver ${e.resourceId ?? ""}`.trim()
+    case "driver.deleted":
+      return `Removed driver ${e.resourceId ?? ""}`.trim()
+    case "driver.password_changed":
+      return `Changed a driver's password`
+    case "driver.status_changed":
+      return `Changed a driver's status`
+    case "settings.updated":
+      return `Updated settings`
+    case "admin.login":
+      return `Signed in`
+    case "admin.clean_orders":
+      return `Cleaned up orders`
+    case "audit.pruned":
+      return `Pruned ${(d.count as number) ?? 0} old activity log ${
+        (d.count as number) === 1 ? "entry" : "entries"
+      }`
+    default:
+      return e.action
+  }
+}
+
 function RoleBadge({ role }: { role: UserRole }) {
   const def = ROLES[role] ?? ROLES.viewer
   return <Badge variant={def.badge}>{def.label}</Badge>
 }
 
-function formatDate(iso: string | null) {
+function formatDateTime(iso: string | null) {
   if (!iso) return "Never"
-  return new Date(iso).toLocaleDateString("en-GB", {
+  return new Date(iso).toLocaleString("en-GB", {
     day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
   })
 }
 
@@ -86,6 +150,25 @@ export function UsersSettingsPanel() {
   const [newRole, setNewRole] = useState<UserRole>("dispatcher")
   const [actionLoading, setActionLoading] = useState(false)
 
+  // Activity log
+  const [logs, setLogs] = useState<ActivityEntry[]>([])
+  const [logsLoading, setLogsLoading] = useState(true)
+  const [logActor, setLogActor] = useState<string>("all")
+
+  const loadActivity = useCallback(async () => {
+    setLogsLoading(true)
+    try {
+      const res = await apiFetch("/api/admin/activity?limit=200")
+      if (!res.ok) throw new Error("Failed")
+      const data = await res.json()
+      setLogs(data.entries ?? [])
+    } catch {
+      // Non-fatal: the activity panel just shows empty.
+    } finally {
+      setLogsLoading(false)
+    }
+  }, [])
+
   const loadUsers = useCallback(async () => {
     setLoading(true)
     try {
@@ -100,7 +183,10 @@ export function UsersSettingsPanel() {
     }
   }, [])
 
-  useEffect(() => { loadUsers() }, [loadUsers])
+  useEffect(() => {
+    loadUsers()
+    loadActivity()
+  }, [loadUsers, loadActivity])
 
   async function handleInvite() {
     const email = inviteEmail.trim().toLowerCase()
@@ -126,6 +212,7 @@ export function UsersSettingsPanel() {
       setInviteEmail("")
       setInviteRole("dispatcher")
       loadUsers()
+      loadActivity()
     } catch {
       toast({ title: "Error", description: "Failed to send invite.", variant: "destructive" })
     } finally {
@@ -145,7 +232,12 @@ export function UsersSettingsPanel() {
     try {
       const res = await apiFetch(`/api/admin/users/${managingUser.uid}`, {
         method: "PATCH",
-        body: JSON.stringify({ action: "update_role", role: newRole }),
+        body: JSON.stringify({
+          action: "update_role",
+          role: newRole,
+          targetName: managingUser.name,
+          targetEmail: managingUser.email,
+        }),
       })
       if (!res.ok) {
         const d = await res.json()
@@ -155,6 +247,7 @@ export function UsersSettingsPanel() {
       toast({ title: "Role updated", description: `${managingUser.name}'s role is now ${ROLES[newRole].label}.` })
       setShowManage(false)
       loadUsers()
+      loadActivity()
     } catch {
       toast({ title: "Error", description: "Failed to update role.", variant: "destructive" })
     } finally {
@@ -167,7 +260,11 @@ export function UsersSettingsPanel() {
     try {
       const res = await apiFetch(`/api/admin/users/${user.uid}`, {
         method: "PATCH",
-        body: JSON.stringify({ action: "reset_password" }),
+        body: JSON.stringify({
+          action: "reset_password",
+          targetName: user.name,
+          targetEmail: user.email,
+        }),
       })
       if (!res.ok) {
         const d = await res.json()
@@ -175,6 +272,7 @@ export function UsersSettingsPanel() {
         return
       }
       toast({ title: "Password reset sent", description: `A reset email has been sent to ${user.email}.` })
+      loadActivity()
     } catch {
       toast({ title: "Error", description: "Failed to send reset email.", variant: "destructive" })
     } finally {
@@ -187,7 +285,11 @@ export function UsersSettingsPanel() {
     try {
       const res = await apiFetch(`/api/admin/users/${user.uid}`, {
         method: "PATCH",
-        body: JSON.stringify({ action: "toggle_disabled" }),
+        body: JSON.stringify({
+          action: "toggle_disabled",
+          targetName: user.name,
+          targetEmail: user.email,
+        }),
       })
       if (!res.ok) {
         const d = await res.json()
@@ -197,6 +299,7 @@ export function UsersSettingsPanel() {
       const action = user.disabled ? "enabled" : "disabled"
       toast({ title: `Account ${action}`, description: `${user.name}'s account has been ${action}.` })
       loadUsers()
+      loadActivity()
     } catch {
       toast({ title: "Error", description: "Failed to update account status.", variant: "destructive" })
     } finally {
@@ -208,7 +311,10 @@ export function UsersSettingsPanel() {
     if (!confirm(`Remove ${user.name} from the team? This cannot be undone.`)) return
     setActionLoading(true)
     try {
-      const res = await apiFetch(`/api/admin/users/${user.uid}`, { method: "DELETE" })
+      const res = await apiFetch(
+        `/api/admin/users/${user.uid}?target=${encodeURIComponent(user.name || user.email)}`,
+        { method: "DELETE" },
+      )
       if (!res.ok) {
         const d = await res.json()
         toast({ title: "Error", description: d.error, variant: "destructive" })
@@ -217,6 +323,7 @@ export function UsersSettingsPanel() {
       toast({ title: "User removed", description: `${user.name} has been removed from the team.` })
       setShowManage(false)
       loadUsers()
+      loadActivity()
     } catch {
       toast({ title: "Error", description: "Failed to remove user.", variant: "destructive" })
     } finally {
@@ -293,7 +400,7 @@ export function UsersSettingsPanel() {
                 </div>
                 <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                 <p className="text-xs text-muted-foreground">
-                  Last sign-in: {formatDate(user.lastSignInTime)}
+                  Last sign-in: {formatDateTime(user.lastSignInTime)}
                 </p>
               </div>
               <RoleBadge role={user.role} />
@@ -336,6 +443,77 @@ export function UsersSettingsPanel() {
           ))}
         </ul>
       )}
+
+      {/* Activity log */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Activity className="size-4 text-muted-foreground" />
+            <h3 className="text-base font-semibold">Activity log</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={logActor} onValueChange={setLogActor}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="All users" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All users</SelectItem>
+                {users.map((u) => (
+                  <SelectItem key={u.uid} value={u.email}>
+                    {u.name || u.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={loadActivity}
+              disabled={logsLoading}
+              title="Refresh activity"
+            >
+              <RefreshCw className={`size-4 ${logsLoading ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
+        </div>
+
+        {logsLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (() => {
+          const filtered =
+            logActor === "all" ? logs : logs.filter((l) => l.actor === logActor)
+          if (filtered.length === 0) {
+            return (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                No activity recorded yet.
+              </div>
+            )
+          }
+          const nameByEmail = new Map(users.map((u) => [u.email, u.name]))
+          return (
+            <ul className="divide-y rounded-lg border">
+              {filtered.map((entry) => (
+                <li key={entry.id} className="flex items-start gap-3 px-4 py-3">
+                  <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <User className="size-3.5 text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm">
+                      <span className="font-medium">
+                        {(entry.actor && nameByEmail.get(entry.actor)) || entry.actor || "Unknown"}
+                      </span>{" "}
+                      <span className="text-muted-foreground">{describeActivity(entry)}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground">{formatDateTime(entry.timestamp)}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )
+        })()}
+      </div>
 
       {/* Invite dialog */}
       <Dialog open={showInvite} onOpenChange={setShowInvite}>
