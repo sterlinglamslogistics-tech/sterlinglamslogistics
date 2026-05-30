@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { Save, Loader2, Pencil, Store, Package } from "lucide-react"
 import { doc, getDoc, setDoc } from "firebase/firestore"
+import { logActivity } from "@/lib/activity-client"
 import { db } from "@/lib/firebase"
 import { toast } from "@/hooks/use-toast"
 import Image from "next/image"
@@ -56,6 +57,7 @@ export function BusinessSettingsPanel() {
     setSaving(true)
     try {
       await setDoc(doc(db, "settings", BUSINESS_SETTINGS_DOC), biz)
+      logActivity({ action: "settings.updated", details: { section: "business" } })
       toast({ title: "Saved", description: "Business settings updated." })
       setEditingName(false)
     } catch (err) {

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select"
 import { Save, Loader2 } from "lucide-react"
 import { doc, getDoc, setDoc } from "firebase/firestore"
+import { logActivity } from "@/lib/activity-client"
 import { db } from "@/lib/firebase"
 import { toast } from "@/hooks/use-toast"
 
@@ -63,6 +64,7 @@ export function NotificationSettingsPanel() {
     setSaving(true)
     try {
       await setDoc(doc(db, "settings", SETTINGS_DOC), notif)
+      logActivity({ action: "settings.updated", details: { section: "notification" } })
       toast({ title: "Saved", description: "Customer notification settings updated." })
     } catch (err) {
       console.error("Failed to save notification settings:", err)

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select"
 import { Save, Loader2 } from "lucide-react"
 import { doc, getDoc, setDoc } from "firebase/firestore"
+import { logActivity } from "@/lib/activity-client"
 import { db } from "@/lib/firebase"
 import { toast } from "@/hooks/use-toast"
 
@@ -62,6 +63,7 @@ export function RouteSettingsPanel() {
     setSaving(true)
     try {
       await setDoc(doc(db, "settings", SETTINGS_DOC), settings)
+      logActivity({ action: "settings.updated", details: { section: "route" } })
       toast({ title: "Saved", description: "Route settings updated." })
     } catch (err) {
       console.error("Failed to save route settings:", err)
