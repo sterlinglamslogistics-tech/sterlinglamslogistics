@@ -1468,6 +1468,7 @@ export default function OrdersPage() {
           </TableBody>
         </Table>
         </div>
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
