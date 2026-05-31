@@ -1,0 +1,4 @@
+/* This file is replaced by the build script with a copy of the main
+   project's app/globals.css so the styles match exactly. The placeholder
+   below just lets `next build` not blow up if the script hasn't run yet. */
+@import 'tailwindcss';
