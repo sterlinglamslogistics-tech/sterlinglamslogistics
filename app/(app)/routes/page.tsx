@@ -25,6 +25,7 @@ export default function RoutesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
+  const [mobileView, setMobileView] = useState<"map" | "list">("map")
 
   const firstOrdersLoadedRef = useRef(false)
   const firstDriversLoadedRef = useRef(false)
@@ -646,8 +647,32 @@ export default function RoutesPage() {
   }
 
   return (
-    <div className="grid h-[calc(100vh-3.5rem)] gap-0 overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
-      <aside className="flex h-full min-h-0 flex-col border-r bg-card">
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden">
+      {/* Mobile: Map / Orders tab toggle */}
+      <div className="flex shrink-0 border-b xl:hidden">
+        <button
+          type="button"
+          onClick={() => {
+            setMobileView("map")
+            setTimeout(() => {
+              if (mapRef.current) google.maps.event.trigger(mapRef.current, "resize")
+            }, 50)
+          }}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileView === "map" ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}
+        >
+          Map
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileView("list")}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${mobileView === "list" ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}
+        >
+          Orders ({filteredOrders.length})
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 xl:grid xl:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className={`min-h-0 flex-col border-r bg-card ${mobileView === "list" ? "flex flex-1" : "hidden"} xl:flex xl:h-full`}>
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h1 className="text-lg font-semibold text-foreground">Orders ({filteredOrders.length})</h1>
           <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setSearchTerm("")}>
@@ -770,8 +795,8 @@ export default function RoutesPage() {
         </div>
       </aside>
 
-      <section className="relative h-full overflow-hidden bg-card">
-        <div ref={mapContainerRef} className="h-full w-full" />
+      <section className={`relative overflow-hidden bg-card ${mobileView === "map" ? "flex flex-1 flex-col" : "hidden"} xl:flex xl:flex-1 xl:flex-col`}>
+        <div ref={mapContainerRef} className="absolute inset-0" />
 
         {/* Legend — bottom-right, Shipday-style */}
         <div className="pointer-events-none absolute bottom-4 right-4 flex items-center gap-3 rounded-lg bg-white/95 px-4 py-2 text-xs shadow-md">
@@ -807,6 +832,7 @@ export default function RoutesPage() {
           </div>
         )}
       </section>
+      </div>
     </div>
   )
 }

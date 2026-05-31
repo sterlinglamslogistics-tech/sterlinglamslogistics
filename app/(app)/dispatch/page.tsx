@@ -84,6 +84,7 @@ export default function DispatchPage() {
   const [error, setError] = useState<string | null>(null)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  const [activePanel, setActivePanel] = useState<"drivers" | "assigned" | "unassigned">("drivers")
 
   async function getAdminHeaders(): Promise<Record<string, string>> {
     const token = await auth.currentUser?.getIdToken()
@@ -224,9 +225,25 @@ export default function DispatchPage() {
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
       </div>
 
-      <div className="grid gap-0 rounded-lg border bg-card xl:grid-cols-[260px_1fr_1fr]">
+      <div className="overflow-hidden rounded-lg border bg-card">
+        {/* Mobile tab switcher */}
+        <div className="flex border-b xl:hidden">
+          {(["drivers", "assigned", "unassigned"] as const).map((panel) => (
+            <button
+              key={panel}
+              type="button"
+              onClick={() => setActivePanel(panel)}
+              className={`flex-1 py-2.5 text-xs font-medium capitalize transition-colors ${
+                activePanel === panel ? "border-b-2 border-primary text-primary" : "text-muted-foreground"
+              }`}
+            >
+              {panel === "drivers" ? "Drivers" : panel === "assigned" ? "Assigned" : "Unassigned"}
+            </button>
+          ))}
+        </div>
+        <div className="grid gap-0 xl:grid-cols-[260px_1fr_1fr]">
         {/* ── Drivers sidebar ────────────────────────────── */}
-        <div className="border-r">
+        <div className={`border-r ${activePanel === "drivers" ? "block" : "hidden xl:block"}`}>
           <div className="border-b px-4 py-3 text-lg font-semibold text-foreground">Drivers</div>
           <div className="max-h-[75vh] overflow-y-auto">
             {allDrivers.length === 0 ? (
@@ -272,7 +289,7 @@ export default function DispatchPage() {
         </div>
 
         {/* ── Assigned orders ────────────────────────────── */}
-        <div className="border-r">
+        <div className={`border-r ${activePanel === "assigned" ? "block" : "hidden xl:block"}`}>
           <div className="border-b px-4 py-3 text-lg font-semibold text-foreground">
             Assigned Orders
           </div>
@@ -334,7 +351,7 @@ export default function DispatchPage() {
         </div>
 
         {/* ── Unassigned / New orders ────────────────────── */}
-        <div>
+        <div className={activePanel === "unassigned" ? "block" : "hidden xl:block"}>
           <div className="border-b px-4 py-3 text-lg font-semibold text-foreground">
             Unassigned Orders
           </div>
@@ -376,6 +393,7 @@ export default function DispatchPage() {
               ))
             )}
           </div>
+        </div>
         </div>
       </div>
     </div>
