@@ -1,28 +1,47 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts"
 import {
   Package,
   CheckCircle2,
   Clock,
   XCircle,
   TrendingUp,
+  TrendingDown,
   Users,
   CalendarDays,
+  Download,
+  Timer,
+  AlertTriangle,
+  Minus,
 } from "lucide-react"
+import { format, startOfDay, startOfWeek, startOfMonth, subDays, subWeeks, subMonths } from "date-fns"
 import { fetchOrders, fetchDrivers, fetchNotificationLogs } from "@/lib/firestore"
 import type { Order, Driver, NotificationLog } from "@/lib/data"
 
-type Period = "today" | "week" | "month" | "all"
+type Period = "today" | "week" | "month" | "all" | "custom"
 
 const PERIOD_LABELS: Record<Period, string> = {
   today: "Today",
   week: "This Week",
   month: "This Month",
   all: "All Time",
+  custom: "Custom",
 }
 
 // ---------------------------------------------------------------------------
@@ -39,34 +58,67 @@ function toDate(value: unknown): Date | null {
 }
 
 function localDateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  return format(d, "yyyy-MM-dd")
 }
 
-function periodStart(period: Period): Date | null {
+function getPeriodBounds(
+  period: Period,
+  customRange: { from: Date | undefined; to: Date | undefined }
+): { start: Date | null; end: Date | null } {
   const now = new Date()
   if (period === "today") {
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    return { start: startOfDay(now), end: null }
   }
   if (period === "week") {
-    const start = new Date(now)
-    start.setDate(now.getDate() - now.getDay())
-    start.setHours(0, 0, 0, 0)
-    return start
+    return { start: startOfWeek(now, { weekStartsOn: 0 }), end: null }
   }
   if (period === "month") {
-    return new Date(now.getFullYear(), now.getMonth(), 1)
+    return { start: startOfMonth(now), end: null }
   }
-  return null
+  if (period === "custom" && customRange.from) {
+    return {
+      start: startOfDay(customRange.from),
+      end: customRange.to ? new Date(customRange.to.setHours(23, 59, 59, 999)) : null,
+    }
+  }
+  return { start: null, end: null }
 }
 
-function filterOrders(orders: Order[], period: Period): Order[] {
-  const start = periodStart(period)
+function getPrevPeriodBounds(period: Period): { start: Date | null; end: Date | null } {
+  const now = new Date()
+  if (period === "today") {
+    const d = subDays(startOfDay(now), 1)
+    return { start: d, end: startOfDay(now) }
+  }
+  if (period === "week") {
+    const thisWeekStart = startOfWeek(now, { weekStartsOn: 0 })
+    return { start: subWeeks(thisWeekStart, 1), end: thisWeekStart }
+  }
+  if (period === "month") {
+    const thisMonthStart = startOfMonth(now)
+    return { start: subMonths(thisMonthStart, 1), end: thisMonthStart }
+  }
+  return { start: null, end: null }
+}
+
+function filterOrdersByBounds(
+  orders: Order[],
+  start: Date | null,
+  end: Date | null
+): Order[] {
   if (!start) return orders
   return orders.filter((o) => {
     const d = toDate(o.createdAt)
-    return d !== null && d >= start
+    if (!d) return false
+    if (d < start) return false
+    if (end && d >= end) return false
+    return true
   })
 }
+
+// ---------------------------------------------------------------------------
+// Sub-helpers
+// ---------------------------------------------------------------------------
 
 interface DayRow {
   key: string
@@ -76,11 +128,10 @@ interface DayRow {
   revenue: number
 }
 
-function buildDailyBreakdown(orders: Order[], period: "week" | "month"): DayRow[] {
+function buildDailyBreakdown(orders: Order[], period: "week" | "month" | "custom"): DayRow[] {
   const map = new Map<string, DayRow>()
 
   if (period === "week") {
-    // Pre-fill all 7 days (Sun–Sat) so empty days still appear
     const now = new Date()
     for (let i = 0; i < 7; i++) {
       const d = new Date(now)
@@ -89,7 +140,7 @@ function buildDailyBreakdown(orders: Order[], period: "week" | "month"): DayRow[
       const key = localDateKey(d)
       map.set(key, {
         key,
-        label: new Intl.DateTimeFormat("en-NG", { weekday: "short", month: "short", day: "numeric" }).format(d),
+        label: format(d, "EEE d MMM"),
         orders: 0,
         delivered: 0,
         revenue: 0,
@@ -103,7 +154,7 @@ function buildDailyBreakdown(orders: Order[], period: "week" | "month"): DayRow[
     const key = localDateKey(d)
     const existing = map.get(key) ?? {
       key,
-      label: new Intl.DateTimeFormat("en-NG", { month: "short", day: "numeric" }).format(d),
+      label: format(d, "d MMM"),
       orders: 0,
       delivered: 0,
       revenue: 0,
@@ -119,51 +170,87 @@ function buildDailyBreakdown(orders: Order[], period: "week" | "month"): DayRow[
   return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key))
 }
 
-function buildStats(orders: Order[], drivers: Driver[]) {
-  return [
-    {
-      title: "Total Orders",
-      value: orders.length,
-      icon: Package,
-      color: "text-primary",
-      bgColor: "bg-primary/10",
-    },
-    {
-      title: "Delivered",
-      value: orders.filter((o) => o.status === "delivered").length,
-      icon: CheckCircle2,
-      color: "text-success",
-      bgColor: "bg-success/10",
-    },
-    {
-      title: "Unassigned",
-      value: orders.filter((o) => o.status === "unassigned").length,
-      icon: Clock,
-      color: "text-warning",
-      bgColor: "bg-warning/10",
-    },
-    {
-      title: "Failed/Cancelled",
-      value: orders.filter((o) => o.status === "failed" || o.status === "cancelled").length,
-      icon: XCircle,
-      color: "text-destructive",
-      bgColor: "bg-destructive/10",
-    },
-    {
-      title: "In Transit",
-      value: orders.filter((o) => o.status === "in-transit").length,
-      icon: TrendingUp,
-      color: "text-chart-2",
-      bgColor: "bg-chart-2/10",
-    },
-    {
-      title: "Total Drivers",
-      value: drivers.length,
-      icon: Users,
-      color: "text-primary",
-      bgColor: "bg-primary/10",
-    },
-  ]
+interface DriverRow {
+  id: string
+  name: string
+  assigned: number
+  delivered: number
+  failed: number
+  revenue: number
+  avgMinutes: number | null
+}
+
+function buildDriverStats(orders: Order[], drivers: Driver[]): DriverRow[] {
+  const map = new Map<string, DriverRow>()
+
+  for (const driver of drivers) {
+    map.set(driver.id, {
+      id: driver.id,
+      name: driver.name,
+      assigned: 0,
+      delivered: 0,
+      failed: 0,
+      revenue: 0,
+      avgMinutes: null,
+    })
+  }
+
+  const deliveryMinutes: Map<string, number[]> = new Map()
+
+  for (const order of orders) {
+    if (!order.assignedDriver) continue
+    const row = map.get(order.assignedDriver)
+    if (!row) continue
+    row.assigned++
+    if (order.status === "delivered") {
+      row.delivered++
+      row.revenue += order.amount
+      const start = toDate(order.startedAt ?? order.pickedUpAt)
+      const end = toDate(order.deliveredAt)
+      if (start && end) {
+        const mins = (end.getTime() - start.getTime()) / 60000
+        if (mins > 0 && mins < 600) {
+          const arr = deliveryMinutes.get(order.assignedDriver) ?? []
+          arr.push(mins)
+          deliveryMinutes.set(order.assignedDriver, arr)
+        }
+      }
+    }
+    if (order.status === "failed" || order.status === "cancelled") {
+      row.failed++
+    }
+  }
+
+  for (const [driverId, mins] of deliveryMinutes) {
+    const row = map.get(driverId)
+    if (row && mins.length) {
+      row.avgMinutes = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length)
+    }
+  }
+
+  return Array.from(map.values())
+    .filter((r) => r.assigned > 0)
+    .sort((a, b) => b.delivered - a.delivered)
+}
+
+function avgDeliveryTime(orders: Order[]): number | null {
+  const times: number[] = []
+  for (const order of orders) {
+    if (order.status !== "delivered") continue
+    const start = toDate(order.startedAt ?? order.pickedUpAt)
+    const end = toDate(order.deliveredAt)
+    if (start && end) {
+      const mins = (end.getTime() - start.getTime()) / 60000
+      if (mins > 0 && mins < 600) times.push(mins)
+    }
+  }
+  if (!times.length) return null
+  return Math.round(times.reduce((a, b) => a + b, 0) / times.length)
+}
+
+function formatMinutes(mins: number): string {
+  if (mins < 60) return `${mins}m`
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
 function formatCurrency(amount: number) {
@@ -174,16 +261,141 @@ function formatCurrency(amount: number) {
   }).format(amount)
 }
 
+function buildStats(orders: Order[], drivers: Driver[], avgMins: number | null) {
+  return [
+    {
+      title: "Total Orders",
+      value: orders.length,
+      icon: Package,
+      color: "text-primary",
+      bgColor: "bg-primary/10",
+      format: "number",
+    },
+    {
+      title: "Delivered",
+      value: orders.filter((o) => o.status === "delivered").length,
+      icon: CheckCircle2,
+      color: "text-success",
+      bgColor: "bg-success/10",
+      format: "number",
+    },
+    {
+      title: "Unassigned",
+      value: orders.filter((o) => o.status === "unassigned").length,
+      icon: Clock,
+      color: "text-warning",
+      bgColor: "bg-warning/10",
+      format: "number",
+    },
+    {
+      title: "Failed / Cancelled",
+      value: orders.filter((o) => o.status === "failed" || o.status === "cancelled").length,
+      icon: XCircle,
+      color: "text-destructive",
+      bgColor: "bg-destructive/10",
+      format: "number",
+    },
+    {
+      title: "In Transit",
+      value: orders.filter((o) => o.status === "in-transit").length,
+      icon: TrendingUp,
+      color: "text-chart-2",
+      bgColor: "bg-chart-2/10",
+      format: "number",
+    },
+    {
+      title: "Avg Delivery Time",
+      value: avgMins ?? 0,
+      display: avgMins !== null ? formatMinutes(avgMins) : "N/A",
+      icon: Timer,
+      color: "text-chart-1",
+      bgColor: "bg-chart-1/10",
+      format: "time",
+    },
+    {
+      title: "Active Drivers",
+      value: drivers.filter((d) => d.status === "available" || d.status === "busy").length,
+      icon: Users,
+      color: "text-primary",
+      bgColor: "bg-primary/10",
+      format: "number",
+    },
+    {
+      title: "Total Drivers",
+      value: drivers.length,
+      icon: Users,
+      color: "text-muted-foreground",
+      bgColor: "bg-muted/50",
+      format: "number",
+    },
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// CSV Export
+// ---------------------------------------------------------------------------
+
+function exportCSV(orders: Order[], period: string) {
+  const rows = [
+    ["Order #", "Customer", "Phone", "Address", "Status", "Amount (NGN)", "Driver", "Created At", "Delivered At"],
+    ...orders.map((o) => {
+      const created = toDate(o.createdAt)
+      const delivered = toDate(o.deliveredAt)
+      return [
+        o.orderNumber,
+        o.customerName,
+        o.phone,
+        `"${o.address.replace(/"/g, '""')}"`,
+        o.status,
+        o.amount,
+        o.assignedDriver ?? "",
+        created ? format(created, "yyyy-MM-dd HH:mm") : "",
+        delivered ? format(delivered, "yyyy-MM-dd HH:mm") : "",
+      ]
+    }),
+  ]
+  const csv = rows.map((r) => r.join(",")).join("\n")
+  const blob = new Blob([csv], { type: "text/csv" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `sterlinglams-report-${period}-${format(new Date(), "yyyy-MM-dd")}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ---------------------------------------------------------------------------
+// Comparison badge
+// ---------------------------------------------------------------------------
+
+function DeltaBadge({ current, prev, format: fmt }: { current: number; prev: number; format?: "percent" | "currency" }) {
+  if (prev === 0 && current === 0) return <span className="text-xs text-muted-foreground">—</span>
+  const delta = current - prev
+  const pct = prev === 0 ? 100 : Math.round((delta / prev) * 100)
+  const up = delta >= 0
+  const label = fmt === "currency"
+    ? `${up ? "+" : ""}${formatCurrency(delta)}`
+    : `${up ? "+" : ""}${pct}%`
+  return (
+    <span className={`flex items-center gap-0.5 text-xs font-medium ${up ? "text-success" : "text-destructive"}`}>
+      {delta === 0 ? <Minus className="size-3" /> : up ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+      {label} vs prev
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function ReportsPage() {
-  const [orders, setOrders] = useState<Order[]>([])
+  const [allOrders, setAllOrders] = useState<Order[]>([])
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [notificationLogs, setNotificationLogs] = useState<NotificationLog[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [period, setPeriod] = useState<Period>("all")
+  const [customRange, setCustomRange] = useState<{ from: Date | undefined; to: Date | undefined }>({ from: undefined, to: undefined })
+  const [calendarOpen, setCalendarOpen] = useState(false)
 
   useEffect(() => {
     async function loadData() {
@@ -191,9 +403,9 @@ export default function ReportsPage() {
         const [orderData, driverData, logData] = await Promise.all([
           fetchOrders(),
           fetchDrivers(),
-          fetchNotificationLogs(15),
+          fetchNotificationLogs(20),
         ])
-        setOrders(orderData)
+        setAllOrders(orderData)
         setDrivers(driverData)
         setNotificationLogs(logData)
       } finally {
@@ -203,7 +415,37 @@ export default function ReportsPage() {
     loadData()
   }, [])
 
-  const filteredOrders = useMemo(() => filterOrders(orders, period), [orders, period])
+  const { start, end } = useMemo(() => getPeriodBounds(period, customRange), [period, customRange])
+  const { start: prevStart, end: prevEnd } = useMemo(() => getPrevPeriodBounds(period), [period])
+
+  const filteredOrders = useMemo(() => filterOrdersByBounds(allOrders, start, end), [allOrders, start, end])
+  const prevOrders = useMemo(() => filterOrdersByBounds(allOrders, prevStart, prevEnd), [allOrders, prevStart, prevEnd])
+
+  const deliveredOrders = useMemo(() => filteredOrders.filter((o) => o.status === "delivered"), [filteredOrders])
+  const prevDelivered = useMemo(() => prevOrders.filter((o) => o.status === "delivered"), [prevOrders])
+
+  const totalRevenue = useMemo(() => deliveredOrders.reduce((s, o) => s + o.amount, 0), [deliveredOrders])
+  const prevRevenue = useMemo(() => prevDelivered.reduce((s, o) => s + o.amount, 0), [prevDelivered])
+
+  const deliveryRate = filteredOrders.length
+    ? Math.round((deliveredOrders.length / filteredOrders.length) * 100)
+    : 0
+
+  const avgMins = useMemo(() => avgDeliveryTime(filteredOrders), [filteredOrders])
+  const stats = useMemo(() => buildStats(filteredOrders, drivers, avgMins), [filteredOrders, drivers, avgMins])
+  const driverStats = useMemo(() => buildDriverStats(filteredOrders, drivers), [filteredOrders, drivers])
+
+  const chartData = useMemo(() => {
+    if (period === "today" || period === "all") return []
+    const rows = buildDailyBreakdown(filteredOrders, period === "custom" ? "custom" : period)
+    return rows.map((r) => ({ name: r.label, revenue: r.revenue, orders: r.orders, delivered: r.delivered }))
+  }, [filteredOrders, period])
+
+  const handleExport = useCallback(() => {
+    exportCSV(filteredOrders, period === "custom"
+      ? `${customRange.from ? format(customRange.from, "yyyy-MM-dd") : "custom"}`
+      : period)
+  }, [filteredOrders, period, customRange])
 
   if (isLoading) {
     return (
@@ -213,24 +455,10 @@ export default function ReportsPage() {
     )
   }
 
-  const stats = buildStats(filteredOrders, drivers)
-
-  const deliveredCount = filteredOrders.filter((o) => o.status === "delivered").length
-  const deliveryRate = filteredOrders.length
-    ? Math.round((deliveredCount / filteredOrders.length) * 100)
-    : 0
-
-  const totalRevenue = filteredOrders
-    .filter((o) => o.status === "delivered")
-    .reduce((sum, o) => sum + o.amount, 0)
-
   const formatLogTime = (value: unknown) => {
-    const date = toDate(value)
-    if (!date) return "-"
-    return new Intl.DateTimeFormat("en-NG", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date)
+    const d = toDate(value)
+    if (!d) return "-"
+    return format(d, "d MMM yyyy, h:mm a")
   }
 
   const eventLabel: Record<NotificationLog["event"], string> = {
@@ -240,9 +468,7 @@ export default function ReportsPage() {
   }
 
   const channelBadge = (sent: boolean) =>
-    sent
-      ? "bg-success/15 text-success border-success/30"
-      : "bg-muted text-muted-foreground border-border"
+    sent ? "bg-success/15 text-success border-success/30" : "bg-muted text-muted-foreground border-border"
 
   const statusStyle = (status: string) => {
     if (status === "delivered") return "bg-success/10 text-success"
@@ -251,9 +477,12 @@ export default function ReportsPage() {
     return "bg-warning/10 text-warning"
   }
 
+  const showComparison = period !== "all" && period !== "custom"
+  const showBreakdown = period === "week" || period === "month" || period === "custom"
+
   return (
-    <div className="flex flex-col gap-6">
-      {/* Header + period filter */}
+    <div className="flex flex-col gap-6 pb-10">
+      {/* ── Header ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Reports</h1>
@@ -262,87 +491,164 @@ export default function ReportsPage() {
           </p>
         </div>
 
-        <div className="flex self-start rounded-lg border border-border bg-muted/40 p-1 gap-1">
-          {(["today", "week", "month", "all"] as Period[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                period === p
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {PERIOD_LABELS[p]}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Period tabs */}
+          <div className="flex rounded-lg border border-border bg-muted/40 p-1 gap-1">
+            {(["today", "week", "month", "all"] as Period[]).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  period === p
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {PERIOD_LABELS[p]}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom date range */}
+          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className={`h-9 gap-1.5 text-xs ${period === "custom" ? "border-primary text-primary" : ""}`}
+              >
+                <CalendarDays className="size-3.5" />
+                {period === "custom" && customRange.from
+                  ? customRange.to
+                    ? `${format(customRange.from, "d MMM")} – ${format(customRange.to, "d MMM")}`
+                    : format(customRange.from, "d MMM")
+                  : "Custom"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="range"
+                selected={{ from: customRange.from, to: customRange.to }}
+                onSelect={(range) => {
+                  setCustomRange({ from: range?.from, to: range?.to })
+                  if (range?.from) setPeriod("custom")
+                  if (range?.from && range?.to) setCalendarOpen(false)
+                }}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+
+          {/* Export CSV */}
+          <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={handleExport}>
+            <Download className="size-3.5" />
+            Export CSV
+          </Button>
         </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* ── Stat cards ── */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat) => (
           <Card key={stat.title}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.title}
-              </CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
               <div className={`flex size-9 items-center justify-center rounded-lg ${stat.bgColor}`}>
                 <stat.icon className={`size-[18px] ${stat.color}`} />
               </div>
             </CardHeader>
             <CardContent>
-              <span className="text-3xl font-bold text-foreground">{stat.value}</span>
-              {period !== "all" && stat.title !== "Total Drivers" && (
-                <p className="mt-1 text-xs text-muted-foreground">{PERIOD_LABELS[period]}</p>
-              )}
+              <span className="text-3xl font-bold text-foreground">
+                {"display" in stat ? stat.display : stat.value}
+              </span>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Delivery rate + Revenue */}
+      {/* ── Delivery rate + Revenue (with comparison) ── */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-2">
             <CardTitle className="text-base">Delivery Success Rate</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
               <span className="text-4xl font-bold text-success">{deliveryRate}%</span>
               <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div
-                  className="h-full rounded-full bg-success transition-all"
-                  style={{ width: `${deliveryRate}%` }}
-                />
+                <div className="h-full rounded-full bg-success transition-all" style={{ width: `${deliveryRate}%` }} />
               </div>
               <p className="text-xs text-muted-foreground">
-                {deliveredCount} out of {filteredOrders.length} orders completed
+                {deliveredOrders.length} of {filteredOrders.length} orders delivered
                 {period !== "all" && ` — ${PERIOD_LABELS[period].toLowerCase()}`}
               </p>
+              {showComparison && (
+                <DeltaBadge current={deliveredOrders.length} prev={prevDelivered.length} />
+              )}
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-2">
             <CardTitle className="text-base">Revenue from Delivered</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col gap-3">
-              <span className="text-4xl font-bold text-foreground">
-                {formatCurrency(totalRevenue)}
-              </span>
+            <div className="flex flex-col gap-2">
+              <span className="text-4xl font-bold text-foreground">{formatCurrency(totalRevenue)}</span>
               <p className="text-xs text-muted-foreground">
-                Total revenue from delivered orders
+                Collected from delivered orders
                 {period !== "all" && ` — ${PERIOD_LABELS[period].toLowerCase()}`}
               </p>
+              {showComparison && (
+                <DeltaBadge current={totalRevenue} prev={prevRevenue} format="currency" />
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* TODAY — order list */}
+      {/* ── Revenue Bar Chart ── */}
+      {chartData.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Revenue Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => `₦${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}
+                  width={48}
+                />
+                <Tooltip
+                  formatter={(value: number) => [formatCurrency(value), "Revenue"]}
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+                  {chartData.map((entry, index) => (
+                    <Cell
+                      key={index}
+                      fill={entry.revenue > 0 ? "hsl(var(--chart-1))" : "hsl(var(--muted))"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── TODAY — order list ── */}
       {period === "today" && (
         <Card>
           <CardHeader className="flex flex-row items-center gap-2 pb-3">
@@ -365,7 +671,7 @@ export default function ReportsPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {filteredOrders.map((order) => (
-                      <tr key={order.id} className="hover:bg-muted/40 transition-colors">
+                      <tr key={order.id} className="transition-colors hover:bg-muted/40">
                         <td className="py-2.5 pr-4 font-mono text-xs font-medium text-foreground">
                           #{order.orderNumber}
                         </td>
@@ -388,20 +694,26 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {/* WEEK / MONTH — day-by-day breakdown */}
-      {(period === "week" || period === "month") && (
+      {/* ── WEEK / MONTH / CUSTOM — day-by-day breakdown ── */}
+      {showBreakdown && (
         <Card>
           <CardHeader className="flex flex-row items-center gap-2 pb-3">
             <CalendarDays className="size-4 text-muted-foreground" />
             <CardTitle className="text-base">
-              {period === "week" ? "Day-by-Day Breakdown (This Week)" : "Daily Breakdown (This Month)"}
+              {period === "week"
+                ? "Day-by-Day Breakdown (This Week)"
+                : period === "month"
+                ? "Daily Breakdown (This Month)"
+                : "Breakdown by Day"}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {filteredOrders.length === 0 ? (
               <p className="text-sm text-muted-foreground">No orders in this period.</p>
             ) : (() => {
-              const rows = buildDailyBreakdown(filteredOrders, period)
+              const rows = buildDailyBreakdown(filteredOrders, period === "custom" ? "custom" : period)
+              const totalDelivered = rows.reduce((s, r) => s + r.delivered, 0)
+              const totalRev = rows.reduce((s, r) => s + r.revenue, 0)
               return (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -418,15 +730,12 @@ export default function ReportsPage() {
                       {rows.map((row) => {
                         const rate = row.orders ? Math.round((row.delivered / row.orders) * 100) : 0
                         const rateColor =
-                          row.orders === 0
-                            ? "text-muted-foreground"
-                            : rate >= 80
-                            ? "text-success"
-                            : rate >= 50
-                            ? "text-warning"
-                            : "text-destructive"
+                          row.orders === 0 ? "text-muted-foreground"
+                          : rate >= 80 ? "text-success"
+                          : rate >= 50 ? "text-warning"
+                          : "text-destructive"
                         return (
-                          <tr key={row.key} className="hover:bg-muted/40 transition-colors">
+                          <tr key={row.key} className="transition-colors hover:bg-muted/40">
                             <td className="py-2.5 pr-4 font-medium text-foreground">{row.label}</td>
                             <td className="py-2.5 text-center text-foreground">{row.orders}</td>
                             <td className="py-2.5 text-center text-success">{row.delivered}</td>
@@ -446,9 +755,9 @@ export default function ReportsPage() {
                       <tr className="border-t-2 border-border font-semibold text-foreground">
                         <td className="pt-3 pr-4 text-sm">Total</td>
                         <td className="pt-3 text-center">{filteredOrders.length}</td>
-                        <td className="pt-3 text-center text-success">{deliveredCount}</td>
+                        <td className="pt-3 text-center text-success">{totalDelivered}</td>
                         <td className="pt-3 text-center text-xs font-medium">{deliveryRate}%</td>
-                        <td className="pt-3 text-right">{formatCurrency(totalRevenue)}</td>
+                        <td className="pt-3 text-right">{formatCurrency(totalRev)}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -459,7 +768,132 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {/* Recent notification logs */}
+      {/* ── Driver Performance ── */}
+      {driverStats.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Driver Performance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground">
+                    <th className="pb-2 text-left font-medium">Driver</th>
+                    <th className="pb-2 text-center font-medium">Assigned</th>
+                    <th className="pb-2 text-center font-medium">Delivered</th>
+                    <th className="pb-2 text-center font-medium">Failed</th>
+                    <th className="pb-2 text-center font-medium">Rate</th>
+                    <th className="pb-2 text-center font-medium">Avg Time</th>
+                    <th className="pb-2 text-right font-medium">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {driverStats.map((row, i) => {
+                    const rate = row.assigned ? Math.round((row.delivered / row.assigned) * 100) : 0
+                    const rateColor =
+                      rate >= 80 ? "text-success"
+                      : rate >= 50 ? "text-warning"
+                      : "text-destructive"
+                    return (
+                      <tr key={row.id} className="transition-colors hover:bg-muted/40">
+                        <td className="py-2.5 pr-4">
+                          <div className="flex items-center gap-2">
+                            <span className={`flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              i === 0 ? "bg-yellow-100 text-yellow-700"
+                              : i === 1 ? "bg-gray-100 text-gray-600"
+                              : i === 2 ? "bg-orange-100 text-orange-600"
+                              : "bg-muted text-muted-foreground"
+                            }`}>
+                              {i + 1}
+                            </span>
+                            <span className="font-medium text-foreground">{row.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 text-center text-foreground">{row.assigned}</td>
+                        <td className="py-2.5 text-center text-success">{row.delivered}</td>
+                        <td className="py-2.5 text-center">
+                          {row.failed > 0 ? (
+                            <span className="flex items-center justify-center gap-1 text-destructive">
+                              <AlertTriangle className="size-3" />{row.failed}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 text-center">
+                          <span className={`text-xs font-medium ${rateColor}`}>{rate}%</span>
+                        </td>
+                        <td className="py-2.5 text-center text-xs text-muted-foreground">
+                          {row.avgMinutes !== null ? formatMinutes(row.avgMinutes) : "—"}
+                        </td>
+                        <td className="py-2.5 text-right font-medium text-foreground">
+                          {row.revenue > 0 ? formatCurrency(row.revenue) : "—"}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Failed / Cancelled breakdown ── */}
+      {filteredOrders.filter((o) => o.status === "failed" || o.status === "cancelled").length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="size-4 text-destructive" />
+              Failed &amp; Cancelled Orders
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-xs text-muted-foreground">
+                    <th className="pb-2 text-left font-medium">Order #</th>
+                    <th className="pb-2 text-left font-medium">Customer</th>
+                    <th className="pb-2 text-center font-medium">Status</th>
+                    <th className="pb-2 text-left font-medium">Driver</th>
+                    <th className="pb-2 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filteredOrders
+                    .filter((o) => o.status === "failed" || o.status === "cancelled")
+                    .map((order) => {
+                      const driver = drivers.find((d) => d.id === order.assignedDriver)
+                      return (
+                        <tr key={order.id} className="transition-colors hover:bg-muted/40">
+                          <td className="py-2.5 pr-4 font-mono text-xs font-medium text-foreground">
+                            #{order.orderNumber}
+                          </td>
+                          <td className="py-2.5 pr-4 text-foreground">{order.customerName}</td>
+                          <td className="py-2.5 text-center">
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusStyle(order.status)}`}>
+                              {order.status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-4 text-muted-foreground">
+                            {driver ? driver.name : "Unassigned"}
+                          </td>
+                          <td className="py-2.5 text-right font-medium text-foreground">
+                            {formatCurrency(order.amount)}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Notification logs ── */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Recent Notification Logs</CardTitle>
