@@ -424,7 +424,7 @@ export default function DispatchPage() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-foreground">{driver.name}</p>
                             <p className="text-[10px] text-muted-foreground">{statusLabel}</p>
-                            {driver.lastPingAt && (
+                            {!!driver.lastPingAt && (
                               <p className="text-[10px] text-muted-foreground/60">{timeAgo(driver.lastPingAt)}</p>
                             )}
                             {counts.total > 0 && (
@@ -466,7 +466,7 @@ export default function DispatchPage() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-foreground">{driver.name}</p>
                             <p className="text-[10px] text-muted-foreground">Offline</p>
-                            {driver.lastPingAt && (
+                            {!!driver.lastPingAt && (
                               <p className="text-[10px] text-muted-foreground/60">{timeAgo(driver.lastPingAt)}</p>
                             )}
                           </div>
