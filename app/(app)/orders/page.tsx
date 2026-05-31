@@ -1316,24 +1316,22 @@ export default function OrdersPage() {
           })()}
 
           {/* Date range filter */}
-          {activeTab !== "history" && (
-            <>
-              <input
-                type="date"
-                value={dateFromFilter}
-                onChange={(e) => { setDateFromFilter(e.target.value); setPage(1) }}
-                className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
-                title="From date"
-              />
-              <input
-                type="date"
-                value={dateToFilter}
-                onChange={(e) => { setDateToFilter(e.target.value); setPage(1) }}
-                className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
-                title="To date"
-              />
-            </>
-          )}
+          <>
+            <input
+              type="date"
+              value={dateFromFilter}
+              onChange={(e) => { setDateFromFilter(e.target.value); setPage(1) }}
+              className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+              title="From date"
+            />
+            <input
+              type="date"
+              value={dateToFilter}
+              onChange={(e) => { setDateToFilter(e.target.value); setPage(1) }}
+              className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+              title="To date"
+            />
+          </>
 
           {/* Export / Print manifest */}
           <div className="ml-auto flex gap-1.5">
