@@ -30,6 +30,7 @@ import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
 import { StatusBadge } from "@/components/orders/status-badge"
 import { ORDER_STATUS, DRIVER_STATUS, TERMINAL_STATUSES } from "@/lib/constants"
+import type { OrderStatus } from "@/lib/constants"
 import { auth } from "@/lib/firebase"
 import { formatDistanceToNow } from "date-fns"
 
@@ -68,7 +69,7 @@ function waitingTime(val: unknown): string {
 }
 
 function isOverdue(order: Order): boolean {
-  const activeStatuses = [ORDER_STATUS.STARTED, ORDER_STATUS.PICKED_UP, ORDER_STATUS.IN_TRANSIT]
+  const activeStatuses: OrderStatus[] = [ORDER_STATUS.STARTED, ORDER_STATUS.PICKED_UP, ORDER_STATUS.IN_TRANSIT]
   if (!activeStatuses.includes(order.status)) return false
   const started = toMs(order.startedAt)
   return started > 0 && Date.now() - started > 3 * 60 * 60 * 1000
