@@ -617,7 +617,7 @@ export default function DispatchPage() {
                   {/* card header */}
                   <div className="flex items-center gap-2 border-b px-3 py-2.5">
                     <span className="text-sm font-semibold text-foreground">{order.orderNumber}</span>
-                    {order.createdAt && (
+                    {!!order.createdAt && (
                       <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
                         <Clock className="size-2.5" />{waitingTime(order.createdAt)}
                       </span>
