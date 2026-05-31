@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, useRef } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Package,
   Clock,
@@ -19,6 +20,10 @@ import {
   Zap,
   Trophy,
   Activity,
+  XCircle,
+  Target,
+  Plus,
+  Flame,
 } from "lucide-react"
 import {
   BarChart,
@@ -30,8 +35,10 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
 } from "recharts"
-import { format, startOfDay, subDays } from "date-fns"
+import { format, startOfDay, subDays, getHours, subWeeks, startOfWeek, eachWeekOfInterval } from "date-fns"
 import { subscribeOrdersRealtime, subscribeDriversRealtime } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
 import type { Order, Driver } from "@/lib/data"
@@ -99,6 +106,12 @@ export default function DashboardPage() {
   const [drivers, setDrivers] = useState<Driver[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [dailyGoal, setDailyGoal] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem("dashboardDailyGoal") ?? "0") || 0 } catch { return 0 }
+  })
+  const [editingGoal, setEditingGoal] = useState(false)
+  const [goalInput, setGoalInput] = useState("")
+  const goalInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const unsubOrders = subscribeOrdersRealtime((data) => {
@@ -164,6 +177,17 @@ export default function DashboardPage() {
     })
   }, [orders])
 
+  // ── Failed/cancelled today ──
+  const failedToday = useMemo(() =>
+    todayOrders.filter((o) => o.status === ORDER_STATUS.FAILED || o.status === ORDER_STATUS.CANCELLED).length,
+    [todayOrders]
+  )
+  const failedYest = useMemo(() =>
+    yesterdayOrders.filter((o) => o.status === ORDER_STATUS.FAILED || o.status === ORDER_STATUS.CANCELLED).length,
+    [yesterdayOrders]
+  )
+  const failedTotal = orders.filter((o) => o.status === ORDER_STATUS.FAILED || o.status === ORDER_STATUS.CANCELLED).length
+
   // ── Last 7 days bar chart ──
   const last7Days = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
@@ -175,6 +199,37 @@ export default function DashboardPage() {
         return ms >= dayStart && ms < dayEnd
       }).length
       return { label: format(day, "EEE"), count }
+    })
+  }, [orders])
+
+  // ── Hourly heatmap (all time) ──
+  const hourlyHeatmap = useMemo(() => {
+    const counts = Array.from({ length: 24 }, (_, h) => ({ hour: h, label: `${h}:00`, count: 0 }))
+    orders.forEach((o) => {
+      const ms = toMs(o.createdAt)
+      if (ms) {
+        const h = getHours(new Date(ms))
+        counts[h].count++
+      }
+    })
+    return counts
+  }, [orders])
+
+  // ── Rating trend (last 8 weeks sparkline) ──
+  const ratingTrend = useMemo(() => {
+    const now = new Date()
+    const weeks = eachWeekOfInterval(
+      { start: subWeeks(startOfWeek(now, { weekStartsOn: 1 }), 7), end: now },
+      { weekStartsOn: 1 }
+    )
+    return weeks.map((ws) => {
+      const we = ws.getTime() + 7 * 86_400_000
+      const inWeek = orders.filter((o) => {
+        const ms = toMs(o.customerRatedAt)
+        return ms >= ws.getTime() && ms < we && !!o.customerRating
+      })
+      const avg = inWeek.length ? inWeek.reduce((s, o) => s + (o.customerRating ?? 0), 0) / inWeek.length : null
+      return { label: format(ws, "d MMM"), avg: avg !== null ? parseFloat(avg.toFixed(2)) : null }
     })
   }, [orders])
 
@@ -238,11 +293,71 @@ export default function DashboardPage() {
               <Link href="/dispatch">Dispatch</Link>
             </Button>
             <Button size="sm" asChild>
-              <Link href="/reports">Reports</Link>
+              <Link href="/orders?new=1">
+                <Plus className="size-3.5" />
+                New Order
+              </Link>
             </Button>
           </div>
         </div>
       </div>
+
+      {/* ── Daily revenue goal ── */}
+      {(dailyGoal > 0 || editingGoal) && (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Target className="size-4 text-primary" />
+              <p className="text-sm font-semibold text-foreground">Daily Revenue Goal</p>
+            </div>
+            {!editingGoal && (
+              <button onClick={() => { setGoalInput(dailyGoal.toString()); setEditingGoal(true); setTimeout(() => goalInputRef.current?.focus(), 50) }} className="text-xs text-muted-foreground hover:text-foreground">
+                Edit
+              </button>
+            )}
+          </div>
+          {editingGoal ? (
+            <div className="mt-2 flex items-center gap-2">
+              <Input
+                ref={goalInputRef}
+                className="h-8 w-40 text-sm"
+                placeholder="Enter goal amount"
+                value={goalInput}
+                onChange={(e) => setGoalInput(e.target.value)}
+                type="number"
+              />
+              <Button size="sm" className="h-8 text-xs" onClick={() => {
+                const g = parseInt(goalInput) || 0
+                setDailyGoal(g)
+                try { localStorage.setItem("dashboardDailyGoal", g.toString()) } catch {}
+                setEditingGoal(false)
+              }}>Save</Button>
+              <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setEditingGoal(false)}>Cancel</Button>
+            </div>
+          ) : (
+            <div className="mt-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{formatCurrency(todayRevenue)} earned today</span>
+                <span>{Math.min(100, Math.round((todayRevenue / dailyGoal) * 100))}% of {formatCurrency(dailyGoal)}</span>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${Math.min(100, Math.round((todayRevenue / dailyGoal) * 100))}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {!editingGoal && dailyGoal === 0 && (
+        <button
+          onClick={() => { setGoalInput(""); setEditingGoal(true); setTimeout(() => goalInputRef.current?.focus(), 50) }}
+          className="flex items-center gap-1.5 self-start text-xs text-muted-foreground hover:text-foreground"
+        >
+          <Target className="size-3.5" /> Set daily revenue goal
+        </button>
+      )}
 
       {/* ── Today snapshot ── */}
       <div className="rounded-xl border border-border bg-muted/30 px-4 py-3">
@@ -380,14 +495,40 @@ export default function DashboardPage() {
         {/* Avg rating */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-yellow-100">
-              <Star className="size-5 fill-yellow-400 text-yellow-400" />
+            <div className="flex items-center justify-between">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-yellow-100">
+                <Star className="size-5 fill-yellow-400 text-yellow-400" />
+              </div>
+              {ratingTrend.some((d) => d.avg !== null) && (
+                <div className="h-8 w-20">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={ratingTrend}>
+                      <Line type="monotone" dataKey="avg" stroke="hsl(var(--primary))" strokeWidth={1.5} dot={false} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
             <p className="mt-3 text-3xl font-bold text-foreground">{avgRating > 0 ? avgRating.toFixed(2) : "—"}</p>
             <p className="text-xs text-muted-foreground">Avg Customer Rating</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {orders.filter((o) => o.customerRating && o.customerRating > 0).length} reviews received
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Failed / Cancelled today */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-destructive/10">
+                <XCircle className="size-5 text-destructive" />
+              </div>
+              <DeltaBadge current={failedToday} previous={failedYest} />
+            </div>
+            <p className="mt-3 text-3xl font-bold text-foreground">{failedTotal}</p>
+            <p className="text-xs text-muted-foreground">Failed / Cancelled</p>
+            <p className="mt-1 text-xs text-muted-foreground">Today: <span className="font-medium text-destructive">{failedToday}</span></p>
           </CardContent>
         </Card>
       </div>
@@ -455,6 +596,41 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Hourly heatmap ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Flame className="size-4 text-orange-500" />
+            Order Volume by Hour of Day
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={140}>
+            <BarChart data={hourlyHeatmap} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+              <XAxis dataKey="label" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} interval={2} />
+              <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number) => [v, "Orders"]} />
+              <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                {hourlyHeatmap.map((entry, i) => (
+                  <Cell
+                    key={i}
+                    fill={
+                      entry.count === 0 ? "hsl(var(--muted))"
+                      : entry.count >= Math.max(...hourlyHeatmap.map((h) => h.count)) * 0.75 ? "#ef4444"
+                      : entry.count >= Math.max(...hourlyHeatmap.map((h) => h.count)) * 0.4 ? "#f59e0b"
+                      : "hsl(var(--primary))"
+                    }
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-1 text-center text-xs text-muted-foreground">
+            Peak hour: {hourlyHeatmap.reduce((a, b) => (b.count > a.count ? b : a), hourlyHeatmap[0]).label}
+          </p>
+        </CardContent>
+      </Card>
 
       {/* ── Main content ── */}
       <div className="grid gap-4 xl:grid-cols-3">
@@ -590,6 +766,12 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
+            <Button size="sm" asChild>
+              <Link href="/orders?new=1">
+                <Plus className="size-3.5" />
+                New Order
+              </Link>
+            </Button>
             <Button variant="outline" size="sm" asChild>
               <Link href="/dispatch">
                 <Truck className="size-3.5" />

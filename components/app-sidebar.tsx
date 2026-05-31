@@ -41,6 +41,15 @@ export function AppSidebar() {
   const profileRef = useRef<HTMLDivElement>(null)
   const { user, role, logout } = useAuth()
   const { muted, toggleMute } = useOrderAlert()
+  const [unreadReviews, setUnreadReviews] = useState(false)
+
+  useEffect(() => {
+    try {
+      const lastVisit = parseInt(localStorage.getItem("lastReviewsVisit") ?? "0")
+      const latest = parseInt(localStorage.getItem("latestReviewTs") ?? "0")
+      setUnreadReviews(latest > lastVisit)
+    } catch { setUnreadReviews(false) }
+  }, [pathname])
 
   // Filter nav items to only those the current role can access
   const visibleNav = navItems.filter((item) => canAccessRoute(role, item.href))
@@ -99,7 +108,12 @@ export function AppSidebar() {
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {item.label}
+                <span className="relative">
+                  {item.label}
+                  {item.href === "/reviews" && unreadReviews && (
+                    <span className="absolute -right-2 -top-1 size-2 rounded-full bg-orange-500" />
+                  )}
+                </span>
               </Link>
             )
           })}

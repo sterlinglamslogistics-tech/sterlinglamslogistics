@@ -44,7 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, ArrowUpDown, ArrowUp, ArrowDown, Search, Upload, Download, Star, Clock, Copy, CheckCircle2, XCircle, ChevronLeft, ChevronRight } from "lucide-react"
+import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, ArrowUpDown, ArrowUp, ArrowDown, Search, Upload, Download, Star, Clock, Copy, CheckCircle2, XCircle, ChevronLeft, ChevronRight, MessageCircle, Flame, StickyNote } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
@@ -126,6 +126,8 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [driverFilter, setDriverFilter] = useState<string>("all")
   const [paymentFilter, setPaymentFilter] = useState<string>("all")
+  const [dateFromFilter, setDateFromFilter] = useState("")
+  const [dateToFilter, setDateToFilter] = useState("")
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 25
 
@@ -612,6 +614,20 @@ export default function OrdersPage() {
     if (statusFilter !== "all") list = list.filter((o) => o.status === statusFilter)
     if (driverFilter !== "all") list = list.filter((o) => (o.assignedDriver ?? "none") === driverFilter)
     if (paymentFilter !== "all") list = list.filter((o) => (o.paymentMethod ?? "") === paymentFilter)
+    if (dateFromFilter) {
+      const from = new Date(dateFromFilter).getTime()
+      list = list.filter((o) => {
+        const ms = toMs(o.createdAt)
+        return ms >= from
+      })
+    }
+    if (dateToFilter) {
+      const to = new Date(dateToFilter).getTime() + 86_400_000
+      list = list.filter((o) => {
+        const ms = toMs(o.createdAt)
+        return ms <= to
+      })
+    }
     return list
   })()
 
@@ -838,6 +854,7 @@ export default function OrdersPage() {
       setIsSaving(true)
       const updates: Partial<Order> = { status }
       if (status === "delivered") updates.deliveredAt = new Date()
+      if (status === "failed") updates.deliveryAttempts = (order.deliveryAttempts ?? 0) + 1
       await updateOrder(order.id, updates)
       logActivity({ action: "order.status_changed", resourceId: order.orderNumber, details: { status } })
       setOrderList((prev) => prev.map((o) => o.id === order.id ? { ...o, ...updates } : o))
@@ -873,6 +890,58 @@ export default function OrdersPage() {
       ? (started as { seconds: number }).seconds * 1000
       : new Date(started as string | number).getTime()
     return Date.now() - ms > 3 * 60 * 60 * 1000
+  }
+
+  function toMs(ts: unknown): number {
+    if (!ts) return 0
+    if (typeof ts === "object" && ts !== null && "seconds" in ts) return (ts as { seconds: number }).seconds * 1000
+    return new Date(ts as string | number).getTime()
+  }
+
+  function openWhatsApp(order: Order) {
+    const phone = order.phone.replace(/\D/g, "")
+    const msg = encodeURIComponent(`Hi ${order.customerName}, your order #${order.orderNumber} is on its way! Track it here: ${window.location.origin}/track/${encodeURIComponent(order.orderNumber)}`)
+    window.open(`https://wa.me/${phone}?text=${msg}`, "_blank", "noopener,noreferrer")
+  }
+
+  async function handleToggleUrgent(order: Order) {
+    try {
+      const urgent = !order.urgent
+      await updateOrder(order.id, { urgent } as Partial<Order>)
+      setOrderList((prev) => prev.map((o) => o.id === order.id ? { ...o, urgent } : o))
+      toast({ title: urgent ? "Marked as urgent" : "Urgency removed" })
+    } catch {
+      toast({ title: "Failed to update order", variant: "destructive" })
+    }
+  }
+
+  async function handleSaveAdminNote(orderId: string, note: string) {
+    try {
+      await updateOrder(orderId, { adminNote: note } as Partial<Order>)
+      setOrderList((prev) => prev.map((o) => o.id === orderId ? { ...o, adminNote: note } : o))
+      toast({ title: "Note saved" })
+    } catch {
+      toast({ title: "Failed to save note", variant: "destructive" })
+    }
+  }
+
+  function printManifest(orders: Order[]) {
+    const rows = orders.map((o) => {
+      const driver = o.assignedDriver ? allDrivers.find((d) => d.id === o.assignedDriver)?.name ?? "Unassigned" : "Unassigned"
+      return `<tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600">#${o.orderNumber}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${o.customerName}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${o.phone}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${o.address}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${driver}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${formatCurrency(o.amount)}</td>
+      </tr>`
+    }).join("")
+    const win = window.open("", "_blank")
+    if (!win) return
+    win.document.write(`<!DOCTYPE html><html><head><title>Order Manifest</title><style>body{font-family:sans-serif;padding:24px}table{width:100%;border-collapse:collapse}th{text-align:left;padding:8px 12px;border-bottom:2px solid #111;font-size:12px;text-transform:uppercase;color:#6b7280}td{font-size:13px}</style></head><body><h2 style="margin-bottom:4px">Order Manifest</h2><p style="color:#6b7280;margin-bottom:16px;font-size:13px">Generated ${new Date().toLocaleString()} — ${orders.length} orders</p><table><thead><tr><th>Order #</th><th>Customer</th><th>Phone</th><th>Address</th><th>Driver</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table></body></html>`)
+    win.document.close()
+    win.print()
   }
 
   async function handleCancelOrder(order: Order) {
@@ -1246,12 +1315,36 @@ export default function OrdersPage() {
             )
           })()}
 
-          {/* Export all visible */}
-          <Button variant="outline" size="sm" className="ml-auto h-8 text-xs" onClick={() => exportOrdersCSV(visibleOrders)}>
-            <Download className="mr-1.5 h-3.5 w-3.5" />Export
-          </Button>
+          {/* Date range filter */}
+          {activeTab !== "history" && (
+            <>
+              <input
+                type="date"
+                value={dateFromFilter}
+                onChange={(e) => { setDateFromFilter(e.target.value); setPage(1) }}
+                className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                title="From date"
+              />
+              <input
+                type="date"
+                value={dateToFilter}
+                onChange={(e) => { setDateToFilter(e.target.value); setPage(1) }}
+                className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                title="To date"
+              />
+            </>
+          )}
+
+          {/* Export / Print manifest */}
+          <div className="ml-auto flex gap-1.5">
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => printManifest(visibleOrders)}>
+              <Printer className="mr-1.5 h-3.5 w-3.5" />Manifest
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => exportOrdersCSV(visibleOrders)}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />Export
+            </Button>
+          </div>
         </div>
-      )}
 
       <div>
         {visibleOrders.length === 0 ? (
@@ -1302,6 +1395,15 @@ export default function OrdersPage() {
                   >
                     {order.orderNumber}
                   </button>
+                  {!!order.urgent && (
+                    <span title="Urgent" className="ml-1 inline-flex"><Flame className="inline size-3.5 text-orange-500" aria-label="Urgent" /></span>
+                  )}
+                  {!!order.adminNote && (
+                    <span title={order.adminNote} className="ml-0.5 inline-flex"><StickyNote className="inline size-3 text-amber-400" aria-label="Has note" /></span>
+                  )}
+                  {(order.deliveryAttempts ?? 0) > 0 && (
+                    <span className="ml-1 text-[10px] text-muted-foreground">({order.deliveryAttempts}×)</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-foreground whitespace-nowrap">{order.customerName}</TableCell>
                 <TableCell className="hidden max-w-[180px] truncate text-muted-foreground lg:table-cell">
@@ -1432,6 +1534,15 @@ export default function OrdersPage() {
                         <DropdownMenuItem onClick={() => handleDuplicateOrder(order)}>
                           <Copy className="mr-2 h-4 w-4" /> Duplicate order
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleToggleUrgent(order)}>
+                          <Flame className="mr-2 h-4 w-4 text-orange-500" />
+                          {order.urgent ? "Remove urgent flag" : "Mark as urgent"}
+                        </DropdownMenuItem>
+                        {!!order.phone && (
+                          <DropdownMenuItem onClick={() => openWhatsApp(order)}>
+                            <MessageCircle className="mr-2 h-4 w-4 text-green-500" /> Message on WhatsApp
+                          </DropdownMenuItem>
+                        )}
                         {isAdminOrOwner && (
                           <>
                             <DropdownMenuSeparator />
@@ -1834,6 +1945,28 @@ export default function OrdersPage() {
                     <span className="text-sm font-medium">Delivery Instruction:</span>
                     <Textarea placeholder="Enter delivery instructions" className="resize-none" rows={3} {...form.register("deliveryInstruction")} />
                   </div>
+
+                  {/* Internal admin note */}
+                  {isAdminOrOwner && (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <StickyNote className="size-3.5 text-amber-500" />
+                        <span className="text-sm font-medium">Internal Note (not visible to customer):</span>
+                      </div>
+                      <Textarea
+                        placeholder="Add a private note for your team..."
+                        className="resize-none border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 focus-visible:ring-amber-300"
+                        rows={2}
+                        defaultValue={editingOrder?.adminNote ?? ""}
+                        onChange={(e) => {
+                          if (editingOrder) handleSaveAdminNote(editingOrder.id, e.target.value)
+                        }}
+                        onBlur={(e) => {
+                          if (editingOrder) handleSaveAdminNote(editingOrder.id, e.target.value)
+                        }}
+                      />
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between gap-4 text-sm">
                     <span className="font-medium">Payment Method:</span>

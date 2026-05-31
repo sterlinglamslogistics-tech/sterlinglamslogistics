@@ -24,6 +24,9 @@ import {
   Package,
   Users,
   Truck,
+  Phone,
+  MessageCircle,
+  ArrowLeftRight,
 } from "lucide-react"
 import { subscribeOrdersRealtime, subscribeDriversRealtime, updateOrder } from "@/lib/firestore"
 import { formatCurrency } from "@/lib/data"
@@ -434,10 +437,29 @@ export default function DispatchPage() {
                                 {counts.inTransit > 0 && <span className="rounded bg-purple-500/10 px-1 text-[9px] text-purple-600">{counts.inTransit} transit</span>}
                               </div>
                             )}
+                            {/* capacity bar */}
+                            <div className="mt-1 flex items-center gap-1">
+                              <div className="h-1 w-14 overflow-hidden rounded-full bg-muted">
+                                <div className={`h-full rounded-full ${counts.total >= 4 ? "bg-destructive" : counts.total >= 2 ? "bg-warning" : "bg-success"}`} style={{ width: `${Math.min(100, (counts.total / 5) * 100)}%` }} />
+                              </div>
+                              <span className="text-[9px] text-muted-foreground">{counts.total}/5</span>
+                            </div>
                           </div>
-                          {counts.total > 0 && (
-                            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">{counts.total}</span>
-                          )}
+                          <div className="flex flex-col items-center gap-0.5">
+                            {driver.phone && (
+                              <a href={`tel:${driver.phone}`} onClick={(e) => e.stopPropagation()} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground" aria-label="Call driver">
+                                <Phone className="size-3.5" />
+                              </a>
+                            )}
+                            {driver.phone && (
+                              <a href={`https://wa.me/${driver.phone.replace(/\D/g,"")}?text=${encodeURIComponent("Hey! Please check your order status.")}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-green-500" aria-label="WhatsApp driver">
+                                <MessageCircle className="size-3.5" />
+                              </a>
+                            )}
+                            {counts.total > 0 && (
+                              <span className="flex size-6 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">{counts.total}</span>
+                            )}
+                          </div>
                         </button>
                       )
                     })}
@@ -566,6 +588,26 @@ export default function DispatchPage() {
                     >
                       <UserMinus className="size-3" />Unassign
                     </button>
+                    {/* Reassign dropdown */}
+                    <Select
+                      value={selectedDrivers[order.id] ?? ""}
+                      onValueChange={(value) => handleSelectDriver(order.id, value)}
+                    >
+                      <SelectTrigger className="h-6 w-[90px] text-[10px] border-dashed text-muted-foreground">
+                        <ArrowLeftRight className="size-2.5" />
+                        <SelectValue placeholder="Reassign" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDrivers.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            <span className="flex items-center gap-1.5 text-xs">
+                              <span className={`h-1.5 w-1.5 rounded-full ${d.status === DRIVER_STATUS.AVAILABLE ? "bg-green-500" : "bg-orange-400"}`} />
+                              {d.name}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <div className="ml-auto flex items-center gap-1">
                       <button
                         onClick={() => handleQuickStatus(order, "delivered")}
@@ -612,8 +654,11 @@ export default function DispatchPage() {
                 {unassignedSearch ? "No orders match your search." : "No pending orders."}
               </p>
             ) : (
-              pendingOrders.map((order) => (
-                <div key={order.id} className="overflow-hidden rounded-lg border bg-background shadow-sm">
+              pendingOrders.map((order) => {
+                const ageMs = Date.now() - toMs(order.createdAt)
+                const agingColor = ageMs > 2 * 60 * 60 * 1000 ? "border-l-4 border-l-red-500" : ageMs > 30 * 60 * 1000 ? "border-l-4 border-l-amber-400" : "border-l-4 border-l-green-400"
+                return (
+                <div key={order.id} className={`overflow-hidden rounded-lg border bg-background shadow-sm ${agingColor}`}>
                   {/* card header */}
                   <div className="flex items-center gap-2 border-b px-3 py-2.5">
                     <span className="text-sm font-semibold text-foreground">{order.orderNumber}</span>
@@ -661,7 +706,7 @@ export default function DispatchPage() {
                   {/* pickup → delivery timeline */}
                   <OrderTimeline order={order} />
                 </div>
-              ))
+              )})}
             )}
           </div>
         </div>

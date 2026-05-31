@@ -15,6 +15,11 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  ComposedChart,
+  Line,
+  PieChart,
+  Pie,
+  Legend,
 } from "recharts"
 import {
   Package,
@@ -608,7 +613,7 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {/* ── Revenue Bar Chart ── */}
+      {/* ── Revenue Bar Chart with moving average ── */}
       {chartData.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
@@ -616,33 +621,21 @@ export default function ReportsPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chartData} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v: number) => `₦${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`}
-                  width={48}
-                />
-                <Tooltip
-                  formatter={(value: number) => [formatCurrency(value), "Revenue"]}
-                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                />
+              <ComposedChart data={chartData.map((entry, i, arr) => {
+                const window = arr.slice(Math.max(0, i - 2), i + 1)
+                const avg = window.length ? window.reduce((s, e) => s + (e.revenue ?? 0), 0) / window.length : null
+                return { ...entry, movingAvg: avg !== null ? parseFloat(avg.toFixed(0)) : null }
+              })} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `₦${v >= 1000 ? `${Math.round(v / 1000)}k` : v}`} width={48} />
+                <Tooltip formatter={(value: number, name: string) => [formatCurrency(value), name === "movingAvg" ? "Moving Avg" : "Revenue"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                 <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
                   {chartData.map((entry, index) => (
-                    <Cell
-                      key={index}
-                      fill={entry.revenue > 0 ? "hsl(var(--chart-1))" : "hsl(var(--muted))"}
-                    />
+                    <Cell key={index} fill={entry.revenue > 0 ? "hsl(var(--chart-1))" : "hsl(var(--muted))"} />
                   ))}
                 </Bar>
-              </BarChart>
+                <Line type="monotone" dataKey="movingAvg" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} strokeDasharray="4 2" connectNulls />
+              </ComposedChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
@@ -785,6 +778,7 @@ export default function ReportsPage() {
                     <th className="pb-2 text-center font-medium">Failed</th>
                     <th className="pb-2 text-center font-medium">Rate</th>
                     <th className="pb-2 text-center font-medium">Avg Time</th>
+                    <th className="pb-2 text-center font-medium">Est. Earnings</th>
                     <th className="pb-2 text-right font-medium">Revenue</th>
                   </tr>
                 </thead>
@@ -795,6 +789,11 @@ export default function ReportsPage() {
                       rate >= 80 ? "text-success"
                       : rate >= 50 ? "text-warning"
                       : "text-destructive"
+                    let earningsRate = 0
+                    try { earningsRate = parseFloat(localStorage.getItem("earningsPerKmRate") ?? "0") || 0 } catch {}
+                    const driverOrdersForEarnings = filteredOrders.filter((o) => o.assignedDriver === row.id && o.status === "delivered" && (o.distanceKm ?? 0) > 0)
+                    const totalKm = driverOrdersForEarnings.reduce((s, o) => s + (o.distanceKm ?? 0), 0)
+                    const earnings = totalKm * earningsRate
                     return (
                       <tr key={row.id} className="transition-colors hover:bg-muted/40">
                         <td className="py-2.5 pr-4">
@@ -827,6 +826,9 @@ export default function ReportsPage() {
                         <td className="py-2.5 text-center text-xs text-muted-foreground">
                           {row.avgMinutes !== null ? formatMinutes(row.avgMinutes) : "—"}
                         </td>
+                        <td className="py-2.5 text-center text-xs text-muted-foreground">
+                          {earnings > 0 ? formatCurrency(earnings) : <span className="text-muted-foreground/40">—</span>}
+                        </td>
                         <td className="py-2.5 text-right font-medium text-foreground">
                           {row.revenue > 0 ? formatCurrency(row.revenue) : "—"}
                         </td>
@@ -839,6 +841,134 @@ export default function ReportsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── New analytics charts ── */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Revenue by payment method */}
+        {filteredOrders.length > 0 && (() => {
+          const methodMap = new Map<string, number>()
+          filteredOrders.filter((o) => o.status === "delivered" && o.paymentMethod).forEach((o) => {
+            const method = o.paymentMethod ?? "Unknown"
+            methodMap.set(method, (methodMap.get(method) ?? 0) + o.amount)
+          })
+          const data = Array.from(methodMap.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
+          if (!data.length) return null
+          const COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))", "hsl(var(--chart-4))"]
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Revenue by Payment Method</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={35} paddingAngle={3}>
+                      {data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )
+        })()}
+
+        {/* Peak hours bar chart */}
+        {filteredOrders.length > 0 && (() => {
+          const counts = Array.from({ length: 24 }, (_, h) => ({ hour: `${h}h`, count: 0 }))
+          filteredOrders.forEach((o) => {
+            const d = toDate(o.createdAt)
+            if (d) counts[d.getHours()].count++
+          })
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Peak Order Hours</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={counts} margin={{ top: 4, right: 4, left: -20, bottom: 4 }}>
+                    <XAxis dataKey="hour" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} interval={2} />
+                    <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                      {counts.map((e, i) => {
+                        const max = Math.max(...counts.map((c) => c.count))
+                        return <Cell key={i} fill={e.count >= max * 0.75 ? "#ef4444" : e.count >= max * 0.4 ? "#f59e0b" : "hsl(var(--chart-2))"} />
+                      })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )
+        })()}
+
+        {/* Delivery time distribution */}
+        {filteredOrders.filter((o) => o.status === "delivered").length > 0 && (() => {
+          const buckets = [
+            { label: "<30m", count: 0 },
+            { label: "30-60m", count: 0 },
+            { label: "1-2h", count: 0 },
+            { label: ">2h", count: 0 },
+          ]
+          filteredOrders.filter((o) => o.status === "delivered").forEach((o) => {
+            const start = toDate(o.startedAt ?? o.pickedUpAt)
+            const end = toDate(o.deliveredAt)
+            if (!start || !end) return
+            const mins = (end.getTime() - start.getTime()) / 60000
+            if (mins < 0 || mins > 1440) return
+            if (mins < 30) buckets[0].count++
+            else if (mins < 60) buckets[1].count++
+            else if (mins < 120) buckets[2].count++
+            else buckets[3].count++
+          })
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Delivery Time Distribution</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={buckets} margin={{ top: 4, right: 8, left: -10, bottom: 4 }}>
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(v: number) => [v, "Orders"]} />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]} fill="hsl(var(--chart-3))" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )
+        })()}
+
+        {/* Customer retention */}
+        {filteredOrders.length > 0 && (() => {
+          const phoneCounts = new Map<string, number>()
+          filteredOrders.filter((o) => o.phone).forEach((o) => {
+            phoneCounts.set(o.phone, (phoneCounts.get(o.phone) ?? 0) + 1)
+          })
+          const total = phoneCounts.size
+          const returning = [...phoneCounts.values()].filter((c) => c >= 2).length
+          const rate = total > 0 ? Math.round((returning / total) * 100) : 0
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Customer Retention</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center justify-center gap-2 py-6">
+                <p className="text-5xl font-bold text-foreground">{rate}%</p>
+                <p className="text-sm text-muted-foreground">of customers placed 2+ orders</p>
+                <p className="text-xs text-muted-foreground">{returning} returning out of {total} unique customers</p>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${rate}%` }} />
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })()}
+      </div>
 
       {/* ── Failed / Cancelled breakdown ── */}
       {filteredOrders.filter((o) => o.status === "failed" || o.status === "cancelled").length > 0 && (

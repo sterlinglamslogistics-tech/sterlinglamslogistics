@@ -23,6 +23,7 @@ import {
   TrendingUp,
   Users,
   Reply,
+  Bookmark,
 } from "lucide-react"
 import {
   BarChart,
@@ -361,11 +362,34 @@ export default function ReviewsPage() {
     return list
   }, [reviewedOrders, tab, dateFilter, driverFilter, orderRatingFilter, driverRatingFilter, sortBy])
 
-  // â”€â”€ Respond dialog â”€â”€
+  // ─ Respond dialog ─
   const openRespond = (order: Order) => {
     setRespondOrder(order)
     setReplyText(order.adminReply ?? "")
   }
+
+  // Unread tracking
+  useEffect(() => {
+    try { localStorage.setItem("lastReviewsVisit", Date.now().toString()) } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (reviewedOrders.length > 0) {
+      const latest = reviewedOrders.reduce((max, o) => Math.max(max, toMs(o.customerRatedAt)), 0)
+      try { localStorage.setItem("latestReviewTs", latest.toString()) } catch {}
+    }
+  }, [reviewedOrders])
+
+  // Featured toggle
+  const handleToggleFeatured = useCallback(async (order: Order) => {
+    const featured = !order.featured
+    try {
+      await updateOrder(order.id, { featured } as Partial<Order>)
+      setOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, featured } : o))
+    } catch {
+      // ignore
+    }
+  }, [])
 
   const saveReply = useCallback(async () => {
     if (!respondOrder || !replyText.trim()) return
@@ -418,7 +442,7 @@ export default function ReviewsPage() {
       </div>
 
       {/* â”€â”€ Summary stats â”€â”€ */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <div className="flex size-10 items-center justify-center rounded-lg bg-yellow-100">
@@ -463,6 +487,23 @@ export default function ReviewsPage() {
             <div>
               <p className="text-xs text-muted-foreground">Needs Attention</p>
               <p className="text-2xl font-bold text-destructive">{escalationCount}</p>
+            </div>
+          </CardContent>
+        </Card>
+        {/* Response rate card */}
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+              <Reply className="size-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Response Rate</p>
+              <p className="text-2xl font-bold">
+                {reviewedOrders.length > 0
+                  ? `${Math.round((reviewedOrders.filter((o) => o.adminReply).length / reviewedOrders.length) * 100)}%`
+                  : "—"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">{reviewedOrders.filter((o) => o.adminReply).length}/{reviewedOrders.length} replied</p>
             </div>
           </CardContent>
         </Card>
@@ -700,6 +741,8 @@ export default function ReviewsPage() {
               return d ? format(d, "d MMM yyyy") : ""
             })()
             const isLow = (order.customerRating ?? 5) <= 2
+            const rating = order.customerRating ?? 0
+            const sentiment = rating >= 4 ? { label: "Positive", cls: "bg-green-100 text-green-700" } : rating === 3 ? { label: "Neutral", cls: "bg-amber-100 text-amber-700" } : { label: "Negative", cls: "bg-red-100 text-red-700" }
 
             return (
               <Card key={order.id} className={isLow ? "border-destructive/40" : ""}>
@@ -715,6 +758,7 @@ export default function ReviewsPage() {
                           <p className="text-sm font-semibold text-foreground">{order.customerName}</p>
                           <p className="text-xs text-muted-foreground">{ratedDate}</p>
                         </div>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sentiment.cls}`}>{sentiment.label}</span>
                         {isLow && (
                           <span className="ml-auto flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive sm:ml-0">
                             <AlertTriangle className="size-3" /> Low rating
@@ -756,16 +800,25 @@ export default function ReviewsPage() {
                       )}
                     </div>
 
-                    {/* Right â€“ respond button */}
-                    <Button
-                      variant={order.adminReply ? "outline" : "default"}
-                      size="sm"
-                      className="shrink-0 self-start text-xs"
-                      onClick={() => openRespond(order)}
-                    >
-                      <Reply className="size-3.5" />
-                      {order.adminReply ? "Edit reply" : "Respond"}
-                    </Button>
+                    {/* Right ─ respond button + featured */}
+                    <div className="flex shrink-0 items-start gap-1 self-start">
+                      <button
+                        onClick={() => handleToggleFeatured(order)}
+                        className={`flex size-8 items-center justify-center rounded ${order.featured ? "text-amber-400" : "text-muted-foreground hover:text-amber-400"}`}
+                        aria-label={order.featured ? "Unfeature review" : "Feature review"}
+                      >
+                        <Bookmark className="size-4" style={{ fill: order.featured ? "currentColor" : "none" }} />
+                      </button>
+                      <Button
+                        variant={order.adminReply ? "outline" : "default"}
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => openRespond(order)}
+                      >
+                        <Reply className="size-3.5" />
+                        {order.adminReply ? "Edit reply" : "Respond"}
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -786,6 +839,14 @@ export default function ReviewsPage() {
                 &ldquo;{respondOrder.customerFeedback}&rdquo;
               </div>
             )}
+            {/* Quick templates */}
+            <div className="flex flex-wrap gap-1.5">
+              {["Thank you for your feedback! 🙏", "Sorry for the delay. We'll do better!", "Glad you had a great experience! 😊", "We appreciate your review and will improve!"].map((tmpl) => (
+                <button key={tmpl} onClick={() => setReplyText(tmpl)} className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary hover:text-foreground">
+                  {tmpl.slice(0, 30)}…
+                </button>
+              ))}
+            </div>
             <Textarea
               placeholder="Type your reply to this customer..."
               value={replyText}

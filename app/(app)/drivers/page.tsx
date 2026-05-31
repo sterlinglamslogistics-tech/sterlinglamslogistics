@@ -297,6 +297,33 @@ export default function DriversPage() {
     return r !== null && r < 3.5
   }
 
+  function isInactive(driverId: string): boolean {
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const recent = allOrders.filter((o) => o.assignedDriver === driverId && o.status === ORDER_STATUS.DELIVERED && toMs(o.deliveredAt) > sevenDaysAgo)
+    return recent.length === 0
+  }
+
+  function driverActiveOrders(driverId: string): number {
+    return allOrders.filter((o) => o.assignedDriver === driverId && ["started", "picked-up", "in-transit", "unassigned"].includes(o.status)).length
+  }
+
+  function driverPerfScore(driverId: string): number {
+    const dOrders = ordersForDriver(allOrders, driverId)
+    const total = dOrders.length
+    if (!total) return 0
+    const delivered = deliveredOrders(dOrders).length
+    const successPct = delivered / total
+
+    const validTimes = dOrders.filter((o) => o.status === ORDER_STATUS.DELIVERED && toMs(o.deliveredAt) > 0 && toMs(o.createdAt) > 0)
+    const avgMin = validTimes.length ? validTimes.reduce((s, o) => s + (toMs(o.deliveredAt) - toMs(o.createdAt)), 0) / validTimes.length / 60000 : null
+    const speedScore = avgMin ? Math.max(0, Math.min(1, (120 - avgMin) / 120)) : 0
+
+    const rated = dOrders.filter((o) => o.customerRating != null)
+    const ratingScore = rated.length ? rated.reduce((s, o) => s + (o.customerRating ?? 0), 0) / rated.length / 5 : 0
+
+    return Math.round(successPct * 40 + speedScore * 30 + ratingScore * 30)
+  }
+
   const allSelected = filteredDrivers.length > 0 && filteredDrivers.every((d) => selectedIds.includes(d.id))
   const someSelected = selectedIds.length > 0
 
@@ -511,6 +538,9 @@ export default function DriversPage() {
                 const lowRating = isLowRating(driver.id)
                 const currentOrder = driverCurrentOrder(driver.id)
                 const todayCount = driverTodayCount(driver.id)
+                const inactive = isInactive(driver.id)
+                const activeOrders = driverActiveOrders(driver.id)
+                const perfScore = driverPerfScore(driver.id)
                 return (
                   <TableRow key={driver.id} className={selectedIds.includes(driver.id) ? "bg-muted/40" : ""}>
                     <TableCell className="px-2">
@@ -527,6 +557,7 @@ export default function DriversPage() {
                           <div className="flex items-center gap-1.5">
                             <span className="font-medium text-foreground">{driver.name}</span>
                             {lowRating && <AlertTriangle className="size-3.5 text-warning" aria-label="Low avg rating" />}
+                            {inactive && <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-400/40 text-amber-600">Inactive</Badge>}
                           </div>
                           {driver.area && <p className="text-[11px] text-muted-foreground">{driver.area}</p>}
                         </div>
@@ -538,6 +569,13 @@ export default function DriversPage() {
                       <div className="flex flex-col gap-1">
                         <DriverStatusBadge status={driver.status} />
                         {currentOrder && <span className="text-[10px] text-muted-foreground">#{currentOrder.orderNumber}</span>}
+                        {/* capacity bar */}
+                        <div className="flex items-center gap-1">
+                          <div className="h-1 w-16 overflow-hidden rounded-full bg-muted">
+                            <div className={`h-full rounded-full ${activeOrders >= 4 ? "bg-destructive" : activeOrders >= 2 ? "bg-warning" : "bg-success"}`} style={{ width: `${Math.min(100, (activeOrders / 5) * 100)}%` }} />
+                          </div>
+                          <span className="text-[9px] text-muted-foreground">{activeOrders}/5</span>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -548,8 +586,15 @@ export default function DriversPage() {
                     </TableCell>
                     <TableCell className="hidden sm:table-cell text-xs text-muted-foreground">{timeAgo(driver.lastPingAt)}</TableCell>
                     <TableCell>
-                      <span className="text-sm font-semibold text-foreground">{todayCount}</span>
-                      <span className="ml-0.5 text-[10px] text-muted-foreground">del.</span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-semibold text-foreground">{todayCount}</span>
+                        <span className="text-[10px] text-muted-foreground">del.</span>
+                        {perfScore > 0 && (
+                          <Badge variant="outline" className={`h-4 px-1 text-[9px] w-fit ${perfScore >= 70 ? "border-success/40 text-success" : perfScore >= 40 ? "border-warning/40 text-warning" : "border-destructive/40 text-destructive"}`}>
+                            {perfScore}pts
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="px-1">
                       <button
@@ -819,6 +864,24 @@ function ProfileBody({ driver, orders }: { driver: Driver; orders: Order[] }) {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+
+            {/* Payout calculator */}
+            {(() => {
+              let rate = 0
+              try { rate = parseFloat(localStorage.getItem("earningsPerKmRate") ?? "0") || 0 } catch {}
+              const totalKm = orders.filter((o) => o.status === ORDER_STATUS.DELIVERED && (o.distanceKm ?? 0) > 0).reduce((s, o) => s + (o.distanceKm ?? 0), 0)
+              if (!rate && !totalKm) return null
+              const payout = (totalKm * rate)
+              return (
+                <div className="rounded-lg border bg-card p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Estimated Payout</p>
+                    <p className="text-xs text-muted-foreground">{totalKm.toFixed(1)} km × ₦{rate.toFixed(2)}/km</p>
+                  </div>
+                  <p className="text-xl font-bold text-foreground">₦{payout.toFixed(2)}</p>
+                </div>
+              )
+            })()}
           </TabsContent>
 
           <TabsContent value="reviews" className="mt-4">
