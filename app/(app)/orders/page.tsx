@@ -62,6 +62,7 @@ import { ReassignDialog } from "@/components/orders/reassign-dialog"
 import { BulkAssignDialog } from "@/components/orders/bulk-assign-dialog"
 import { formatOrderTime, formatDistance, handlePrintOrder, handlePrintLabel } from "@/lib/order-utils"
 import { ORDER_STATUS, DRIVER_STATUS, ACTIVE_STATUSES, TERMINAL_STATUSES } from "@/lib/constants"
+import { useAuth } from "@/components/auth-provider"
 
 type OrderTab = "current" | "completed" | "incomplete" | "history"
 
@@ -118,6 +119,10 @@ export default function OrdersPage() {
   const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false)
   const [bulkDriverId, setBulkDriverId] = useState<string>(UNASSIGNED_DRIVER)
   const [reassignOrderId, setReassignOrderId] = useState<string | null>(null)
+  const [orderToDelete, setOrderToDelete] = useState<Order | null>(null)
+
+  const { role } = useAuth()
+  const isAdminOrOwner = role === "admin" || role === "owner"
 
   // Search / filter state
   const [searchQuery, setSearchQuery] = useState("")
@@ -1059,6 +1064,7 @@ export default function OrdersPage() {
               {activeTab === "current" && <TableHead className="w-16">Track</TableHead>}
               {(activeTab === "completed" || activeTab === "history") && <TableHead className="w-28">Delivery Time</TableHead>}
               {activeTab !== "completed" && activeTab !== "history" && <TableHead className="w-10"></TableHead>}
+              {activeTab === "history" && isAdminOrOwner && <TableHead className="w-10"></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1138,6 +1144,22 @@ export default function OrdersPage() {
                 {(activeTab === "completed" || activeTab === "history") && (
                   <TableCell className="text-muted-foreground whitespace-nowrap">{formatOrderTime(order.deliveredAt)}</TableCell>
                 )}
+                {activeTab === "history" && isAdminOrOwner && (
+                  <TableCell className="px-1">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setOrderToDelete(order)}>
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete order
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                )}
                 {activeTab !== "completed" && activeTab !== "history" && (
                   <TableCell className="px-1">
                     <DropdownMenu>
@@ -1172,6 +1194,14 @@ export default function OrdersPage() {
                             </DropdownMenuItem>
                           </>
                         )}
+                        {isAdminOrOwner && activeTab === "incomplete" && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setOrderToDelete(order)}>
+                              <Trash2 className="mr-2 h-4 w-4" /> Delete order
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -1185,6 +1215,30 @@ export default function OrdersPage() {
       </div>
 
       {/* Extracted dialog components */}
+      {/* ── Delete confirmation dialog ── */}
+      <Dialog open={!!orderToDelete} onOpenChange={(open) => { if (!open) setOrderToDelete(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Order</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to permanently delete order <strong>#{orderToDelete?.orderNumber}</strong>? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setOrderToDelete(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (orderToDelete) handleDeleteOrder(orderToDelete.id)
+                setOrderToDelete(null)
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ReassignDialog
         reassignOrderId={reassignOrderId}
         orderList={orderList}

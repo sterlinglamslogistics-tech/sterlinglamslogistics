@@ -27,13 +27,23 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.admin == true;
     }
 
+    // Matches the role claim set by set-admin-claim.mjs / admin SDK
+    function hasRole(r) {
+      return isSignedIn() && request.auth.token.role == r;
+    }
+
+    function isAdminOrOwner() {
+      return isAdmin() || hasRole("admin") || hasRole("owner");
+    }
+
     // ── Orders ────────────────────────────────────────────────────────────────
     // Customer tracking page now uses /api/track/[tracking] (server-side admin
     // SDK) so unauthenticated clients no longer need direct Firestore access.
     // Admin dashboard reads are authenticated via Firebase Auth + admin claim.
     match /orders/{orderId} {
       allow read: if isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if isAdminOrOwner();
     }
 
     // ── Drivers ───────────────────────────────────────────────────────────────
