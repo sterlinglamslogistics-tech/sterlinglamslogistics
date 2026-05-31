@@ -1345,6 +1345,7 @@ export default function OrdersPage() {
             </Button>
           </div>
         </div>
+      )}
 
       <div>
         {visibleOrders.length === 0 ? (

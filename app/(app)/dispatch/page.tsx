@@ -706,7 +706,8 @@ export default function DispatchPage() {
                   {/* pickup → delivery timeline */}
                   <OrderTimeline order={order} />
                 </div>
-              )})}
+                )
+              })
             )}
           </div>
         </div>
