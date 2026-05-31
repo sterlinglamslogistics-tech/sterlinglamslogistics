@@ -526,7 +526,7 @@ export default function DriversPage() {
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="font-medium text-foreground">{driver.name}</span>
-                            {lowRating && <AlertTriangle className="size-3.5 text-warning" title="Low avg rating" />}
+                            {lowRating && <AlertTriangle className="size-3.5 text-warning" aria-label="Low avg rating" />}
                           </div>
                           {driver.area && <p className="text-[11px] text-muted-foreground">{driver.area}</p>}
                         </div>
