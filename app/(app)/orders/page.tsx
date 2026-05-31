@@ -44,7 +44,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, ArrowUpDown, ArrowUp, ArrowDown, Search, Upload } from "lucide-react"
+import { Plus, Edit, MoreHorizontal, Printer, Trash2, Send, UserPlus, MapPin, FileText, Barcode, Ban, UserPlus2, ArrowUpDown, ArrowUp, ArrowDown, Search, Upload, Download, Star, Clock, Copy, CheckCircle2, XCircle, ChevronLeft, ChevronRight } from "lucide-react"
+import { format, formatDistanceToNow } from "date-fns"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -120,6 +121,13 @@ export default function OrdersPage() {
   const [bulkDriverId, setBulkDriverId] = useState<string>(UNASSIGNED_DRIVER)
   const [reassignOrderId, setReassignOrderId] = useState<string | null>(null)
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null)
+
+  // New filter/pagination state
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [driverFilter, setDriverFilter] = useState<string>("all")
+  const [paymentFilter, setPaymentFilter] = useState<string>("all")
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 25
 
   const { role } = useAuth()
   const isAdminOrOwner = role === "admin" || role === "owner"
@@ -589,17 +597,23 @@ export default function OrdersPage() {
           ? incompleteOrders
           : historyResults ?? historyOrders
 
-  const visibleOrders = activeTab === "history"
-    ? baseVisibleOrders
-    : searchQuery.trim() === ""
+  const visibleOrders = (() => {
+    let list = activeTab === "history"
       ? baseVisibleOrders
-      : baseVisibleOrders.filter((o) => {
-          const q = searchQuery.trim().toLowerCase()
-          return (
-            (o.customerName ?? "").toLowerCase().includes(q) ||
-            (o.orderNumber ?? "").toLowerCase().includes(q)
-          )
-        })
+      : searchQuery.trim() === ""
+        ? baseVisibleOrders
+        : baseVisibleOrders.filter((o) => {
+            const q = searchQuery.trim().toLowerCase()
+            return (
+              (o.customerName ?? "").toLowerCase().includes(q) ||
+              (o.orderNumber ?? "").toLowerCase().includes(q)
+            )
+          })
+    if (statusFilter !== "all") list = list.filter((o) => o.status === statusFilter)
+    if (driverFilter !== "all") list = list.filter((o) => (o.assignedDriver ?? "none") === driverFilter)
+    if (paymentFilter !== "all") list = list.filter((o) => (o.paymentMethod ?? "") === paymentFilter)
+    return list
+  })()
 
   function toggleSort(col: string) {
     if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc")
@@ -655,6 +669,8 @@ export default function OrdersPage() {
 
   const visibleOrderIds = sortedOrders.map((o) => o.id)
   const selectedVisibleCount = visibleOrderIds.filter((id) => selectedOrderIds.includes(id)).length
+  const totalPages = Math.max(1, Math.ceil(sortedOrders.length / PAGE_SIZE))
+  const paginatedOrders = sortedOrders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const allVisibleSelected = visibleOrderIds.length > 0 && selectedVisibleCount === visibleOrderIds.length
   const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected
 
@@ -738,6 +754,125 @@ export default function OrdersPage() {
       return
     }
     toast({ title: "ETA sent", description: `ETA sent for ${selectedOrderIds.length} orders.` })
+  }
+
+  // ── Helpers ──
+  function timeAgo(value: unknown): string {
+    if (!value) return ""
+    let date: Date
+    if (typeof value === "object" && value !== null && "seconds" in value) {
+      date = new Date((value as { seconds: number }).seconds * 1000)
+    } else if (value instanceof Date) {
+      date = value
+    } else {
+      date = new Date(value as string | number)
+    }
+    return formatDistanceToNow(date, { addSuffix: true })
+  }
+
+  function exportOrdersCSV(orders: Order[]) {
+    const rows = [
+      ["Order #", "Customer", "Phone", "Address", "Amount", "Status", "Driver", "Payment", "Distance (km)", "Created At", "Delivered At", "Rating"],
+      ...orders.map((o) => {
+        const driver = o.assignedDriver ? allDrivers.find((d) => d.id === o.assignedDriver)?.name ?? "" : ""
+        const createdAt = o.createdAt
+          ? typeof o.createdAt === "object" && "seconds" in (o.createdAt as object)
+            ? format(new Date((o.createdAt as { seconds: number }).seconds * 1000), "yyyy-MM-dd HH:mm")
+            : format(new Date(o.createdAt as string | number), "yyyy-MM-dd HH:mm")
+          : ""
+        const deliveredAt = o.deliveredAt
+          ? typeof o.deliveredAt === "object" && "seconds" in (o.deliveredAt as object)
+            ? format(new Date((o.deliveredAt as { seconds: number }).seconds * 1000), "yyyy-MM-dd HH:mm")
+            : format(new Date(o.deliveredAt as string | number), "yyyy-MM-dd HH:mm")
+          : ""
+        return [
+          o.orderNumber, o.customerName, o.phone,
+          `"${(o.address ?? "").replace(/"/g, '""')}"`,
+          o.amount ?? 0, o.status, driver,
+          o.paymentMethod ?? "", o.distanceKm ?? "",
+          createdAt, deliveredAt, o.customerRating ?? "",
+        ]
+      }),
+    ]
+    const csv = rows.map((r) => r.join(",")).join("\n")
+    const blob = new Blob([csv], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `orders-${format(new Date(), "yyyy-MM-dd")}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleDuplicateOrder(order: Order) {
+    setEditingOrder(null)
+    form.reset({
+      orderNumber: "",
+      pickupName: order.pickupName ?? "Sterlin Glams",
+      pickupPhone: order.pickupPhone ?? "+234 9160009893",
+      pickupAddress: order.pickupAddress ?? "Sterlin Glams – Ikota Ajah Lagos",
+      pickupTime: order.pickupTime ?? "",
+      customerName: order.customerName,
+      phone: order.phone,
+      customerEmail: order.customerEmail ?? "",
+      address: order.address,
+      deliveryDate: new Date().toISOString().split("T")[0],
+      deliveryTime: order.deliveryTime ?? "",
+      items: order.items?.length ? order.items.map((i) => ({ name: i.name, price: i.price ?? 0, qty: i.qty ?? 1, meta: i.meta ?? "" })) : [{ name: "", price: 0, qty: 1, meta: "" }],
+      taxRate: order.taxRate ?? 0,
+      deliveryFees: order.deliveryFees ?? 0,
+      deliveryTips: order.deliveryTips ?? 0,
+      discount: order.discount ?? 0,
+      deliveryInstruction: order.deliveryInstruction ?? "",
+      paymentMethod: order.paymentMethod ?? "",
+      assignedDriver: UNASSIGNED_DRIVER,
+    })
+    setAddressSuggestions([])
+    setAddressPreviewCoord(null)
+    setIsDialogOpen(true)
+  }
+
+  async function handleMarkStatus(order: Order, status: "delivered" | "failed") {
+    if (!window.confirm(`Mark order ${order.orderNumber} as ${status}?`)) return
+    try {
+      setIsSaving(true)
+      const updates: Partial<Order> = { status }
+      if (status === "delivered") updates.deliveredAt = new Date()
+      await updateOrder(order.id, updates)
+      logActivity({ action: "order.status_changed", resourceId: order.orderNumber, details: { status } })
+      setOrderList((prev) => prev.map((o) => o.id === order.id ? { ...o, ...updates } : o))
+      toast({ title: `Order marked as ${status}` })
+    } catch {
+      toast({ title: "Failed to update status", variant: "destructive" })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleBulkCancel() {
+    if (selectedOrderIds.length === 0) { toast({ title: "Select orders first" }); return }
+    if (!window.confirm(`Cancel ${selectedOrderIds.length} selected orders?`)) return
+    try {
+      setIsSaving(true)
+      await Promise.all(selectedOrderIds.map((id) => updateOrder(id, { status: "cancelled", assignedDriver: null })))
+      setOrderList((prev) => prev.map((o) => selectedOrderIds.includes(o.id) ? { ...o, status: "cancelled", assignedDriver: null } : o))
+      setSelectedOrderIds([])
+      toast({ title: "Orders cancelled", description: `${selectedOrderIds.length} orders cancelled.` })
+    } catch {
+      toast({ title: "Failed to cancel orders", variant: "destructive" })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  function isOverdue(order: Order): boolean {
+    if (!["started", "picked-up", "in-transit"].includes(order.status)) return false
+    const started = order.startedAt
+    if (!started) return false
+    const ms = typeof started === "object" && "seconds" in (started as object)
+      ? (started as { seconds: number }).seconds * 1000
+      : new Date(started as string | number).getTime()
+    return Date.now() - ms > 3 * 60 * 60 * 1000
   }
 
   async function handleCancelOrder(order: Order) {
@@ -924,7 +1059,8 @@ export default function OrdersPage() {
               className="pl-8 w-56 h-9"
               placeholder="Search name or order no…"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setPage(1) }}
+              onKeyDown={(e) => e.key === "Escape" && setSearchQuery("")}
             />
           </div>
           <input ref={csvInputRef} type="file" accept=".csv" className="hidden" onChange={handleCsvUpload} />
@@ -1001,7 +1137,7 @@ export default function OrdersPage() {
           {(["current", "completed", "incomplete", "history"] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => { setActiveTab(tab); setSearchQuery(""); setHistoryResults(null) }}
+              onClick={() => { setActiveTab(tab); setSearchQuery(""); setHistoryResults(null); setStatusFilter("all"); setDriverFilter("all"); setPaymentFilter("all"); setPage(1) }}
               className={`border-b-2 pb-3 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? "border-primary text-primary"
@@ -1009,19 +1145,37 @@ export default function OrdersPage() {
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              {tab === "current" && (
+              {tab === "current" && currentOrders.length > 0 && (
                 <span className="ml-1.5 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{currentOrders.length}</span>
+              )}
+              {tab === "completed" && completedOrders.length > 0 && (
+                <span className="ml-1.5 rounded-full bg-success/20 px-2 py-0.5 text-xs text-success">{completedOrders.length}</span>
+              )}
+              {tab === "incomplete" && incompleteOrders.length > 0 && (
+                <span className="ml-1.5 rounded-full bg-destructive/20 px-2 py-0.5 text-xs text-destructive">{incompleteOrders.length}</span>
+              )}
+              {tab === "history" && (
+                <span className="ml-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{historyOrders.length}</span>
               )}
             </button>
           ))}
         </div>
         {activeTab === "current" && (
-          <div className="flex items-center gap-1.5 pb-2">
+          <div className="flex items-center gap-1 pb-2">
+            {selectedOrderIds.length > 0 && (
+              <span className="mr-1 text-xs text-muted-foreground">{selectedOrderIds.length} selected</span>
+            )}
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={openBulkAssignDialog} disabled={selectedOrderIds.length === 0 || isSaving} title="Assign Orders">
               <UserPlus className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBulkSendEta} disabled={selectedOrderIds.length === 0 || isSaving} title="Send ETA">
               <Send className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleBulkCancel} disabled={selectedOrderIds.length === 0 || isSaving} title="Cancel selected">
+              <XCircle className="h-4 w-4 text-warning" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => exportOrdersCSV(orderList.filter((o) => selectedOrderIds.includes(o.id)))} disabled={selectedOrderIds.length === 0} title="Export selected as CSV">
+              <Download className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.print()} disabled={selectedOrderIds.length === 0} title="Print">
               <Printer className="h-4 w-4" />
@@ -1036,6 +1190,69 @@ export default function OrdersPage() {
       <p className="-mt-2 text-sm text-muted-foreground">Manage and track all delivery orders</p>
       {error && <p className="text-sm text-destructive">{error}</p>}
 
+      {/* ── Filter strip ── */}
+      {activeTab !== "history" && (
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Status chips */}
+          {activeTab === "current" && (
+            <div className="flex flex-wrap gap-1">
+              {(["all", "unassigned", "started", "picked-up", "in-transit"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => { setStatusFilter(s); setPage(1) }}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    statusFilter === s
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/70"
+                  }`}
+                >
+                  {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1).replace("-", " ")}
+                  <span className="ml-1 opacity-70">
+                    {s === "all" ? `(${currentOrders.length})` : `(${currentOrders.filter((o) => o.status === s).length})`}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Driver filter */}
+          {activeTab === "current" && allDrivers.length > 0 && (
+            <select
+              value={driverFilter}
+              onChange={(e) => { setDriverFilter(e.target.value); setPage(1) }}
+              className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="all">All drivers</option>
+              <option value="none">Unassigned</option>
+              {allDrivers.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Payment filter */}
+          {(() => {
+            const methods = [...new Set(visibleOrders.map((o) => o.paymentMethod ?? "").filter(Boolean))]
+            if (!methods.length) return null
+            return (
+              <select
+                value={paymentFilter}
+                onChange={(e) => { setPaymentFilter(e.target.value); setPage(1) }}
+                className="h-8 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="all">All payments</option>
+                {methods.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )
+          })()}
+
+          {/* Export all visible */}
+          <Button variant="outline" size="sm" className="ml-auto h-8 text-xs" onClick={() => exportOrdersCSV(visibleOrders)}>
+            <Download className="mr-1.5 h-3.5 w-3.5" />Export
+          </Button>
+        </div>
+      )}
+
       <div>
         {visibleOrders.length === 0 ? (
           <div className="flex h-32 items-center justify-center">
@@ -1044,7 +1261,7 @@ export default function OrdersPage() {
         ) : (
           <div className="overflow-x-auto">
           <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-background">
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-10 px-2">
                 <Checkbox
@@ -1063,12 +1280,13 @@ export default function OrdersPage() {
               <SortHead col="driver" label="Driver" className="w-36" />
               {activeTab === "current" && <TableHead className="w-16">Track</TableHead>}
               {(activeTab === "completed" || activeTab === "history") && <TableHead className="w-28">Delivery Time</TableHead>}
+              {activeTab === "completed" && <TableHead className="w-20">Rating</TableHead>}
               {activeTab !== "completed" && activeTab !== "history" && <TableHead className="w-10"></TableHead>}
               {activeTab === "history" && isAdminOrOwner && <TableHead className="w-10"></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedOrders.map((order) => (
+            {paginatedOrders.map((order) => (
               <TableRow key={order.id} className="text-sm">
                 <TableCell className="px-2">
                   <Checkbox
@@ -1093,9 +1311,21 @@ export default function OrdersPage() {
                   {formatCurrency(order.amount)}
                 </TableCell>
                 <TableCell className="text-muted-foreground whitespace-nowrap">{formatDistance(order.distanceKm)}</TableCell>
-                <TableCell className="text-muted-foreground whitespace-nowrap">{formatOrderTime(order.createdAt)}</TableCell>
+                <TableCell className="text-muted-foreground whitespace-nowrap">
+                  {formatOrderTime(order.createdAt)}
+                  {order.status === "unassigned" && (
+                    <span className="block text-[10px] text-muted-foreground/60">{timeAgo(order.createdAt)}</span>
+                  )}
+                </TableCell>
                 <TableCell>
-                  <StatusBadge status={order.status} />
+                  <div className="flex flex-wrap items-center gap-1">
+                    <StatusBadge status={order.status} />
+                    {isOverdue(order) && (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+                        <Clock className="size-2.5" />Overdue
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   {order.assignedDriver ? (
@@ -1144,6 +1374,18 @@ export default function OrdersPage() {
                 {(activeTab === "completed" || activeTab === "history") && (
                   <TableCell className="text-muted-foreground whitespace-nowrap">{formatOrderTime(order.deliveredAt)}</TableCell>
                 )}
+                {activeTab === "completed" && (
+                  <TableCell>
+                    {order.customerRating ? (
+                      <span className="flex items-center gap-0.5 text-xs">
+                        <Star className="size-3 fill-yellow-400 text-yellow-400" />
+                        <span className="font-medium">{order.customerRating}</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/40">—</span>
+                    )}
+                  </TableCell>
+                )}
                 {activeTab === "history" && isAdminOrOwner && (
                   <TableCell className="px-1">
                     <DropdownMenu>
@@ -1186,6 +1428,21 @@ export default function OrdersPage() {
                         <DropdownMenuItem onClick={() => handlePrintLabel(order)}>
                           <Barcode className="mr-2 h-4 w-4" /> Print label
                         </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleDuplicateOrder(order)}>
+                          <Copy className="mr-2 h-4 w-4" /> Duplicate order
+                        </DropdownMenuItem>
+                        {isAdminOrOwner && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => handleMarkStatus(order, "delivered")}>
+                              <CheckCircle2 className="mr-2 h-4 w-4 text-success" /> Mark as delivered
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleMarkStatus(order, "failed")}>
+                              <XCircle className="mr-2 h-4 w-4 text-destructive" /> Mark as failed
+                            </DropdownMenuItem>
+                          </>
+                        )}
                         {order.assignedDriver && (
                           <>
                             <DropdownMenuSeparator />
@@ -1211,6 +1468,30 @@ export default function OrdersPage() {
           </TableBody>
         </Table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="mt-3 flex items-center justify-between px-1">
+            <p className="text-xs text-muted-foreground">
+              Showing {Math.min((page - 1) * PAGE_SIZE + 1, sortedOrders.length)}–{Math.min(page * PAGE_SIZE, sortedOrders.length)} of {sortedOrders.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="icon" className="h-7 w-7" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1).reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                if (idx > 0 && (arr[idx - 1] as number) < p - 1) acc.push("…")
+                acc.push(p)
+                return acc
+              }, []).map((p, i) =>
+                p === "…" ? <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">…</span>
+                : <button key={p} onClick={() => setPage(p)} className={`flex h-7 w-7 items-center justify-center rounded-md text-xs font-medium ${ page === p ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>{p}</button>
+              )}
+              <Button variant="outline" size="icon" className="h-7 w-7" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 
