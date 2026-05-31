@@ -839,7 +839,7 @@ function ProfileBody({ driver, orders }: { driver: Driver; orders: Order[] }) {
                         {o.deliveredAt ? format(new Date(toMsLocal(o.deliveredAt)), "MMM d, yyyy") : ""}
                       </span>
                     </div>
-                    {o.customerComment && <p className="mt-1.5 text-sm text-foreground">{o.customerComment}</p>}
+                    {o.customerFeedback && <p className="mt-1.5 text-sm text-foreground">{o.customerFeedback}</p>}
                     <p className="mt-1 text-[11px] text-muted-foreground">Order #{o.orderNumber} · {o.customerName}</p>
                   </div>
                 ))}
