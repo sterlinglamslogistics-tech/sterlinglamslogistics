@@ -314,7 +314,7 @@ function buildStats(orders: Order[], drivers: Driver[], avgMins: number | null) 
     },
     {
       title: "Active Drivers",
-      value: drivers.filter((d) => d.status === "available" || d.status === "busy").length,
+      value: drivers.filter((d) => d.status === "available" || d.status === "on-delivery").length,
       icon: Users,
       color: "text-primary",
       bgColor: "bg-primary/10",
