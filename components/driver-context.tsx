@@ -1,34 +1,6 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react"
-
-// Capacitor background geolocation plugin — accessed via the native bridge when
-// running inside the driver-mobile APK. Not available in regular browsers.
-declare global {
-  interface Window {
-    Capacitor?: {
-      isNativePlatform: () => boolean
-      Plugins?: {
-        BackgroundGeolocation?: {
-          addWatcher: (
-            options: {
-              backgroundMessage?: string
-              backgroundTitle?: string
-              requestPermissions?: boolean
-              stale?: boolean
-              distanceFilter?: number
-            },
-            callback: (
-              location: { latitude: number; longitude: number; accuracy: number; speed: number | null; bearing: number | null } | null,
-              error: { code: string; message: string } | null
-            ) => void
-          ) => Promise<string>
-          removeWatcher: (options: { id: string }) => Promise<void>
-        }
-      }
-    }
-  }
-}
 import { useRouter } from "next/navigation"
 import { optimizeRouteOrder } from "@/lib/google-maps"
 import type { Driver, Order } from "@/lib/data"
@@ -90,7 +62,6 @@ export function DriverProvider({ children }: { children: ReactNode }) {
   const [gpsError, setGpsError] = useState(false)
   const [pendingDeliveryCount, setPendingDeliveryCount] = useState(0)
   const watchIdRef = useRef<number | null>(null)
-  const bgWatcherRef = useRef<string | null>(null)
   const lastGpsWriteRef = useRef<number>(0)
   const isRetryingRef = useRef(false)
 
@@ -134,89 +105,18 @@ export function DriverProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; window.clearInterval(id) }
   }, [session])
 
-  // GPS tracking when online.
-  // Uses the Capacitor background-geolocation plugin when running inside the
-  // driver-mobile APK so tracking continues when the driver minimises the app.
-  // Falls back to the standard browser watchPosition API in regular browsers.
+  // GPS tracking when online
   useEffect(() => {
     if (!session || !isOnline) return
-
-    const sessionId = session.id
-
-    async function sendLocation(lat: number, lng: number) {
-      const now = Date.now()
-      if (now - lastGpsWriteRef.current < 5000) return
-      lastGpsWriteRef.current = now
-      try {
-        await driverFetch("/api/driver/location", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ driverId: sessionId, lat, lng }),
-        })
-      } catch { /* best-effort */ }
-    }
-
-    const bgPlugin =
-      typeof window !== "undefined" &&
-      window.Capacitor?.isNativePlatform?.() &&
-      window.Capacitor.Plugins?.BackgroundGeolocation
-
-    if (bgPlugin) {
-      // Running inside the Capacitor APK — use the native background-geolocation
-      // plugin which starts an Android foreground service so GPS keeps running
-      // even when the driver switches to another app.
-      bgPlugin
-        .addWatcher(
-          {
-            backgroundMessage: "Location tracking active",
-            backgroundTitle: "Sterlin Driver",
-            requestPermissions: true,
-            stale: false,
-            distanceFilter: 10,
-          },
-          (location, error) => {
-            if (error) {
-              setGpsError(true)
-              if (error.code === "NOT_AUTHORIZED") {
-                toast({
-                  title: "Location access denied",
-                  description:
-                    "Go to Settings → App Permissions → Location and set it to 'Allow all the time' so the app can track your delivery when minimised.",
-                  variant: "destructive",
-                })
-              }
-              return
-            }
-            if (!location) return
-            const coords = { lat: location.latitude, lng: location.longitude }
-            setLiveGps(coords)
-            setGpsError(false)
-            void sendLocation(coords.lat, coords.lng)
-          }
-        )
-        .then((id) => {
-          bgWatcherRef.current = id
-        })
-        .catch(() => {
-          setGpsError(true)
-        })
-
-      return () => {
-        if (bgWatcherRef.current) {
-          void bgPlugin.removeWatcher({ id: bgWatcherRef.current })
-          bgWatcherRef.current = null
-        }
-      }
-    }
-
-    // Browser fallback — watchPosition stops when the tab is hidden, but this
-    // path is only reached outside the Capacitor APK (e.g. direct web access).
     if (!navigator.geolocation) {
       toast({ title: "Location unavailable", description: "Your device does not support GPS.", variant: "destructive" })
       return
     }
     if (watchIdRef.current !== null) return
 
+    const sessionId = session.id
+
+    // Get an immediate position fix so the map shows the driver right away
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
@@ -243,7 +143,18 @@ export function DriverProvider({ children }: { children: ReactNode }) {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         setLiveGps(coords)
         setGpsError(false)
-        void sendLocation(coords.lat, coords.lng)
+
+        // Throttle writes — at most once every 5 seconds
+        const now = Date.now()
+        if (now - lastGpsWriteRef.current < 5000) return
+        lastGpsWriteRef.current = now
+        try {
+          await driverFetch("/api/driver/location", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ driverId: sessionId, lat: coords.lat, lng: coords.lng }),
+          })
+        } catch { /* best-effort */ }
       },
       (err) => {
         setGpsError(true)
