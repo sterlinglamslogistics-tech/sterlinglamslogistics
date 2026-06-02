@@ -34,12 +34,6 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
 
-        <!-- Background geolocation foreground service (keeps GPS alive when app is minimized) -->
-        <service
-            android:name="com.marianhello.bgloc.BackgroundGeolocationService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="location" />
     </application>
 
     <!-- Permissions -->
@@ -53,6 +47,8 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Required on Android 13+ to show the foreground service notification -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Camera — proof-of-delivery photos -->
     <uses-permission android:name="android.permission.CAMERA" />
